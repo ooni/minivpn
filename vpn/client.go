@@ -1,204 +1,82 @@
 package vpn
 
 import (
-	"bytes"
-	"crypto/rand"
-	"crypto/tls"
 	"encoding/binary"
 	"log"
 	"net"
 	"time"
 )
 
-func genRandomBytes(size int) (b []byte, err error) {
-	b = make([]byte, size)
-	_, err = rand.Read(b)
-	if err != nil {
-		return b, err
-	}
-	return b, err
-}
-
-// XXX the idea with this wrapper is to have the TLS Handshake sending its Client HELLO
-// payload as part of one openvpn CONTROL_V1 packet
-
-type controlWrapper struct {
-	control *controlCh
-}
-
-func (cw controlWrapper) Write(b []byte) (n int, err error) {
-	return cw.control.sendControlV1(b)
-}
-
-func (cw controlWrapper) Read(b []byte) (int, error) {
-	return cw.control.conn.Read(b)
-}
-
-func (cw controlWrapper) LocalAddr() net.Addr {
-	return cw.control.conn.LocalAddr()
-}
-
-func (cw controlWrapper) RemoteAddr() net.Addr {
-	return cw.control.conn.RemoteAddr()
-}
-
-func (cw controlWrapper) SetDeadline(t time.Time) error {
-	return cw.control.conn.SetDeadline(t)
-}
-
-func (cw controlWrapper) SetReadDeadline(t time.Time) error {
-	return cw.control.conn.SetReadDeadline(t)
-}
-
-func (cw controlWrapper) SetWriteDeadline(t time.Time) error {
-	return cw.control.conn.SetWriteDeadline(t)
-}
-
-func (cw controlWrapper) Close() error {
-	return cw.control.conn.Close()
-}
-
-// control_channel.go --------------------
-type controlCh struct {
-	RemoteID  []byte
-	SessionID []byte
-	localPID  uint32
-	tls       net.Conn // do not use, replace
-	conn      net.Conn
-}
-
-func (c *controlCh) initSession() error {
-	b, err := genRandomBytes(8)
-	if err != nil {
-		return err
-	}
-	c.SessionID = b
-	log.Printf("Local session ID: %x\n", string(c.SessionID))
-	return nil
-}
-
-func (c *controlCh) sendHardReset() {
-	log.Printf("Sending HARD_RESET %08x ...\n", c.localPID)
-	c.sendControl(P_CONTROL_HARD_RESET_CLIENT_V2, 0, []byte(""))
-}
-
-func (c *controlCh) readHardReset(d []byte) int {
-	log.Printf(">>> got data: %08x\n", d)
-	if d[0] != 0x40 {
-		log.Fatal("Not a hard reset response packet")
-	}
-	if len(c.RemoteID) != 0 {
-		if !areBytesEqual(c.RemoteID[:], d[1:9]) {
-			log.Printf("Offending session id: %08x\n", d[1:9])
-			log.Fatal("Invalid remote session ID!")
-		}
-	} else {
-		c.RemoteID = d[1:9]
-		log.Printf("Learned Remote Session id: %x\n", c.RemoteID)
-	}
-	log.Println("len(ack)", d[9]) // zero-length ack for now, need to parse 10:... if sthing
-	return 0
-}
-
-func (c *controlCh) sendControlV1(data []byte) (n int, err error) {
-	log.Printf("Sending CONTROL_V1 %08x (with %d bytes)...",
-		c.localPID, len(data))
-	return c.sendControl(P_CONTROL_V1, 0, data)
-}
-
-func (c *controlCh) sendControl(opcode int, ack int, payload []byte) (n int, err error) {
-	p := make([]byte, 1)
-	p[0] = byte(opcode << 3)
-	p = append(p, c.SessionID...)
-	// XXX if ack...
-	pid := make([]byte, 4)
-	binary.BigEndian.PutUint32(pid, c.localPID)
-	p = append(p, pid...)
-	c.localPID += 1
-	if len(payload) != 0 {
-		p = append(p, payload...)
-	}
-	log.Printf("%08x\n", p)
-	return c.conn.Write(p)
-}
-
-func (c *controlCh) initTLS() {
-	log.Println("Initializing TLS context...")
-	tlsConf := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		//ServerName: "1.1.1.1",
-		InsecureSkipVerify: true,
-		CipherSuites: []uint16{
-			tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-		},
-	}
-	udp := controlWrapper{c}
-	tlsConn := tls.Client(udp, tlsConf)
-	if err := tlsConn.Handshake(); err != nil {
-		log.Fatal(err)
-	}
-	c.tls = net.Conn(tlsConn)
-}
-
-// --------------------------------------
-// data_channel.go
-type dataCh struct{}
-
-// --------------------------------------
-
 type Client struct {
-	Host    string
-	Port    string
-	Proto   string
-	running bool
-	initSt  int
-	con     net.Conn
-	ctrl    *controlCh
-	data    *dataCh
+	Host         string
+	Port         string
+	Proto        string
+	localKeySrc  *keySource
+	remoteKeySrc *keySource
+	running      bool
+	initSt       int
+	con          net.Conn
+	ctrl         *control
+	data         *data
 }
 
 func (c *Client) Run() {
-	// -------------------------------------------------------------
-	// Phase 1: stablishing contact
+	c.localKeySrc = newKeySource()
 	log.Printf("Connecting to %s:%s UDP...\n", c.Host, c.Port)
-	// 1. open DGRAM socket
 	conn, err := net.Dial(c.Proto, c.Host+":"+c.Port)
 	checkError(err)
 	c.con = conn
-	// 2. init controlChannel
-	c.ctrl = &controlCh{conn: conn}
+	c.ctrl = newControl(conn, c.localKeySrc)
 	log.Println("Control Channel created")
 	c.ctrl.initSession()
-	// 3. init dataChannel
-	c.data = &dataCh{}
-	// 4. hard reset (waits for ack, get id)
+	c.data = newData(c.localKeySrc, c.remoteKeySrc)
 	c.ctrl.sendHardReset()
-	// ------------------------------------------------------------
-	// XXX hardcoding 0 for now
 	id := c.ctrl.readHardReset(c.recv(0))
 	c.sendAck(uint32(id))
-	// -------------------------------------------------------------
-	// 5. init TLS
-	c.ctrl.initTLS()
-	// 6. socket noblock, needed in Go?
-	// 7. sending HELLO
-	// log.Println("Sending hello...")
-	// ??. handshake don
-	//log.Println("Handshake finished!")
-	// state = ST_CONTROL_CHANNEL_OPEN
+	go func() {
+		c.handleIncoming()
+
+	}()
+	for {
+		if c.ctrl.initTLS() {
+			break
+		}
+	}
 	c.running = true
 	c.initSt = ST_CONTROL_CHANNEL_OPEN
-	// select instead?
-	/*
-		while (c.running) {
-		    // check initSt etc
-		    c.ctrl.sendControlMessage()
-		    c.ctrl.sendPushRequest()
-		    c.data.setup()
-		    // how to do this, just fp?
-		    c.callback()
+	log.Println("Entering main loop")
+
+	go func() {
+		// just to debug, this should get a signal on a channel from a SIGINT etc
+		time.Sleep(10 * time.Second)
+		c.stop()
+	}()
+
+	for {
+		if !c.running {
+			break
 		}
-	*/
+		if c.initSt == ST_CONTROL_CHANNEL_OPEN {
+			log.Println("Control channel open, sending auth...")
+			c.ctrl.sendControlMessage()
+			c.initSt = ST_CONTROL_MESSAGE_SENT
+			c.handleTLSIncoming()
+		} else if c.initSt == ST_KEY_EXCHANGED {
+			log.Println("Key exchange complete, pulling config...")
+			c.ctrl.sendPushRequest()
+			c.initSt = ST_PULL_REQUEST_SENT
+			c.handleTLSIncoming()
+		} else if c.initSt == ST_OPTIONS_PUSHED {
+			c.data.initializeSession(c.ctrl)
+			c.data.setup()
+			log.Println("Initialization complete")
+			c.initSt = ST_INITIALIZED
+		} else if c.initSt == ST_INITIALIZED {
+			log.Println("==> now can ping...")
+			break
+		}
+	}
+	log.Println("bye!")
 }
 
 func (c *Client) sendAck(ackPid uint32) {
@@ -221,7 +99,49 @@ func (c *Client) handleIncoming() {
 	data := c.recv(4096)
 	op := data[0] >> 3
 	if op == byte(P_ACK_V1) {
-		log.Println("Received ACK")
+		log.Println("DEBUG Received ACK in main loop")
+	}
+	if isControlOpcode(op) {
+		log.Println("control QUEUE")
+		c.ctrl.queue <- data
+	} else if isDataOpcode(op) {
+		log.Println("data QUEUE")
+		c.data.queue <- data
+	}
+}
+
+func (c *Client) onKeyExchanged() {
+	c.initSt = ST_KEY_EXCHANGED
+}
+
+// I don't think I want to do anything with the pushed options for now
+// but it can be useful to parse them into a map, at least to know that
+// we've reached this stage
+func (c *Client) onPush(data []byte) {
+	log.Println("==> server pushed options:")
+	c.initSt = ST_OPTIONS_PUSHED
+	log.Println(string(data[:len(data)-1]))
+}
+
+func (c *Client) handleTLSIncoming() {
+	var recv = make([]byte, 4096)
+	var n, _ = c.ctrl.tls.Read(recv)
+	data := recv[:n]
+	if areBytesEqual(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
+		remoteKey := c.ctrl.readControlMessage(data)
+		// XXX update only one pointer
+		c.remoteKeySrc = remoteKey
+		c.data.remoteKeySource = remoteKey
+		c.onKeyExchanged()
+	} else {
+		rpl := []byte("PUSH_REPLY")
+		if areBytesEqual(data[:len(rpl)], rpl) {
+			c.onPush(data)
+		}
+		badauth := []byte("AUTH_FAILED")
+		if areBytesEqual(data[:len(badauth)], badauth) {
+			log.Fatal("Auth failed")
+		}
 	}
 }
 
@@ -242,8 +162,4 @@ func checkError(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func areBytesEqual(s1, s2 []byte) bool {
-	return 0 == bytes.Compare(s1, s2)
 }
