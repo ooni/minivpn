@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"hash"
 	"log"
+	"net"
 )
 
 func getPingData() []byte {
@@ -14,7 +15,7 @@ func getPingData() []byte {
 func newData(local, remote *keySource) *data {
 	q := make(chan []byte, 10)
 	// TODO use names instead
-	return &data{q, local, remote, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, 0, 0, nil, nil}
+	return &data{q, local, remote, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, 0, 0, nil, nil, nil}
 }
 
 type data struct {
@@ -29,6 +30,7 @@ type data struct {
 	hmacKeyRemote   []byte
 	localPacketId   uint32
 	remotePacketId  uint32
+	conn            net.Conn
 
 	cipher Cipher
 	// for now, just the sha1.New function
@@ -50,6 +52,7 @@ func (d *data) processIncoming() {
 func (d *data) initSession(c *control) {
 	d.remoteID = c.RemoteID
 	d.sessionID = c.SessionID
+	d.conn = c.conn
 	d.loadSettings()
 	go d.processIncoming()
 }
@@ -91,7 +94,7 @@ func (d *data) loadSettings() {
 func (d *data) encrypt(plaintext []byte) []byte {
 	bs := d.cipher.BlockSize()
 	padded := padText(plaintext, bs)
-	log.Println(padded)
+	//log.Println(padded)
 	if d.cipher.IsAEAD() {
 		log.Fatal("aead cipher not implemented")
 	}
@@ -110,7 +113,6 @@ func (d *data) encrypt(plaintext []byte) []byte {
 
 	payload := append(calcMAC, iv...)
 	payload = append(payload, ciphertext...)
-	log.Println(payload)
 	return payload
 }
 
@@ -153,27 +155,14 @@ func (d *data) decryptAEAD() {
 }
 
 func (d *data) send(payload []byte) {
-
 	d.localPacketId += 1
-	log.Println("sending", len(payload), "bytes...")
-
+	// log.Println("sending", len(payload), "bytes...")
 	packetId := make([]byte, 4)
 	binary.BigEndian.PutUint32(packetId, d.localPacketId)
 	plaintext := append(packetId, 0xfa) // no compression
 	plaintext = append(plaintext, payload...)
-	d._send(append([]byte{0x30}, d.encrypt(plaintext)...))
-
-	/*
-
-	   plaintext = bytes()
-	   plaintext += self.packet_id.to_bytes(4, 'big')
-	   plaintext += b'\xfa'  # no compression
-	   plaintext += payload
-	   self._send(b'\x30' + self.encrypt(plaintext))
-	*/
-}
-
-func (d *data) _send(payload []byte) {
+	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
+	d.conn.Write(buf)
 }
 
 func (d *data) handleIn(packet []byte) {
@@ -194,8 +183,7 @@ func (d *data) handleIn(packet []byte) {
 	}
 	payload := plaintext[5:]
 	if areBytesEqual(payload, getPingData()) {
-		log.Println("PING received...")
-		log.Println("(should reply)")
+		log.Println("Ping from server, replying...")
 		d.send(getPingData())
 		return
 	}
