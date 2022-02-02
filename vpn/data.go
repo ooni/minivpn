@@ -1,6 +1,8 @@
 package vpn
 
 import (
+	"crypto/hmac"
+	"encoding/binary"
 	"hash"
 	"log"
 )
@@ -11,7 +13,8 @@ func getPingData() []byte {
 
 func newData(local, remote *keySource) *data {
 	q := make(chan []byte, 10)
-	return &data{q, local, remote, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, nil, nil}
+	// TODO use names instead
+	return &data{q, local, remote, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, 0, nil, nil}
 }
 
 type data struct {
@@ -24,6 +27,7 @@ type data struct {
 	cipherKeyRemote []byte
 	hmacKeyLocal    []byte
 	hmacKeyRemote   []byte
+	packetId        uint32
 
 	cipher Cipher
 	// for now, just the sha1.New function
@@ -136,40 +140,27 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 	if len(encrypted) < 28 {
 		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
 	}
-	return nil
-	/*
-	   bs = self.cipher.BLOCK_SIZE
-	   hmac_ = data[: self.hmac.HASH_LENGTH]
-	   iv = data[self.hmac.HASH_LENGTH : self.hmac.HASH_LENGTH + bs]
-	   ciphertext = data[self.hmac.HASH_LENGTH + bs :]
+	// XXX hardcoded for sha1, should add to a hash interface when I make this selectable
+	hashLength := 20
+	bs := d.cipher.BlockSize()
+	recvMAC := encrypted[:hashLength]
+	iv := encrypted[hashLength : hashLength+bs]
+	cipherText := encrypted[hashLength+bs:]
 
-	   our_hmac = self.hmac.hash(self.hmac_key_remote, iv + ciphertext)
-	   if not hmac.compare_digest(our_hmac, hmac_):
-	       self.log.error(
-	           "cannot decrypt %d bytes: iv=%s hmac=%s local_hmac=%s",
-	           len(data),
-	           shex(iv),
-	           shex(hmac_),
-	           shex(our_hmac),
-	       )
-	       raise InvalidHMACError()
+	key := d.hmacKeyRemote[:hashLength]
+	mac := hmac.New(d.hmac, key)
+	mac.Write(append(iv, cipherText...))
+	calcMAC := mac.Sum(nil)
 
-	   plaintext = self.cipher.decrypt(self.cipher_key_remote, iv, ciphertext)
+	if !hmac.Equal(calcMAC, recvMAC) {
+		log.Fatal("Cannot decrypt!")
+	}
 
-	   # remove padding
-	   n = plaintext[-1]
-	   assert n < len(plaintext) and n <= bs, (n, len(plaintext), bs)
-	   plaintext = plaintext[:-n]
-
-	   self.log.debug(
-	       "decrypted %d bytes (%d pt bytes): iv=%s hmac=%s",
-	       len(ciphertext),
-	       len(plaintext),
-	       shex(iv),
-	       shex(hmac_),
-	   )
-	   return plaintext
-	*/
+	plainText, err := d.cipher.Decrypt(d.cipherKeyRemote, iv, cipherText)
+	if err != nil {
+		log.Fatal("Decryption error")
+	}
+	return plainText
 }
 
 func (d *data) decryptAEAD() {
@@ -177,25 +168,28 @@ func (d *data) decryptAEAD() {
 }
 
 func (d *data) handleIn(packet []byte) {
-	log.Println("RECEIVED DATA PACKET", len(packet))
 	if packet[0] != 0x30 {
 		log.Fatal("Wrong data header!")
 	}
 	data := packet[1:]
-	log.Printf("received %d raw data bytes\n", len(data))
-	log.Println("now should decrypt...")
+	plaintext := d.decrypt(data)
+	packetId := binary.BigEndian.Uint32(plaintext[:4])
+	if int(packetId) <= int(d.packetId) {
+		log.Fatal("Replay attack detected, aborting!")
+	}
+	d.packetId = packetId
+	compression := plaintext[4]
+	// http://build.openvpn.net/doxygen/html/comp_8h_source.html
+	if compression != 0xfa {
+		log.Fatal("no compression supported")
+	}
+	payload := plaintext[5:]
+	if areBytesEqual(payload, getPingData()) {
+		log.Println("PING received...")
+		log.Println("(should reply)")
+	}
 
 	/*
-	   plaintext = self.decrypt(data)
-
-	   packet_id = plaintext[:4]
-	   # FIXME do stuff with packet_id
-	   compression = plaintext[4]
-
-	   # http://build.openvpn.net/doxygen/html/comp_8h_source.html
-	   assert compression == 0xfa  # no compression
-
-	   payload = plaintext[5:]
 
 	   if payload == PING_DATA:
 	       self.log.debug("PING received, replied")

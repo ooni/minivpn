@@ -1,18 +1,19 @@
 package vpn
 
 import (
-	//"crypto/aes"
-	//"crypto/hmac"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha1"
 	"fmt"
 	"hash"
+	"log"
 )
 
 type Cipher interface {
 	BlockSize() int
 	IsAEAD() bool
-	Encrypt(key, iv, plaintext []byte) error
-	Decrypt(key, iv, ciphertext []byte) error
+	Encrypt(key, iv, plaintext []byte) ([]byte, error)
+	Decrypt(key, iv, ciphertext []byte) ([]byte, error)
 }
 
 type AESCipher struct {
@@ -28,27 +29,37 @@ func (c *AESCipher) IsAEAD() bool {
 	return false
 }
 
-func (c *AESCipher) Encrypt(key, iv, plaintext []byte) error {
-	return nil
+func (c *AESCipher) Decrypt(key, iv, ciphertext []byte) ([]byte, error) {
+	k := key[:c.BlockSize()]
+	var block cipher.Block
+	block, err := aes.NewCipher(k)
+	if err != nil {
+		return nil, err
+	}
+	var mode cipher.BlockMode
+	if c.mode != "cbc" {
+		log.Fatal("no other modes implemented now")
+	}
+	mode = cipher.NewCBCDecrypter(block, iv)
+	plaintext := make([]byte, len(ciphertext))
+	mode.CryptBlocks(plaintext, ciphertext)
+	plaintext = unpad(plaintext)
+	padLen := len(ciphertext) - len(plaintext)
+	if padLen > c.BlockSize() || padLen > len(plaintext) {
+		log.Fatal("Padding error")
+	}
+	return plaintext, nil
 }
 
-func (c *AESCipher) Decrypt(key, iv, ciphertext []byte) error {
-	return nil
+func (c *AESCipher) Encrypt(key, iv, plaintext []byte) ([]byte, error) {
+	/*
+	   cipher = Cipher(algorithms.AES(key[: self.keysize_bytes]), mode=modes.CBC(iv))
+	   encryptor = cipher.encryptor()
+	   return cipher.encrypt(plaintext)
+	*/
+
+	return nil, nil
 }
-
-// FIXME -- add tests for encryptor / decryptor
-
-/*
-   def encrypt(self, key, iv, plaintext):
-       cipher = Cipher(algorithms.AES(key[: self.keysize_bytes]), mode=modes.CBC(iv))
-       encryptor = cipher.encryptor()
-       return cipher.encrypt(plaintext)
-
-   def decrypt(self, key, iv, ciphertext):
-       cipher = Cipher(algorithms.AES(key[: self.keysize_bytes]), mode=modes.CBC(iv))
-       decryptor = cipher.decryptor()
-       return decryptor.decrypt(ciphertext)
-*/
 
 func newCipher(name string, bits int, mode string) (Cipher, error) {
 	if bits%8 != 0 || bits > 512 || bits < 64 {
@@ -76,4 +87,9 @@ func getHMAC(name string) func() hash.Hash {
 	default:
 		return nil
 	}
+}
+
+func unpad(buf []byte) []byte {
+	padding := int(buf[len(buf)-1])
+	return buf[:len(buf)-padding]
 }
