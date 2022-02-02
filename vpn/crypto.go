@@ -22,12 +22,8 @@ func prf(secret, label, clientSeed, serverSeed, clientSid, serverSid []byte, ole
 
 // Code below is taken from crypto/tls/prf.go
 // Copyright 2009 The Go Authors. All rights reserved.
-
-const (
-	masterSecretLength = 48 // Length of a master secret in TLS 1.1.
-)
-
 // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
+
 func prf10(result, secret, label, seed []byte) []byte {
 	hashSHA1 := sha1.New
 	hashMD5 := md5.New

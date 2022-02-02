@@ -32,6 +32,7 @@ type control struct {
 	dataQueue  chan []byte
 	tlsIn      chan []byte
 	remoteOpts string
+	lastAck    int
 }
 
 func (c *control) processIncoming() {
@@ -209,7 +210,15 @@ func (c *control) sendPushRequest() {
 }
 
 func (c *control) sendAck(pid uint32) {
-	log.Printf("ACK'ing packet %08x...", pid)
+	log.Printf("Control: ACK'ing packet %08x...", pid)
+	if int(pid)-c.lastAck > 1 {
+		log.Println("Out of order, delay...")
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			c.sendAck(pid)
+		}()
+		return
+	}
 	if len(c.RemoteID) == 0 {
 		log.Fatal("Remote session should not be null!")
 	}
@@ -222,6 +231,7 @@ func (c *control) sendAck(pid uint32) {
 	p = append(p, ack...)
 	p = append(p, c.RemoteID...)
 	c.conn.Write(p)
+	c.lastAck = int(pid)
 }
 
 func (c *control) recv() {
@@ -256,7 +266,7 @@ func (c *control) initTLS() bool {
 		//},
 	}
 	bufReader := bytes.NewBuffer(nil)
-	udp := controlWrapper{c, bufReader}
+	udp := controlWrapper{control: c, bufReader: bufReader}
 	tlsConn := tls.Client(udp, tlsConf)
 	if err := tlsConn.Handshake(); err != nil {
 		log.Println("ERROR Invalid handshake:")

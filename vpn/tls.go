@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,7 @@ import (
 type controlWrapper struct {
 	control   *control
 	bufReader *bytes.Buffer
+	mu        sync.Mutex
 }
 
 func (cw controlWrapper) Write(b []byte) (n int, err error) {
@@ -20,14 +22,18 @@ func (cw controlWrapper) Write(b []byte) (n int, err error) {
 }
 
 func (cw controlWrapper) Read(b []byte) (int, error) {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
 	var data []byte
 	if len(b) == 0 {
 		return 0, nil
 	}
 	// quick hack: w/o this wait, we arrive here while some other data
 	// is being processed going to the tlsIn queue. use a proper sync
-	// primitive instead!
+	// primitive instead! -- interestingly, this one wait seems to be needed
+	// even with the delayed out-of-order hack below.
 	time.Sleep(50 * time.Millisecond)
+
 	if len(cw.control.tlsIn) != 0 {
 		var p []byte
 		p = <-cw.control.tlsIn
@@ -65,7 +71,21 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 
 		pid, _, payload := cw.control.readControl(data)
 		cw.control.sendAck(pid)
-		cw.control.tlsIn <- payload
+		// same hack that in ACK'ing on the control channel.
+		// instead of the ugly hack of waiting, it'd be more elegant to
+		// find the right sync primitive to avoid this.
+		// part of the problem is that I don't quite understand why some times
+		// something enters the tls queue that is not what's expected for a tls
+		// record.
+		if int(pid)-cw.control.lastAck > 1 {
+			go func() {
+				log.Println("DEBUG delay in TLS buffer...")
+				time.Sleep(time.Second)
+				cw.control.tlsIn <- payload
+			}()
+		} else {
+			cw.control.tlsIn <- payload
+		}
 	}()
 	return 0, nil
 }

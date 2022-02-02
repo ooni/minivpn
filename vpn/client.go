@@ -82,7 +82,7 @@ func (c *Client) Run() {
 }
 
 func (c *Client) sendAck(ackPid uint32) {
-	log.Printf("ACK'ing packet %08x...", ackPid)
+	log.Printf("Client: ACK'ing packet %08x...", ackPid)
 	if len(c.ctrl.RemoteID) == 0 {
 		log.Fatal("Remote session should not be null!")
 	}
