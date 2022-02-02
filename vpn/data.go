@@ -14,7 +14,7 @@ func getPingData() []byte {
 func newData(local, remote *keySource) *data {
 	q := make(chan []byte, 10)
 	// TODO use names instead
-	return &data{q, local, remote, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, 0, nil, nil}
+	return &data{q, local, remote, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, 0, 0, nil, nil}
 }
 
 type data struct {
@@ -27,7 +27,8 @@ type data struct {
 	cipherKeyRemote []byte
 	hmacKeyLocal    []byte
 	hmacKeyRemote   []byte
-	packetId        uint32
+	localPacketId   uint32
+	remotePacketId  uint32
 
 	cipher Cipher
 	// for now, just the sha1.New function
@@ -87,46 +88,30 @@ func (d *data) loadSettings() {
 	d.hmac = getHMAC("sha1")
 }
 
-func (d *data) encrypt() {
-	/*
-	          bs = self.cipher.BLOCK_SIZE
-	          n = bs - (len(plaintext) % bs)
-	          padded = plaintext + b"".join(bytes([n]) for _ in range(n))
+func (d *data) encrypt(plaintext []byte) []byte {
+	bs := d.cipher.BlockSize()
+	padded := padText(plaintext, bs)
+	log.Println(padded)
+	if d.cipher.IsAEAD() {
+		log.Fatal("aead cipher not implemented")
+	}
 
-	          if self.cipher.AEAD:
-	   	   iv = packet_id.to_bytes(4, "big") + self.hmac_key_local[:8]
-	   	   ad = packet_id.to_bytes(4, "big")
-	   	   ct = self.cipher.encrypt(self.cipher_key_local, iv, padded, ad)
+	iv, err := genRandomBytes(bs)
+	checkError(err)
+	ciphertext, err := d.cipher.Encrypt(d.cipherKeyLocal, iv, padded)
+	checkError(err)
 
-	   	   # openvpn uses tag | payload, cryptography(mod) uses payload | tag.
-	   	   # S W A P P Y
-	   	   tag = ct[-16:]
-	   	   payload = ct[:-16]
+	// XXX hardcoded for sha1, should add to a hash interface when I make this selectable
+	hashLength := 20
+	key := d.hmacKeyRemote[:hashLength]
+	mac := hmac.New(d.hmac, key)
+	mac.Write(append(iv, ciphertext...))
+	calcMAC := mac.Sum(nil)
 
-	   	   self.log.debug(
-	   	       "aead enc %d bytes (%d pt bytes): iv=%s ad=%s",
-	   	       len(ct),
-	   	       len(plaintext),
-	   	       shex(iv),
-	   	       shex(ad),
-	   	   )
-
-	   	   return ad + tag + payload
-
-	          iv = getrandbytes(bs)
-
-	          ciphertext = self.cipher.encrypt(self.cipher_key_local, iv, padded)
-
-	          hmac_ = self.hmac.hash(self.hmac_key_local, iv + ciphertext)
-	          self.log.debug(
-	   	   "encrypted %d bytes (%d pt bytes): iv=%s hmac=%s",
-	   	   len(ciphertext),
-	   	   len(plaintext),
-	   	   shex(iv),
-	   	   shex(hmac_),
-	          )
-	          return hmac_ + iv + ciphertext
-	*/
+	payload := append(calcMAC, iv...)
+	payload = append(payload, ciphertext...)
+	log.Println(payload)
+	return payload
 }
 
 func (d *data) decrypt(encrypted []byte) []byte {
@@ -167,6 +152,30 @@ func (d *data) decryptAEAD() {
 	// not implemented atm, implement when adding AES-CGM cipher
 }
 
+func (d *data) send(payload []byte) {
+
+	d.localPacketId += 1
+	log.Println("sending", len(payload), "bytes...")
+
+	packetId := make([]byte, 4)
+	binary.BigEndian.PutUint32(packetId, d.localPacketId)
+	plaintext := append(packetId, 0xfa) // no compression
+	plaintext = append(plaintext, payload...)
+	d._send(append([]byte{0x30}, d.encrypt(plaintext)...))
+
+	/*
+
+	   plaintext = bytes()
+	   plaintext += self.packet_id.to_bytes(4, 'big')
+	   plaintext += b'\xfa'  # no compression
+	   plaintext += payload
+	   self._send(b'\x30' + self.encrypt(plaintext))
+	*/
+}
+
+func (d *data) _send(payload []byte) {
+}
+
 func (d *data) handleIn(packet []byte) {
 	if packet[0] != 0x30 {
 		log.Fatal("Wrong data header!")
@@ -174,10 +183,10 @@ func (d *data) handleIn(packet []byte) {
 	data := packet[1:]
 	plaintext := d.decrypt(data)
 	packetId := binary.BigEndian.Uint32(plaintext[:4])
-	if int(packetId) <= int(d.packetId) {
+	if int(packetId) <= int(d.remotePacketId) {
 		log.Fatal("Replay attack detected, aborting!")
 	}
-	d.packetId = packetId
+	d.remotePacketId = packetId
 	compression := plaintext[4]
 	// http://build.openvpn.net/doxygen/html/comp_8h_source.html
 	if compression != 0xfa {
@@ -187,17 +196,10 @@ func (d *data) handleIn(packet []byte) {
 	if areBytesEqual(payload, getPingData()) {
 		log.Println("PING received...")
 		log.Println("(should reply)")
+		d.send(getPingData())
+		return
 	}
 
-	/*
-
-	   if payload == PING_DATA:
-	       self.log.debug("PING received, replied")
-	       self.send(PING_DATA)
-	       return
-
-	   self.out_queue.append(payload)
-	   self.log.debug("data: %r", payload)
-	*/
-
+	//d.outQueue.append(payload)
+	log.Printf("data: %x\n", payload)
 }

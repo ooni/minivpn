@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha1"
@@ -43,7 +44,7 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext []byte) ([]byte, error) {
 	mode = cipher.NewCBCDecrypter(block, iv)
 	plaintext := make([]byte, len(ciphertext))
 	mode.CryptBlocks(plaintext, ciphertext)
-	plaintext = unpad(plaintext)
+	plaintext = unpadText(plaintext)
 	padLen := len(ciphertext) - len(plaintext)
 	if padLen > c.BlockSize() || padLen > len(plaintext) {
 		log.Fatal("Padding error")
@@ -52,13 +53,20 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext []byte) ([]byte, error) {
 }
 
 func (c *AESCipher) Encrypt(key, iv, plaintext []byte) ([]byte, error) {
-	/*
-	   cipher = Cipher(algorithms.AES(key[: self.keysize_bytes]), mode=modes.CBC(iv))
-	   encryptor = cipher.encryptor()
-	   return cipher.encrypt(plaintext)
-	*/
-
-	return nil, nil
+	k := key[:c.BlockSize()]
+	var block cipher.Block
+	block, err := aes.NewCipher(k)
+	if err != nil {
+		return nil, err
+	}
+	var mode cipher.BlockMode
+	if c.mode != "cbc" {
+		log.Fatal("no other modes implemented now")
+	}
+	mode = cipher.NewCBCEncrypter(block, iv)
+	ciphertext := make([]byte, len(plaintext))
+	mode.CryptBlocks(ciphertext, plaintext)
+	return ciphertext, nil
 }
 
 func newCipher(name string, bits int, mode string) (Cipher, error) {
@@ -89,7 +97,15 @@ func getHMAC(name string) func() hash.Hash {
 	}
 }
 
-func unpad(buf []byte) []byte {
+// pkcs7 unpadding
+func unpadText(buf []byte) []byte {
 	padding := int(buf[len(buf)-1])
 	return buf[:len(buf)-padding]
+}
+
+// pkcs7 padding
+func padText(buf []byte, bs int) []byte {
+	padding := bs - len(buf)%bs
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(buf, padtext...)
 }
