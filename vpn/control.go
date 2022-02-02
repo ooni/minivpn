@@ -29,6 +29,7 @@ type control struct {
 	conn       net.Conn
 	keySrc     *keySource
 	queue      chan []byte
+	dataQueue  chan []byte
 	tlsIn      chan []byte
 	remoteOpts string
 }
@@ -52,6 +53,12 @@ func (c *control) initSession() error {
 	log.Printf("Local session ID: %x\n", string(c.SessionID))
 	go c.processIncoming()
 	return nil
+}
+
+// this is hacky, needs refactor. just trying to pass the data packets
+// to the data queue for now.
+func (c *control) addDataQueue(queue chan []byte) {
+	c.dataQueue = queue
 }
 
 func (c *control) sendHardReset() {

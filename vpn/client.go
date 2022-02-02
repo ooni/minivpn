@@ -30,6 +30,7 @@ func (c *Client) Run() {
 	log.Println("Control Channel created")
 	c.ctrl.initSession()
 	c.data = newData(c.localKeySrc, c.remoteKeySrc)
+	c.ctrl.addDataQueue(c.data.queue)
 	c.ctrl.sendHardReset()
 	id := c.ctrl.readHardReset(c.recv(0))
 	c.sendAck(uint32(id))
@@ -48,7 +49,7 @@ func (c *Client) Run() {
 
 	go func() {
 		// just to debug, this should get a signal on a channel from a SIGINT etc
-		time.Sleep(10 * time.Second)
+		time.Sleep(60 * time.Second)
 		c.stop()
 	}()
 
@@ -67,13 +68,14 @@ func (c *Client) Run() {
 			c.initSt = ST_PULL_REQUEST_SENT
 			c.handleTLSIncoming()
 		} else if c.initSt == ST_OPTIONS_PUSHED {
-			c.data.initializeSession(c.ctrl)
+			c.data.initSession(c.ctrl)
 			c.data.setup()
 			log.Println("Initialization complete")
 			c.initSt = ST_INITIALIZED
 		} else if c.initSt == ST_INITIALIZED {
-			log.Println("==> now can ping...")
-			break
+			c.handleTLSIncoming()
+			//log.Println("==> now can ping...")
+			//break
 		}
 	}
 	log.Println("bye!")

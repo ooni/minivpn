@@ -49,9 +49,13 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 			log.Println("Received ACK")
 			return
 		}
+		if isDataOpcode(op) {
+			cw.control.dataQueue <- data
+			return
+		}
 		if op != byte(P_CONTROL_V1) {
+			// FIXME need to pass this to data channel to decrypt...
 			log.Printf("Received unknown opcode: %v\n", op)
-			//log.Println(data[:4])
 			log.Printf("len: %d\n", len(data))
 			log.Printf("data: %v\n", data)
 			log.Fatal("Unknown Opcode")

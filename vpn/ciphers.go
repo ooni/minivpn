@@ -36,6 +36,8 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext []byte) error {
 	return nil
 }
 
+// FIXME -- add tests for encryptor / decryptor
+
 /*
    def encrypt(self, key, iv, plaintext):
        cipher = Cipher(algorithms.AES(key[: self.keysize_bytes]), mode=modes.CBC(iv))

@@ -32,9 +32,21 @@ type data struct {
 	hmac func() hash.Hash
 }
 
-func (d *data) initializeSession(c *control) {
+func (d *data) processIncoming() {
+	for {
+		select {
+		case data := <-d.queue:
+			d.handleIn(data)
+		}
+
+	}
+}
+
+func (d *data) initSession(c *control) {
 	d.remoteID = c.RemoteID
 	d.sessionID = c.SessionID
+	d.loadSettings()
+	go d.processIncoming()
 }
 
 func (d *data) setup() {
@@ -65,6 +77,7 @@ func (d *data) setup() {
 }
 
 func (d *data) loadSettings() {
+	log.Println("Loading settings...")
 	// XXX  hardcoded for now, need to parse settings and load the needed cipher/hmac combination
 	d.cipher, _ = newCipher("aes", 128, "cbc")
 	d.hmac = getHMAC("sha1")
@@ -113,23 +126,19 @@ func (d *data) encrypt() {
 }
 
 func (d *data) decrypt(encrypted []byte) []byte {
-	/*
-
-	   def decrypt(self, data):
-	       if self.cipher.AEAD:
-	           return self.decrypt_aead(data)
-	       return self.decrypt_v1(data)
-	*/
-	return []byte{}
+	if d.cipher.IsAEAD() {
+		log.Fatal("aead cipher not implemented")
+	}
+	return d.decryptV1(encrypted)
 }
 
-func (d *data) decryptV1([]byte) {
+func (d *data) decryptV1(encrypted []byte) []byte {
+	if len(encrypted) < 28 {
+		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
+	}
+	return nil
 	/*
 	   bs = self.cipher.BLOCK_SIZE
-
-	   if len(data) < 28:
-	       raise InvalidPacketError("Packet too short (%d bytes)" % len(data))
-
 	   hmac_ = data[: self.hmac.HASH_LENGTH]
 	   iv = data[self.hmac.HASH_LENGTH : self.hmac.HASH_LENGTH + bs]
 	   ciphertext = data[self.hmac.HASH_LENGTH + bs :]
@@ -167,5 +176,34 @@ func (d *data) decryptAEAD() {
 	// not implemented atm, implement when adding AES-CGM cipher
 }
 
-func (d *data) handleIn() {
+func (d *data) handleIn(packet []byte) {
+	log.Println("RECEIVED DATA PACKET", len(packet))
+	if packet[0] != 0x30 {
+		log.Fatal("Wrong data header!")
+	}
+	data := packet[1:]
+	log.Printf("received %d raw data bytes\n", len(data))
+	log.Println("now should decrypt...")
+
+	/*
+	   plaintext = self.decrypt(data)
+
+	   packet_id = plaintext[:4]
+	   # FIXME do stuff with packet_id
+	   compression = plaintext[4]
+
+	   # http://build.openvpn.net/doxygen/html/comp_8h_source.html
+	   assert compression == 0xfa  # no compression
+
+	   payload = plaintext[5:]
+
+	   if payload == PING_DATA:
+	       self.log.debug("PING received, replied")
+	       self.send(PING_DATA)
+	       return
+
+	   self.out_queue.append(payload)
+	   self.log.debug("data: %r", payload)
+	*/
+
 }
