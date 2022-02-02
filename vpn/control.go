@@ -145,7 +145,6 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 
 // sends a control channel packet, not a P_CONTROL
 func (c *control) sendControlMessage() {
-	log.Println("Sending control message...")
 	user := os.Getenv("VPN_USERNAME")
 	pass := os.Getenv("VPN_PASSWORD")
 	if len(user) == 0 || len(pass) == 0 {
@@ -157,7 +156,6 @@ func (c *control) sendControlMessage() {
 	d = append(d, encodeBytes(getOptions())...)
 	d = append(d, encodeBytes([]byte(user))...)
 	d = append(d, encodeBytes([]byte(pass))...)
-	log.Println(d)
 	c.tls.Write(d)
 }
 

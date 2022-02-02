@@ -104,10 +104,8 @@ func (c *Client) handleIncoming() {
 		log.Println("DEBUG Received ACK in main loop")
 	}
 	if isControlOpcode(op) {
-		log.Println("control QUEUE")
 		c.ctrl.queue <- data
 	} else if isDataOpcode(op) {
-		log.Println("data QUEUE")
 		c.data.queue <- data
 	}
 }
