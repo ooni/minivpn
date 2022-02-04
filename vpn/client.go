@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type Client struct {
 	remoteKeySrc *keySource
 	running      bool
 	initSt       int
+	tunnelIP     string
 	con          net.Conn
 	ctrl         *control
 	data         *data
@@ -123,13 +125,25 @@ func (c *Client) onKeyExchanged() {
 	c.initSt = ST_KEY_EXCHANGED
 }
 
-// I don't think I want to do anything with the pushed options for now
-// but it can be useful to parse them into a map, at least to know that
-// we've reached this stage
+// I don't think I want to do much with the pushed options for now, other
+// than extracting the tunnel ip, but it can be useful to parse them into a map
 func (c *Client) onPush(data []byte) {
 	log.Println("==> server pushed options:")
 	c.initSt = ST_OPTIONS_PUSHED
-	log.Println(string(data[:len(data)-1]))
+	optStr := string(data[:len(data)-1])
+	opts := strings.Split(optStr, ",")
+	for _, opt := range opts {
+		vals := strings.Split(opt, " ")
+		k, v := vals[0], vals[1:]
+		if k == "ifconfig" {
+			c.tunnelIP = v[0]
+			log.Println("tunnel_ip: ", c.tunnelIP)
+		}
+	}
+}
+
+func (c *Client) GetTunnelIP() string {
+	return c.tunnelIP
 }
 
 func (c *Client) handleTLSIncoming() {
