@@ -7,10 +7,17 @@ import (
 	"time"
 )
 
+type DataHandler interface {
+	InitConsumer()
+	ConsumeData()
+}
+
 type Client struct {
-	Host         string
-	Port         string
-	Proto        string
+	Host        string
+	Port        string
+	Proto       string
+	DataHandler DataHandler
+
 	localKeySrc  *keySource
 	remoteKeySrc *keySource
 	running      bool
@@ -70,12 +77,14 @@ func (c *Client) Run() {
 		} else if c.initSt == ST_OPTIONS_PUSHED {
 			c.data.initSession(c.ctrl)
 			c.data.setup()
-			log.Println("Initialization complete")
+			log.Println(">> Initialization complete")
 			c.initSt = ST_INITIALIZED
 		} else if c.initSt == ST_INITIALIZED {
+			go c.handleTLSIncoming()
+			c.DataHandler.InitConsumer()
+			c.initSt = ST_DATA_READY
+		} else if c.initSt == ST_DATA_READY {
 			c.handleTLSIncoming()
-			//log.Println("==> now can ping...")
-			//break
 		}
 	}
 	log.Println("bye!")
@@ -152,6 +161,10 @@ func (c *Client) recv(size int) []byte {
 	var recvData = make([]byte, size)
 	var numBytes, _ = c.con.Read(recvData)
 	return recvData[:numBytes]
+}
+
+func (c *Client) GetDataChannel() chan []byte {
+	return c.data.getDataChan()
 }
 
 func (c *Client) stop() {

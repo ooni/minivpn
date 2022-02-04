@@ -14,12 +14,16 @@ func getPingData() []byte {
 
 func newData(local, remote *keySource) *data {
 	q := make(chan []byte, 10)
-	// TODO use names instead
-	return &data{q, local, remote, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, []byte{}, 0, 0, nil, nil, nil}
+	dq := make(chan []byte, 20)
+	return &data{queue: q, dataQueue: dq, localKeySource: local, remoteKeySource: remote,
+		remoteID: []byte{}, sessionID: []byte{}, cipherKeyLocal: []byte{}, cipherKeyRemote: []byte{},
+		hmacKeyLocal: []byte{}, hmacKeyRemote: []byte{}, localPacketId: 0, remotePacketId: 0,
+		conn: nil, cipher: nil}
 }
 
 type data struct {
 	queue           chan []byte
+	dataQueue       chan []byte
 	localKeySource  *keySource
 	remoteKeySource *keySource
 	remoteID        []byte
@@ -37,6 +41,14 @@ type data struct {
 	// that needs to be initialized as:
 	// hmac.New(hash, secret)
 	hmac func() hash.Hash
+}
+
+func (d *data) getDataChan() chan []byte {
+	return d.dataQueue
+}
+
+func (d *data) moo() {
+	log.Println("MOO")
 }
 
 func (d *data) processIncoming() {
@@ -99,6 +111,8 @@ func (d *data) encrypt(plaintext []byte) []byte {
 		log.Fatal("aead cipher not implemented")
 	}
 
+	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
+	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for the time being...
 	iv, err := genRandomBytes(bs)
 	checkError(err)
 	ciphertext, err := d.cipher.Encrypt(d.cipherKeyLocal, iv, padded)
@@ -183,11 +197,11 @@ func (d *data) handleIn(packet []byte) {
 	}
 	payload := plaintext[5:]
 	if areBytesEqual(payload, getPingData()) {
-		log.Println("Ping from server, replying...")
+		log.Println("openvpn-ping, sending reply")
 		d.send(getPingData())
 		return
 	}
 
-	//d.outQueue.append(payload)
 	log.Printf("data: %x\n", payload)
+	d.dataQueue <- payload
 }
