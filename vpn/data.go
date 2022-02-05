@@ -102,13 +102,12 @@ func (d *data) loadSettings() {
 func (d *data) encrypt(plaintext []byte) []byte {
 	bs := d.cipher.BlockSize()
 	padded := padText(plaintext, bs)
-	//log.Println(padded)
 	if d.cipher.IsAEAD() {
 		log.Fatal("aead cipher not implemented")
 	}
 
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
-	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for the time being...
+	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
 	iv, err := genRandomBytes(bs)
 	checkError(err)
 	ciphertext, err := d.cipher.Encrypt(d.cipherKeyLocal, iv, padded)
@@ -116,7 +115,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 
 	// XXX hardcoded for sha1, should add to a hash interface when I make this selectable
 	hashLength := 20
-	key := d.hmacKeyRemote[:hashLength]
+	key := d.hmacKeyLocal[:hashLength]
 	mac := hmac.New(d.hmac, key)
 	mac.Write(append(iv, ciphertext...))
 	calcMAC := mac.Sum(nil)
