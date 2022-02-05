@@ -67,7 +67,7 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 			log.Fatal("Unknown Opcode")
 		}
 
-		log.Printf("TLS data in (%d bytes) \n", len(data))
+		// log.Printf("TLS data in (%d bytes) \n", len(data))
 
 		pid, _, payload := cw.control.readControl(data)
 		cw.control.sendAck(pid)

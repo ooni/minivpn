@@ -30,12 +30,11 @@ type Client struct {
 
 func (c *Client) Run() {
 	c.localKeySrc = newKeySource()
-	log.Printf("Connecting to %s:%s UDP...\n", c.Host, c.Port)
+	log.Printf("Connecting to %s:%s with proto UDP\n", c.Host, c.Port)
 	conn, err := net.Dial(c.Proto, c.Host+":"+c.Port)
 	checkError(err)
 	c.con = conn
 	c.ctrl = newControl(conn, c.localKeySrc)
-	log.Println("Control Channel created")
 	c.ctrl.initSession()
 	c.data = newData(c.localKeySrc, c.remoteKeySrc)
 	c.ctrl.addDataQueue(c.data.queue)
@@ -53,7 +52,6 @@ func (c *Client) Run() {
 	}
 	c.running = true
 	c.initSt = ST_CONTROL_CHANNEL_OPEN
-	log.Println("Entering main loop")
 
 	go func() {
 		// just to debug, this should get a signal on a channel from a SIGINT etc
@@ -71,28 +69,26 @@ func (c *Client) Run() {
 			c.initSt = ST_CONTROL_MESSAGE_SENT
 			c.handleTLSIncoming()
 		} else if c.initSt == ST_KEY_EXCHANGED {
-			log.Println("Key exchange complete, pulling config...")
+			log.Println("Key exchange complete")
 			c.ctrl.sendPushRequest()
 			c.initSt = ST_PULL_REQUEST_SENT
 			c.handleTLSIncoming()
 		} else if c.initSt == ST_OPTIONS_PUSHED {
 			c.data.initSession(c.ctrl)
 			c.data.setup()
-			log.Println(">> Initialization complete")
+			log.Println("Initialization complete")
 			c.initSt = ST_INITIALIZED
 		} else if c.initSt == ST_INITIALIZED {
 			go c.handleTLSIncoming()
 			c.DataHandler.Init()
 			c.initSt = ST_DATA_READY
-		} else if c.initSt == ST_DATA_READY {
-			c.handleTLSIncoming()
 		}
 	}
 	log.Println("bye!")
 }
 
 func (c *Client) sendAck(ackPid uint32) {
-	log.Printf("Client: ACK'ing packet %08x...", ackPid)
+	// log.Printf("Client: ACK'ing packet %08x...", ackPid)
 	if len(c.ctrl.RemoteID) == 0 {
 		log.Fatal("Remote session should not be null!")
 	}
@@ -127,7 +123,7 @@ func (c *Client) onKeyExchanged() {
 // I don't think I want to do much with the pushed options for now, other
 // than extracting the tunnel ip, but it can be useful to parse them into a map
 func (c *Client) onPush(data []byte) {
-	log.Println("==> server pushed options:")
+	log.Println("Server pushed options")
 	c.initSt = ST_OPTIONS_PUSHED
 	optStr := string(data[:len(data)-1])
 	opts := strings.Split(optStr, ",")

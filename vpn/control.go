@@ -63,7 +63,7 @@ func (c *control) addDataQueue(queue chan []byte) {
 }
 
 func (c *control) sendHardReset() {
-	log.Println("Sending HARD_RESET")
+	// log.Println("Sending HARD_RESET")
 	c.sendControl(P_CONTROL_HARD_RESET_CLIENT_V2, 0, []byte(""))
 }
 
@@ -85,7 +85,7 @@ func (c *control) readHardReset(d []byte) int {
 }
 
 func (c *control) sendControlV1(data []byte) (n int, err error) {
-	log.Printf("Sending CONTROL_V1 %08x (with %d bytes)...", c.localPID, len(data))
+	// log.Printf("Sending CONTROL_V1 %08x (with %d bytes)...", c.localPID, len(data))
 	return c.sendControl(P_CONTROL_V1, 0, data)
 }
 
@@ -102,7 +102,6 @@ func (c *control) sendControl(opcode int, ack int, payload []byte) (n int, err e
 	if len(payload) != 0 {
 		p = append(p, payload...)
 	}
-	log.Printf("%08x\n", p)
 	return c.conn.Write(p)
 }
 
@@ -139,7 +138,7 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 	packetID := binary.BigEndian.Uint32(d[offset : offset+4])
 	offset += 4
 	payload := d[offset:]
-	log.Printf("DEBUG received P_CONTROL %08x (with %d bytes)...\n", packetID, len(payload))
+	// log.Printf("DEBUG received P_CONTROL %08x (with %d bytes)...\n", packetID, len(payload))
 	return packetID, ack, payload
 }
 
@@ -185,19 +184,8 @@ func (c *control) readControlMessage(d []byte) *keySource {
 	// TODO convert this to a settings struct
 	log.Println("Remote opts:", remoteOpts)
 	c.remoteOpts = remoteOpts
-	/*
-		ro = self.remote_options.copy()
-		if 'tls-server' in ro:
-		    del ro['tls-server']
-		    ro['tls-client'] = True
 
-		if not ro.items() <= self.c.settings.items():
-		    self.log.warn("Options doesn't match!")
-		    self.log.warn("remote options: %s", remote_option_string)
-		    self.log.warn("local  options: %s", self.c.settings.get_options())
-	*/
-
-	log.Printf("Received Control Message: %d bytes\n", len(d))
+	// log.Printf("Received Control Message: %d bytes\n", len(d))
 	remoteKey := &keySource{r1: random1, r2: random2}
 	return remoteKey
 }
@@ -208,7 +196,7 @@ func (c *control) sendPushRequest() {
 }
 
 func (c *control) sendAck(pid uint32) {
-	log.Printf("Control: ACK'ing packet %08x...", pid)
+	// log.Printf("Control: ACK'ing packet %08x...", pid)
 	if int(pid)-c.lastAck > 1 {
 		log.Println("Out of order, delay...")
 		go func() {
@@ -244,7 +232,6 @@ func (c *control) recv() {
 }
 
 func (c *control) handleIn(data []byte) {
-	log.Println("RECEIVED CONTROL PACKET", len(data))
 	op := data[0] >> 3
 	if op == byte(P_CONTROL_V1) {
 		pid, _, payload := c.readControl(data)
@@ -254,7 +241,6 @@ func (c *control) handleIn(data []byte) {
 }
 
 func (c *control) initTLS() bool {
-	log.Println("Initializing TLS context...")
 	tlsConf := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
 		MaxVersion:         tls.VersionTLS12,

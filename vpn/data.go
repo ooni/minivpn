@@ -66,7 +66,6 @@ func (d *data) initSession(c *control) {
 }
 
 func (d *data) setup() {
-	log.Println("==> data setup")
 	master := prf(
 		d.localKeySource.preMaster,
 		[]byte("OpenVPN master secret"),
