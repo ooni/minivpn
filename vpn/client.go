@@ -146,6 +146,14 @@ func (c *Client) GetTunnelIP() string {
 	return c.tunnelIP
 }
 
+func (c *Client) SendData(b []byte) {
+	c.data.send(b)
+}
+
+func (c *Client) ReadTLS() {
+	c.handleTLSIncoming()
+}
+
 func (c *Client) handleTLSIncoming() {
 	var recv = make([]byte, 4096)
 	var n, _ = c.ctrl.tls.Read(recv)
@@ -160,11 +168,14 @@ func (c *Client) handleTLSIncoming() {
 		rpl := []byte("PUSH_REPLY")
 		if areBytesEqual(data[:len(rpl)], rpl) {
 			c.onPush(data)
+			return
 		}
 		badauth := []byte("AUTH_FAILED")
 		if areBytesEqual(data[:len(badauth)], badauth) {
 			log.Fatal("Auth failed")
+			return
 		}
+		log.Println("I DONT KNOW THAT TO DO WITH THIS")
 	}
 }
 
