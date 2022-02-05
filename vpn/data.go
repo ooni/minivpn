@@ -165,21 +165,16 @@ func (d *data) decryptAEAD() {
 
 func (d *data) send(payload []byte) {
 	d.localPacketId += 1
-	log.Println("sending", len(payload), "bytes...")
+	// log.Println("sending", len(payload), "bytes...")
 	packetId := make([]byte, 4)
 	binary.BigEndian.PutUint32(packetId, d.localPacketId)
 	plaintext := append(packetId, 0xfa) // no compression
 	plaintext = append(plaintext, payload...)
 	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
-
-	log.Println(">> SENDING ENCRYPTED BUFFER")
-	log.Printf("%02x\n", buf)
-
 	d.conn.Write(buf)
 }
 
 func (d *data) handleIn(packet []byte) {
-	log.Println("... incoming data")
 	if packet[0] != 0x30 {
 		log.Fatal("Wrong data header!")
 	}
@@ -202,6 +197,6 @@ func (d *data) handleIn(packet []byte) {
 		return
 	}
 
-	log.Printf("data: %x\n", payload)
+	// log.Printf("data: %x\n", payload)
 	d.dataQueue <- payload
 }

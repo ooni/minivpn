@@ -9,8 +9,7 @@ import (
 )
 
 type DataHandler interface {
-	InitConsumer()
-	ConsumeData()
+	Init()
 }
 
 type Client struct {
@@ -83,7 +82,7 @@ func (c *Client) Run() {
 			c.initSt = ST_INITIALIZED
 		} else if c.initSt == ST_INITIALIZED {
 			go c.handleTLSIncoming()
-			c.DataHandler.InitConsumer()
+			c.DataHandler.Init()
 			c.initSt = ST_DATA_READY
 		} else if c.initSt == ST_DATA_READY {
 			c.handleTLSIncoming()
