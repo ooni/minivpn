@@ -15,7 +15,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
-	"github.com/kalikaneko/minivpn/vpn"
+	"github.com/ainghazal/minivpn/vpn"
 )
 
 type packet struct {
@@ -132,13 +132,12 @@ func (p *Pinger) handleIncoming(d []byte) {
 				log.Println("warn: icmp response with wrong id")
 				return
 			}
-			//log.Println("seq:  ", icmp.Seq)
 		}
 	}
 	// TODO extract ttl
 	// TODO extract time
 	// TODO keep statistics
-	log.Printf("reply from %s: icmp_seq=%d ttl=0 time=0", ip.SrcIP, icmp.Seq)
+	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=0", ip.SrcIP, icmp.Seq, ip.TTL)
 	// 'reply from %s: icmp_seq=%d ttl=%d time=%.1fms'
 	go p.updateStats()
 }
@@ -146,7 +145,7 @@ func (p *Pinger) handleIncoming(d []byte) {
 func (p *Pinger) updateStats() {
 	p.statsMu.Lock()
 	defer p.statsMu.Unlock()
-	p.PacketsRecv += 1
+	p.PacketsRecv++
 	if p.PacketsRecv >= p.Count {
 		p.done <- true
 	}

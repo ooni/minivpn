@@ -92,7 +92,7 @@ func (d *data) setup() {
 }
 
 func (d *data) loadSettings() {
-	log.Println("Loading settings...")
+	// log.Println("Loading settings...")
 	// XXX  hardcoded for now, need to parse settings and load the needed cipher/hmac combination
 	d.cipher, _ = newCipher("aes", 128, "cbc")
 	d.hmac = getHMAC("sha1")

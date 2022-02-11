@@ -170,6 +170,15 @@ func (c *Client) handleTLSIncoming() {
 	}
 }
 
+func (c *Client) WaitUntil(done chan bool) {
+	go func() {
+		select {
+		case <-done:
+			c.Stop()
+		}
+	}()
+}
+
 func (c *Client) recv(size int) []byte {
 	if size == 0 {
 		size = 8192

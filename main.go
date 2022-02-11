@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/kalikaneko/minivpn/vpn"
+	"github.com/ainghazal/minivpn/vpn"
 )
 
 func main() {
@@ -13,12 +13,7 @@ func main() {
 		Proto: "udp",
 	}
 	done := make(chan bool)
-	c.DataHandler = NewPinger(c, "1.1.1.1", done)
-	go func() {
-		select {
-		case <-done:
-			c.Stop()
-		}
-	}()
+	c.DataHandler = NewPinger(c, "8.8.8.8", done)
+	c.WaitUntil(done)
 	c.Run()
 }
