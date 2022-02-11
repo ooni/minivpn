@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/google/gopacket"
@@ -17,17 +18,33 @@ import (
 	"github.com/kalikaneko/minivpn/vpn"
 )
 
-// XXX is this the ip4 packet?
 type packet struct {
 	bytes  []byte
+	rtt    time.Duration
 	nbytes int
 	ttl    int
+	id     int
 }
 
-func NewPinger(c *vpn.Client, host string) Pinger {
+type stats struct {
+	packetsRecv int
+	packetsSent int
+	packetLoss  float64
+	rtts        []time.Duration
+	maxRtt      time.Duration
+	minRtt      time.Duration
+	AvgRtt      time.Duration
+}
+
+func NewPinger(c *vpn.Client, host string, done chan bool) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
-	return Pinger{c: c, host: host, Count: 3, Interval: 1, Id: id}
+	return &Pinger{
+		c: c, host: host,
+		Count: 3, Interval: 1, Id: id,
+		TTL:  64,
+		done: done,
+	}
 }
 
 type Pinger struct {
@@ -35,51 +52,54 @@ type Pinger struct {
 	// that we use...
 	c    *vpn.Client
 	dc   chan []byte
+	done chan bool
+
 	host string
 
 	Count    int
 	Interval time.Duration
 	Id       int
 
+	statsMu sync.RWMutex
+
+	TTL         int
 	PacketsSent int
 	PacketsRecv int
-
-	// should also have a contract to signal that we've
-	// finished the measurement
 }
 
-func (p Pinger) Init() {
+func (p *Pinger) Init() {
 	p.dc = p.c.GetDataChannel()
-	p.SendPayloads()
+	go p.SendPayloads()
 	go p.ConsumeData()
 }
 
-func (p Pinger) ConsumeData() {
+func (p *Pinger) ConsumeData() {
 	for {
 		select {
 		case data := <-p.dc:
-			p.handleIncoming(data)
+			go p.handleIncoming(data)
 		}
 	}
 }
 
-func (p Pinger) SendPayloads() {
+func (p *Pinger) SendPayloads() {
 	src := p.c.GetTunnelIP()
 	srcIP := net.ParseIP(src)
 	dstIP := net.ParseIP(p.host)
 	for i := 0; i < p.Count; i++ {
-		go p.craftAndSendICMP(&srcIP, &dstIP, 64, i)
-		time.Sleep(time.Second * 2)
+		go p.craftAndSendICMP(&srcIP, &dstIP, p.TTL, i)
+		time.Sleep(time.Second * 1)
 	}
 
 }
 
-func (p Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
+func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
 	buf := newIcmpData(src, dst, 8, ttl, seq, p.Id)
 	p.c.SendData(buf)
 }
 
-func (p Pinger) handleIncoming(d []byte) {
+// XXX refactor into Send/Receive functions
+func (p *Pinger) handleIncoming(d []byte) {
 	var ip layers.IPv4
 	var udp layers.UDP
 	var icmp layers.ICMPv4
@@ -120,6 +140,16 @@ func (p Pinger) handleIncoming(d []byte) {
 	// TODO keep statistics
 	log.Printf("reply from %s: icmp_seq=%d ttl=0 time=0", ip.SrcIP, icmp.Seq)
 	// 'reply from %s: icmp_seq=%d ttl=%d time=%.1fms'
+	go p.updateStats()
+}
+
+func (p *Pinger) updateStats() {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+	p.PacketsRecv += 1
+	if p.PacketsRecv >= p.Count {
+		p.done <- true
+	}
 }
 
 func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int) (data []byte) {

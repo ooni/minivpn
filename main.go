@@ -12,6 +12,13 @@ func main() {
 		Port:  "1194",
 		Proto: "udp",
 	}
-	c.DataHandler = NewPinger(c, "1.1.1.1")
+	done := make(chan bool)
+	c.DataHandler = NewPinger(c, "1.1.1.1", done)
+	go func() {
+		select {
+		case <-done:
+			c.Stop()
+		}
+	}()
 	c.Run()
 }

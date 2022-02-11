@@ -56,7 +56,7 @@ func (c *Client) Run() {
 	go func() {
 		// just to debug, this should get a signal on a channel from a SIGINT etc
 		time.Sleep(60 * time.Second)
-		c.stop()
+		c.Stop()
 	}()
 
 	for {
@@ -145,10 +145,6 @@ func (c *Client) SendData(b []byte) {
 	c.data.send(b)
 }
 
-func (c *Client) ReadTLS() {
-	c.handleTLSIncoming()
-}
-
 func (c *Client) handleTLSIncoming() {
 	var recv = make([]byte, 4096)
 	var n, _ = c.ctrl.tls.Read(recv)
@@ -187,7 +183,7 @@ func (c *Client) GetDataChannel() chan []byte {
 	return c.data.getDataChan()
 }
 
-func (c *Client) stop() {
+func (c *Client) Stop() {
 	c.running = false
 }
 
