@@ -18,6 +18,8 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
+/* TODO not used yet -----
+
 type packet struct {
 	bytes  []byte
 	rtt    time.Duration
@@ -36,12 +38,16 @@ type stats struct {
 	AvgRtt      time.Duration
 }
 
-func NewPinger(c *vpn.Client, host string, done chan bool) *Pinger {
+*/
+
+func NewPinger(c *vpn.Client, host string, count uint32, done chan bool) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
+	ts := make(map[int]int64)
 	return &Pinger{
 		c: c, host: host,
-		Count: 3, Interval: 1, Id: id,
+		ts:    ts,
+		Count: int(count), Interval: 1, Id: id,
 		TTL:  64,
 		done: done,
 	}
@@ -62,9 +68,11 @@ type Pinger struct {
 
 	statsMu sync.RWMutex
 
-	TTL         int
+	ts map[int]int64
+
 	PacketsSent int
 	PacketsRecv int
+	TTL         int
 }
 
 func (p *Pinger) Init() {
@@ -86,11 +94,12 @@ func (p *Pinger) SendPayloads() {
 	src := p.c.GetTunnelIP()
 	srcIP := net.ParseIP(src)
 	dstIP := net.ParseIP(p.host)
-	for i := 0; i < p.Count; i++ {
-		go p.craftAndSendICMP(&srcIP, &dstIP, p.TTL, i)
+	for seqn := 0; seqn < p.Count; seqn++ {
+		p.ts[seqn] = time.Now().UnixNano()
+		go p.craftAndSendICMP(&srcIP, &dstIP, p.TTL, seqn)
+		// TODO replace by ticker
 		time.Sleep(time.Second * 1)
 	}
-
 }
 
 func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
@@ -100,6 +109,7 @@ func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
 
 // XXX refactor into Send/Receive functions
 func (p *Pinger) handleIncoming(d []byte) {
+	now := time.Now().UnixNano()
 	var ip layers.IPv4
 	var udp layers.UDP
 	var icmp layers.ICMPv4
@@ -132,13 +142,16 @@ func (p *Pinger) handleIncoming(d []byte) {
 				log.Println("warn: icmp response with wrong id")
 				return
 			}
+			// XXX what's the payload here??
+			// log.Println(icmp.Payload)
 		}
 	}
-	// TODO extract ttl
-	// TODO extract time
+
+	interval := time.Duration(now - p.ts[int(icmp.Seq)])
+	rtt := float32(interval/time.Microsecond) / 1000
+	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
 	// TODO keep statistics
-	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=0", ip.SrcIP, icmp.Seq, ip.TTL)
-	// 'reply from %s: icmp_seq=%d ttl=%d time=%.1fms'
+
 	go p.updateStats()
 }
 
