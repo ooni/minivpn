@@ -2,3 +2,4 @@ minivpn
 *.swp
 *.swo
 *.pem
+Makefile
