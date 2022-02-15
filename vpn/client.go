@@ -63,7 +63,10 @@ func (c *Client) Run() {
 	c.initSt = ST_CONTROL_CHANNEL_OPEN
 
 	go func() {
-		// just to debug, this should get a signal on a channel from a SIGINT etc
+		// XXX just to debug for now,
+		// should implement a proper cancellable
+		// also catch SIGINT and call a shutdown method on the
+		// datahandler (so that they can print stats, etc)
 		time.Sleep(60 * time.Second)
 		c.Stop()
 	}()
@@ -131,6 +134,7 @@ func (c *Client) onKeyExchanged() {
 
 // I don't think I want to do much with the pushed options for now, other
 // than extracting the tunnel ip, but it can be useful to parse them into a map
+// and compare if there's a strong disagreement with the remote opts
 func (c *Client) onPush(data []byte) {
 	log.Println("Server pushed options")
 	c.initSt = ST_OPTIONS_PUSHED

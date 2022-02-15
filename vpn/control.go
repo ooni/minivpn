@@ -89,7 +89,7 @@ func (c *control) readHardReset(d []byte) int {
 }
 
 func (c *control) sendControlV1(data []byte) (n int, err error) {
-	// log.Printf("Sending CONTROL_V1 %08x (with %d bytes)...", c.localPID, len(data))
+	// log.Printf("DEBUG Sending CONTROL_V1 %08x (with %d bytes)...", c.localPID, len(data))
 	return c.sendControl(P_CONTROL_V1, 0, data)
 }
 
@@ -253,8 +253,9 @@ func (c *control) initTLS() bool {
 		MinVersion:         tls.VersionTLS12,
 		MaxVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true,
-		//CipherSuites: []uint16{
-		//	tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+		//CipherSuites:       []uint16{
+		//tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+		//DHE-RSA-AES128-SHA
 		//},
 	}
 

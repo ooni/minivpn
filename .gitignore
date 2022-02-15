@@ -3,3 +3,5 @@ minivpn
 *.swo
 *.pem
 Makefile
+config
+creds
