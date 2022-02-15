@@ -20,6 +20,20 @@ type Auth struct {
 	Pass string
 }
 
+func NewClientFromSettings(o *Options) *Client {
+	a := &Auth{
+		Ca:   o.ca,
+		Cert: o.cert,
+		Key:  o.key,
+	}
+	return &Client{
+		Host:  o.remote,
+		Port:  o.port,
+		Auth:  a,
+		Proto: "udp",
+	}
+}
+
 type Client struct {
 	Host        string
 	Port        string

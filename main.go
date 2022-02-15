@@ -33,14 +33,12 @@ func main() {
 	var c *vpn.Client
 
 	if *optConfig != "" {
-		_, err := vpn.ParseConfigFile(*optConfig)
+		opts, err := vpn.ParseConfigFile(*optConfig)
 		if err != nil {
-			fmt.Println("Initialization error: " + err.Error())
+			fmt.Println("fatal: " + err.Error())
 			os.Exit(1)
 		}
-		// XXX replace by getClientFromSettings(*optConfig)
-		panic("not implemented")
-
+		c = vpn.NewClientFromSettings(opts)
 	} else {
 		a = &vpn.Auth{
 			Ca:   *optCa,
@@ -49,8 +47,6 @@ func main() {
 		}
 
 		c = &vpn.Client{
-			// FIXME dns resolution
-			// FIXME ip validation
 			Host:  *optServer,
 			Port:  *optPort,
 			Proto: "udp",

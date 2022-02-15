@@ -9,6 +9,20 @@ import (
 	"strings"
 )
 
+var supportedCiphers = []string{
+	/* wishlist:
+	   TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
+	*/
+	"AES-128-CBC",
+}
+
+var supportedAuth = []string{
+	"SHA1",
+	/* wishlist:
+	   TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
+	*/
+}
+
 // i'm cutting some corners because serializing this is tedious
 const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client"
 
@@ -17,10 +31,13 @@ func getOptions() []byte {
 	return []byte(hardcodedOpts)
 }
 
-// not used right now! but the idea is to get configs from here later on if they're not explicitely specified
-var defaultSettings = map[string]interface{}{
+// not used right now! but the idea is to get configs from here later on if
+// they're not explicitely specified
+// and serialize  this directly if nothing else is provided
+
+var defaultOptions = map[string]interface{}{
 	"tls-client": true,
-	"cipher":     "BF-CBC",
+	"cipher":     "AES-128-CBC",
 	"auth":       "SHA1",
 	"dev-type":   "tun",
 	"link-mtu":   "1542",
@@ -31,19 +48,20 @@ var defaultSettings = map[string]interface{}{
 	"key-method": "2",
 }
 
-var supportedCiphers = []string{
-	"AES-128-CBC",
-}
-
-type Settings struct {
+type Options struct {
 	remote   string
 	port     string
-	cipher   string
 	username string
 	password string
+	ca       string
+	cert     string
+	key      string
+
+	cipher string
+	auth   string
 }
 
-func ParseConfigFile(filePath string) (*Settings, error) {
+func ParseConfigFile(filePath string) (*Options, error) {
 	lines, err := getLinesFromFile(filePath)
 	if err != nil {
 		return nil, err
@@ -51,8 +69,8 @@ func ParseConfigFile(filePath string) (*Settings, error) {
 	return getOptionsFromLines(lines)
 }
 
-func getOptionsFromLines(lines []string) (*Settings, error) {
-	s := &Settings{}
+func getOptionsFromLines(lines []string) (*Options, error) {
+	s := &Options{}
 
 	// TODO be more defensive
 	for _, l := range lines {
@@ -97,6 +115,30 @@ func getOptionsFromLines(lines []string) (*Settings, error) {
 				return nil, err
 			}
 			s.username, s.password = creds[0], creds[1]
+		case "ca":
+			if len(parts) != 1 || !existsFile(parts[0]) {
+				return nil, fmt.Errorf("ca expects a valid file")
+			}
+			s.ca = parts[0]
+		case "cert":
+			if len(parts) != 1 || !existsFile(parts[0]) {
+				return nil, fmt.Errorf("cert expects a valid file")
+			}
+			s.cert = parts[0]
+		case "key":
+			if len(parts) != 1 || !existsFile(parts[0]) {
+				return nil, fmt.Errorf("key expects a valid file")
+			}
+			s.key = parts[0]
+		case "auth":
+			if len(parts) != 1 {
+				return nil, fmt.Errorf("invalid auth entry")
+			}
+			auth := parts[0]
+			if !hasElement(auth, supportedAuth) {
+				return nil, fmt.Errorf("unsupported auth: %s", auth)
+			}
+			s.auth = auth
 		default:
 			log.Println("WARN unsupported key:", key)
 			continue
