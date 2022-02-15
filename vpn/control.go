@@ -3,17 +3,20 @@ package vpn
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"time"
 )
 
-func newControl(c net.Conn, k *keySource) *control {
+func newControl(c net.Conn, k *keySource, a *Auth) *control {
 	q := make(chan []byte)
 	tlsIn := make(chan []byte, 10)
 	return &control{
+		Auth:   a,
 		conn:   c,
 		queue:  q,
 		tlsIn:  tlsIn,
@@ -22,6 +25,7 @@ func newControl(c net.Conn, k *keySource) *control {
 }
 
 type control struct {
+	Auth       *Auth
 	RemoteID   []byte
 	SessionID  []byte
 	localPID   uint32
@@ -144,10 +148,14 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 
 // sends a control channel packet, not a P_CONTROL
 func (c *control) sendControlMessage() {
+	// TODO get user & pass from parsing auth-user-pass creds file
 	user := os.Getenv("VPN_USERNAME")
-	pass := os.Getenv("VPN_PASSWORD")
-	if len(user) == 0 || len(pass) == 0 {
-		log.Fatal("ERROR: Need VPN credentials to continue!")
+	pass := ""
+	if user != "" {
+		pass = os.Getenv("VPN_PASSWORD")
+		if len(pass) == 0 {
+			log.Fatal("ERROR: Need VPN credentials to continue!")
+		}
 	}
 	d := []byte{0x00, 0x00, 0x00, 0x00}
 	d = append(d, 0x02) // key method (2)
@@ -249,8 +257,27 @@ func (c *control) initTLS() bool {
 		//	tls.TLS_RSA_WITH_AES_128_CBC_SHA,
 		//},
 	}
+
+	// we assume a non-empty cert means we've got also a valid ca and key,
+	// but should check
+	if c.Auth.Cert != "" {
+		ca := x509.NewCertPool()
+		caData, err := ioutil.ReadFile(c.Auth.Ca)
+		if err != nil {
+			log.Fatal(err)
+		}
+		ca.AppendCertsFromPEM(caData)
+		cert, err := tls.LoadX509KeyPair(c.Auth.Key, c.Auth.Cert)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tlsConf.RootCAs = ca
+		tlsConf.Certificates = []tls.Certificate{cert}
+	}
+
 	bufReader := bytes.NewBuffer(nil)
 	udp := controlWrapper{control: c, bufReader: bufReader}
+
 	tlsConn := tls.Client(udp, tlsConf)
 	if err := tlsConn.Handshake(); err != nil {
 		log.Println("ERROR Invalid handshake:")

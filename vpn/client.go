@@ -12,11 +12,20 @@ type DataHandler interface {
 	Init()
 }
 
+type Auth struct {
+	Ca   string
+	Cert string
+	Key  string
+	User string
+	Pass string
+}
+
 type Client struct {
 	Host        string
 	Port        string
 	Proto       string
 	DataHandler DataHandler
+	Auth        *Auth
 
 	localKeySrc  *keySource
 	remoteKeySrc *keySource
@@ -34,7 +43,7 @@ func (c *Client) Run() {
 	conn, err := net.Dial(c.Proto, c.Host+":"+c.Port)
 	checkError(err)
 	c.con = conn
-	c.ctrl = newControl(conn, c.localKeySrc)
+	c.ctrl = newControl(conn, c.localKeySrc, c.Auth)
 	c.ctrl.initSession()
 	c.data = newData(c.localKeySrc, c.remoteKeySrc)
 	c.ctrl.addDataQueue(c.data.queue)
