@@ -10,12 +10,12 @@ import (
 )
 
 var supportedCiphers = []string{
-	// AES-128-GCM
-	// AES-192-GCM
-	// AES-256-GCM
 	"AES-128-CBC",
 	"AES-192-CBC",
 	"AES-256-CBC",
+	"AES-128-GCM",
+	"AES-192-GCM",
+	"AES-256-GCM",
 }
 
 var supportedAuth = []string{
@@ -44,7 +44,11 @@ func getHashLength(s string) int {
 }
 
 // i'm cutting some corners because serializing this is tedious
-const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client"
+// in any case... is this just informative, or what???
+// server doesn't seem to choke when I say one thing and do another.
+const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client,comp-lzo"
+
+// const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client"
 
 // TODO rename to getOptionsAsBytes
 func getOptions() []byte {
@@ -54,7 +58,6 @@ func getOptions() []byte {
 // not used right now! but the idea is to get configs from here later on if
 // they're not explicitely specified
 // and serialize  this directly if nothing else is provided
-
 var defaultOptions = map[string]interface{}{
 	"tls-client": true,
 	"cipher":     "AES-128-CBC",
@@ -94,6 +97,9 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 
 	// TODO be even more defensive
 	for _, l := range lines {
+		if strings.HasPrefix(l, "#") {
+			continue
+		}
 		p := strings.Split(l, " ")
 		if len(p) == 0 {
 			continue
@@ -165,7 +171,6 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 		}
 
 	}
-	log.Println("PARSED", s)
 	return s, nil
 }
 

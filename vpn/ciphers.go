@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/hex"
 	"fmt"
 	"hash"
 	"log"
@@ -16,8 +17,8 @@ type Cipher interface {
 	KeySizeBytes() int
 	IsAEAD() bool
 	BlockSize() int
-	Encrypt(key, iv, plaintext []byte) ([]byte, error)
-	Decrypt(key, iv, ciphertext []byte) ([]byte, error)
+	Encrypt(key, iv, plaintext, ad []byte) ([]byte, error)
+	Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error)
 }
 
 type AESCipher struct {
@@ -37,63 +38,97 @@ func (c *AESCipher) IsAEAD() bool {
 }
 
 func (c *AESCipher) BlockSize() int {
-	if c.mode == "cbc" {
+	if c.mode == "cbc" || c.mode == "gcm" {
 		return 16
 	}
 	return 0
 }
 
-func (c *AESCipher) Decrypt(key, iv, ciphertext []byte) ([]byte, error) {
+// data is optional, and only used in AEAD modes
+func (c *AESCipher) Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 	k := key[:c.KeySizeBytes()]
+
 	var block cipher.Block
 	block, err := aes.NewCipher(k)
 	if err != nil {
 		return nil, err
 	}
+
+	//var plaintext []byte
 	var mode cipher.BlockMode
+
 	switch c.mode {
 	case "cbc":
 		iv_ := iv[:block.BlockSize()]
 		mode = cipher.NewCBCDecrypter(block, iv_)
+		plaintext := make([]byte, len(ciphertext))
+		mode.CryptBlocks(plaintext, ciphertext)
+		plaintext = unpadText(plaintext)
+		padLen := len(ciphertext) - len(plaintext)
+		if padLen > block.BlockSize() || padLen > len(plaintext) {
+			log.Fatal("Padding error")
+		}
+		return plaintext, nil
 	case "gcm":
-		log.Fatal("not implemented")
-		// TODO
-		// mode = cipher.NewGCM(block)
+		aesGCM, err := cipher.NewGCM(block)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Println(">> GCM decrypt")
+		log.Println("iv", len(iv), "CT", len(ciphertext), "ad", len(ad))
+		log.Println("AD:", ad)
+		plaintext, err := aesGCM.Open(nil, iv, ciphertext, ad)
+		if err != nil {
+			log.Println(">>> decryption failed!")
+			return nil, err
+		}
+		return plaintext, nil
 	default:
-		log.Fatal("only CBC or GCM  modes allowed")
+		log.Fatal("only CBC or GCM modes allowed")
 	}
 
-	plaintext := make([]byte, len(ciphertext))
-	mode.CryptBlocks(plaintext, ciphertext)
-	plaintext = unpadText(plaintext)
-	padLen := len(ciphertext) - len(plaintext)
-	if padLen > block.BlockSize() || padLen > len(plaintext) {
-		log.Fatal("Padding error")
+	if c.mode == "cbc" {
 	}
-	return plaintext, nil
+	return nil, nil
 }
 
-func (c *AESCipher) Encrypt(key, iv, plaintext []byte) ([]byte, error) {
+// data is optional, and only used in AEAD modes
+func (c *AESCipher) Encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 	k := key[:c.KeySizeBytes()]
+	iv_ := iv[:c.BlockSize()]
+
 	var block cipher.Block
 	block, err := aes.NewCipher(k)
 	if err != nil {
 		return nil, err
 	}
+
+	var ciphertext []byte
 	var mode cipher.BlockMode
+
 	switch c.mode {
 	case "cbc":
-		iv_ := iv[:block.BlockSize()]
 		mode = cipher.NewCBCEncrypter(block, iv_)
+		ciphertext = make([]byte, len(plaintext))
+		mode.CryptBlocks(ciphertext, plaintext)
 	case "gcm":
-		log.Fatal("not implemented")
-		// TODO
-		// mode = cipher.NewGCM(block)
+		aesGCM, err := cipher.NewGCM(block)
+		if err != nil {
+			return nil, err
+		}
+		// in GCM mode, the iv consist of the 32-bit packet counter
+		// followed by data from the HMAC key. The HMAC key can be used
+		// as iv, since in GCM mode the HMAC key is not used for the
+		// HMAC. The packet counter may not roll over within a single
+		// TLS session. This results in a unique IV for each packet, as
+		// required by GCM.
+		ciphertext = aesGCM.Seal(nil, iv, plaintext, ad)
+		log.Println("PT->", hex.EncodeToString(plaintext))
+		log.Println("CT->", hex.EncodeToString(ciphertext))
 	default:
 		log.Fatal("only CBC or GCM  modes allowed")
 	}
-	ciphertext := make([]byte, len(plaintext))
-	mode.CryptBlocks(ciphertext, plaintext)
 	return ciphertext, nil
 }
 
@@ -105,6 +140,8 @@ func newCipherFromCipherSuite(c string) (Cipher, error) {
 		return newCipher("aes", 192, "cbc")
 	case "AES-256-CBC":
 		return newCipher("aes", 256, "cbc")
+	case "AES-128-GCM":
+		return newCipher("aes", 128, "gcm")
 	default:
 		break
 	}

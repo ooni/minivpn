@@ -3,6 +3,7 @@ package vpn
 import (
 	"crypto/hmac"
 	"encoding/binary"
+	"encoding/hex"
 	"hash"
 	"log"
 	"net"
@@ -104,19 +105,34 @@ func (d *data) loadCipherFromOptions() {
 
 func (d *data) encrypt(plaintext []byte) []byte {
 	bs := d.ciph.BlockSize()
-	//log.Printf("BLOCK SIZE -------------->%d\n", bs)
-
 	padded := padText(plaintext, bs)
+
 	if d.ciph.IsAEAD() {
-		// TODO GCM mode yeah
-		log.Fatal("error: aead cipher not implemented")
+		packetId := make([]byte, 4)
+		binary.BigEndian.PutUint32(packetId, d.localPacketId)
+		iv := append(packetId, d.hmacKeyLocal[:8]...)
+		log.Println(">>> sending iv:", iv)
+
+		ct, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded, packetId)
+		if err != nil {
+			log.Println("error:", err)
+			return []byte("")
+		}
+
+		// openvpn uses tag | payload
+		tag := ct[len(ct)-16:]
+		payload := ct[:len(ct)-16]
+
+		p := append(packetId, tag...)
+		p = append(p, payload...)
+		return p
 	}
 
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
 	iv, err := genRandomBytes(bs)
 	checkError(err)
-	ciphertext, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded)
+	ciphertext, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded, []byte(""))
 	checkError(err)
 
 	hashLength := getHashLength(strings.ToLower(d.auth))
@@ -132,8 +148,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 
 func (d *data) decrypt(encrypted []byte) []byte {
 	if d.ciph.IsAEAD() {
-		// TODO GCM mode
-		log.Fatal("error: aead cipher not implemented")
+		return d.decryptAEAD(encrypted)
 	}
 	return d.decryptV1(encrypted)
 }
@@ -157,23 +172,60 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 		log.Fatal("Cannot decrypt!")
 	}
 
-	plainText, err := d.ciph.Decrypt(d.cipherKeyRemote, iv, cipherText)
+	plainText, err := d.ciph.Decrypt(d.cipherKeyRemote, iv, cipherText, []byte(""))
 	if err != nil {
 		log.Fatal("Decryption error")
 	}
 	return plainText
 }
 
-func (d *data) decryptAEAD() {
-	// not implemented atm, implement when adding AES-CGM cipher
+func (d *data) decryptAEAD(dat []byte) []byte {
+	// Sample AES-GCM head:
+	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
+	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
+	//            [4-byte
+	//            IV head]
+	if len(dat) == 0 {
+		return []byte{}
+	}
+	recvHex := hex.EncodeToString(dat[:])
+	log.Println(recvHex)
+
+	packetId := dat[:4]
+	// for some reason that I don't understand, this is not properly parsed
+	// as bytes... the tag gets mangled. but it's good if I convert it to hex and back...
+	tagH := recvHex[8:40]
+	ctH := recvHex[40:]
+
+	iv := append(packetId, d.hmacKeyRemote[:8]...)
+
+	log.Println("ad", hex.EncodeToString(packetId)) // OK
+	log.Println("iv", hex.EncodeToString(iv))       // OK
+	log.Println("tag", tagH)                        //??
+	log.Println("ct", ctH, tagH)                    //??
+
+	ct, _ := hex.DecodeString(ctH)
+	tag, _ := hex.DecodeString(tagH)
+	reconstructed := append(ct, tag...)
+	plaintext, err := d.ciph.Decrypt(d.cipherKeyRemote, iv, reconstructed, packetId)
+
+	if err != nil {
+		log.Println("error", err.Error())
+		return []byte{}
+	}
+	return plaintext
 }
 
 func (d *data) send(payload []byte) {
-	d.localPacketId += 1
 	// log.Println("sending", len(payload), "bytes...")
-	packetId := make([]byte, 4)
-	binary.BigEndian.PutUint32(packetId, d.localPacketId)
-	plaintext := append(packetId, 0xfa) // no compression
+	d.localPacketId += 1
+	plaintext := []byte("")
+	if !d.ciph.IsAEAD() {
+		packetId := make([]byte, 4)
+		binary.BigEndian.PutUint32(packetId, d.localPacketId)
+		plaintext = packetId[:]
+	}
+	plaintext = append(plaintext, 0xfa) // no compression
 	plaintext = append(plaintext, payload...)
 	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
 	d.conn.Write(buf)
@@ -185,6 +237,11 @@ func (d *data) handleIn(packet []byte) {
 	}
 	data := packet[1:]
 	plaintext := d.decrypt(data)
+	if len(plaintext) == 0 {
+		log.Println("could not decrypt, skipped")
+		return
+	}
+	// TODO handle AEAD!!
 	packetId := binary.BigEndian.Uint32(plaintext[:4])
 	if int(packetId) <= int(d.remotePacketId) {
 		log.Fatal("Replay attack detected, aborting!")
