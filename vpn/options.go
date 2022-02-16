@@ -10,17 +10,21 @@ import (
 )
 
 var supportedCiphers = []string{
-	/* wishlist:
-	   TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
-	*/
+	// AES-128-GCM
+	// AES-256-GCM
+	"AES-256-CBC",
 	"AES-128-CBC",
 }
 
 var supportedAuth = []string{
+	// SHA256
 	"SHA1",
-	/* wishlist:
-	   TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
-	*/
+}
+
+var supportedTLSCipher = []string{
+	// DHE-RSA-AES128-SHA -> riseup legacy; this is problematic
+	// TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
+	// TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
 }
 
 // i'm cutting some corners because serializing this is tedious
@@ -72,7 +76,7 @@ func ParseConfigFile(filePath string) (*Options, error) {
 func getOptionsFromLines(lines []string) (*Options, error) {
 	s := &Options{}
 
-	// TODO be more defensive
+	// TODO be even more defensive
 	for _, l := range lines {
 		p := strings.Split(l, " ")
 		if len(p) == 0 {
@@ -106,6 +110,15 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 				return nil, fmt.Errorf("unsupported cipher: %s", cipher)
 			}
 			s.cipher = cipher
+		case "auth":
+			if len(parts) != 1 {
+				return nil, fmt.Errorf("invalid auth entry")
+			}
+			auth := parts[0]
+			if !hasElement(auth, supportedAuth) {
+				return nil, fmt.Errorf("unsupported auth: %s", auth)
+			}
+			s.auth = auth
 		case "auth-user-pass":
 			if len(parts) != 1 || !existsFile(parts[0]) {
 				return nil, fmt.Errorf("auth-user-pass expects a valid file")
@@ -130,15 +143,6 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 				return nil, fmt.Errorf("key expects a valid file")
 			}
 			s.key = parts[0]
-		case "auth":
-			if len(parts) != 1 {
-				return nil, fmt.Errorf("invalid auth entry")
-			}
-			auth := parts[0]
-			if !hasElement(auth, supportedAuth) {
-				return nil, fmt.Errorf("unsupported auth: %s", auth)
-			}
-			s.auth = auth
 		default:
 			log.Println("WARN unsupported key:", key)
 			continue

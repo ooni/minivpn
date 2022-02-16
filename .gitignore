@@ -2,6 +2,7 @@ minivpn
 *.swp
 *.swo
 *.pem
+*.ovpn
 Makefile
 config
 creds

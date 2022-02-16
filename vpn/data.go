@@ -6,22 +6,25 @@ import (
 	"hash"
 	"log"
 	"net"
+	"strings"
 )
 
 func getPingData() []byte {
 	return []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
 }
 
-func newData(local, remote *keySource) *data {
+func newData(local, remote *keySource, cipher, auth string) *data {
 	q := make(chan []byte, 10)
 	dq := make(chan []byte, 20)
-	return &data{queue: q, dataQueue: dq, localKeySource: local, remoteKeySource: remote,
+	return &data{cipher: cipher, auth: auth, queue: q, dataQueue: dq, localKeySource: local, remoteKeySource: remote,
 		remoteID: []byte{}, sessionID: []byte{}, cipherKeyLocal: []byte{}, cipherKeyRemote: []byte{},
 		hmacKeyLocal: []byte{}, hmacKeyRemote: []byte{}, localPacketId: 0, remotePacketId: 0,
-		conn: nil, cipher: nil}
+		conn: nil, ciph: nil}
 }
 
 type data struct {
+	cipher          string
+	auth            string
 	queue           chan []byte
 	dataQueue       chan []byte
 	localKeySource  *keySource
@@ -36,10 +39,7 @@ type data struct {
 	remotePacketId  uint32
 	conn            net.Conn
 
-	cipher Cipher
-	// for now, just the sha1.New function
-	// that needs to be initialized as:
-	// hmac.New(hash, secret)
+	ciph Cipher
 	hmac func() hash.Hash
 }
 
@@ -61,7 +61,7 @@ func (d *data) initSession(c *control) {
 	d.remoteID = c.RemoteID
 	d.sessionID = c.SessionID
 	d.conn = c.conn
-	d.loadSettings()
+	d.loadCipherFromOptions()
 	go d.processIncoming()
 }
 
@@ -91,25 +91,30 @@ func (d *data) setup() {
 	log.Printf("Hmac key remote:   %x\n", d.hmacKeyRemote)
 }
 
-func (d *data) loadSettings() {
-	// log.Println("Loading settings...")
-	// XXX  hardcoded for now, need to parse settings and load the needed cipher/hmac combination
-	d.cipher, _ = newCipher("aes", 128, "cbc")
-	d.hmac = getHMAC("sha1")
+func (d *data) loadCipherFromOptions() {
+	c, err := newCipherFromCipherSuite(d.cipher)
+	if err != nil {
+		log.Fatal("bad cipher")
+	}
+	d.ciph = c
+	d.hmac = getHMAC(strings.ToLower(d.auth))
 }
 
 func (d *data) encrypt(plaintext []byte) []byte {
-	bs := d.cipher.BlockSize()
+	bs := d.ciph.BlockSize()
+	//log.Printf("BLOCK SIZE -------------->%d\n", bs)
+
 	padded := padText(plaintext, bs)
-	if d.cipher.IsAEAD() {
-		log.Fatal("aead cipher not implemented")
+	if d.ciph.IsAEAD() {
+		// TODO GCM mode yeah
+		log.Fatal("error: aead cipher not implemented")
 	}
 
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
 	iv, err := genRandomBytes(bs)
 	checkError(err)
-	ciphertext, err := d.cipher.Encrypt(d.cipherKeyLocal, iv, padded)
+	ciphertext, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded)
 	checkError(err)
 
 	// XXX hardcoded for sha1, should add to a hash interface when I make this selectable
@@ -125,8 +130,9 @@ func (d *data) encrypt(plaintext []byte) []byte {
 }
 
 func (d *data) decrypt(encrypted []byte) []byte {
-	if d.cipher.IsAEAD() {
-		log.Fatal("aead cipher not implemented")
+	if d.ciph.IsAEAD() {
+		// TODO GCM mode
+		log.Fatal("error: aead cipher not implemented")
 	}
 	return d.decryptV1(encrypted)
 }
@@ -137,7 +143,7 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 	}
 	// XXX hardcoded for sha1, should add to a hash interface when I make this selectable
 	hashLength := 20
-	bs := d.cipher.BlockSize()
+	bs := d.ciph.BlockSize()
 	recvMAC := encrypted[:hashLength]
 	iv := encrypted[hashLength : hashLength+bs]
 	cipherText := encrypted[hashLength+bs:]
@@ -151,7 +157,7 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 		log.Fatal("Cannot decrypt!")
 	}
 
-	plainText, err := d.cipher.Decrypt(d.cipherKeyRemote, iv, cipherText)
+	plainText, err := d.ciph.Decrypt(d.cipherKeyRemote, iv, cipherText)
 	if err != nil {
 		log.Fatal("Decryption error")
 	}

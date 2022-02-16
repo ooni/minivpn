@@ -5,14 +5,17 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
 	"fmt"
 	"hash"
 	"log"
 )
 
 type Cipher interface {
-	BlockSize() int
+	KeySizeBytes() int
 	IsAEAD() bool
+	BlockSize() int
 	Encrypt(key, iv, plaintext []byte) ([]byte, error)
 	Decrypt(key, iv, ciphertext []byte) ([]byte, error)
 }
@@ -22,51 +25,89 @@ type AESCipher struct {
 	mode        string
 }
 
-func (c *AESCipher) BlockSize() int {
+func (c *AESCipher) KeySizeBytes() int {
 	return c.keySizeBits / 8
 }
 
 func (c *AESCipher) IsAEAD() bool {
-	return false
+	if c.mode == "cbc" {
+		return false
+	}
+	return true
+}
+
+func (c *AESCipher) BlockSize() int {
+	if c.mode == "cbc" {
+		return 16
+	}
+	return 0
 }
 
 func (c *AESCipher) Decrypt(key, iv, ciphertext []byte) ([]byte, error) {
-	k := key[:c.BlockSize()]
+	k := key[:c.KeySizeBytes()]
 	var block cipher.Block
 	block, err := aes.NewCipher(k)
 	if err != nil {
 		return nil, err
 	}
 	var mode cipher.BlockMode
-	if c.mode != "cbc" {
-		log.Fatal("no other modes implemented now")
+	switch c.mode {
+	case "cbc":
+		iv_ := iv[:block.BlockSize()]
+		mode = cipher.NewCBCDecrypter(block, iv_)
+	case "gcm":
+		log.Fatal("not implemented")
+		// TODO
+		// mode = cipher.NewGCM(block)
+	default:
+		log.Fatal("only CBC or GCM  modes allowed")
 	}
-	mode = cipher.NewCBCDecrypter(block, iv)
+
 	plaintext := make([]byte, len(ciphertext))
 	mode.CryptBlocks(plaintext, ciphertext)
 	plaintext = unpadText(plaintext)
 	padLen := len(ciphertext) - len(plaintext)
-	if padLen > c.BlockSize() || padLen > len(plaintext) {
+	if padLen > block.BlockSize() || padLen > len(plaintext) {
 		log.Fatal("Padding error")
 	}
 	return plaintext, nil
 }
 
 func (c *AESCipher) Encrypt(key, iv, plaintext []byte) ([]byte, error) {
-	k := key[:c.BlockSize()]
+	k := key[:c.KeySizeBytes()]
 	var block cipher.Block
 	block, err := aes.NewCipher(k)
 	if err != nil {
 		return nil, err
 	}
 	var mode cipher.BlockMode
-	if c.mode != "cbc" {
-		log.Fatal("no other modes implemented now")
+	switch c.mode {
+	case "cbc":
+		iv_ := iv[:block.BlockSize()]
+		mode = cipher.NewCBCEncrypter(block, iv_)
+	case "gcm":
+		log.Fatal("not implemented")
+		// TODO
+		// mode = cipher.NewGCM(block)
+	default:
+		log.Fatal("only CBC or GCM  modes allowed")
 	}
-	mode = cipher.NewCBCEncrypter(block, iv)
 	ciphertext := make([]byte, len(plaintext))
 	mode.CryptBlocks(ciphertext, plaintext)
 	return ciphertext, nil
+}
+
+func newCipherFromCipherSuite(c string) (Cipher, error) {
+	log.Println("Getting cipher:", c)
+	switch c {
+	case "AES-128-CBC":
+		return newCipher("aes", 128, "cbc")
+	case "AES-256-CBC":
+		return newCipher("aes", 256, "cbc")
+	default:
+		break
+	}
+	return nil, fmt.Errorf("unsupported cipher")
 }
 
 func newCipher(name string, bits int, mode string) (Cipher, error) {
@@ -82,6 +123,8 @@ func newCipher(name string, bits int, mode string) (Cipher, error) {
 	switch mode {
 	case "cbc":
 		break
+	case "gcm":
+		break
 	default:
 		return nil, fmt.Errorf("unsupported mode: %s", mode)
 	}
@@ -92,6 +135,10 @@ func getHMAC(name string) func() hash.Hash {
 	switch name {
 	case "sha1":
 		return sha1.New
+	case "sha256":
+		return sha256.New
+	case "sha512":
+		return sha512.New
 	default:
 		return nil
 	}

@@ -9,7 +9,7 @@ GPLv3
 ## OpenVPN Compatibility
 
 * Mode: Only `tls-client`.
-* Ciphers: `AES-CBC-128`.
+* Ciphers: `AES-128-CBC`, `AES-256-CBC`.
 * Protocol: Only `UDPv4`.
 * HMAC: Only `SHA1`.
 * Compression: `none`.

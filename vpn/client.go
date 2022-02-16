@@ -27,20 +27,24 @@ func NewClientFromSettings(o *Options) *Client {
 		Key:  o.key,
 	}
 	return &Client{
-		Host:  o.remote,
-		Port:  o.port,
-		Auth:  a,
-		Proto: "udp",
+		Host:    o.remote,
+		Port:    o.port,
+		Auth:    a,
+		Proto:   "udp",
+		Options: o,
 	}
 }
 
 type Client struct {
-	Host        string
-	Port        string
-	Proto       string
 	DataHandler DataHandler
-	Auth        *Auth
 
+	// TODO remove, if I'm passing pointer to options
+	Host  string
+	Port  string
+	Proto string
+	Auth  *Auth
+	// ------------------------------------------
+	Options      *Options
 	localKeySrc  *keySource
 	remoteKeySrc *keySource
 	running      bool
@@ -59,7 +63,7 @@ func (c *Client) Run() {
 	c.con = conn
 	c.ctrl = newControl(conn, c.localKeySrc, c.Auth)
 	c.ctrl.initSession()
-	c.data = newData(c.localKeySrc, c.remoteKeySrc)
+	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Options.cipher, c.Options.auth)
 	c.ctrl.addDataQueue(c.data.queue)
 	c.ctrl.sendHardReset()
 	id := c.ctrl.readHardReset(c.recv(0))
