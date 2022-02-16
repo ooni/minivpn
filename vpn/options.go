@@ -11,20 +11,36 @@ import (
 
 var supportedCiphers = []string{
 	// AES-128-GCM
+	// AES-192-GCM
 	// AES-256-GCM
-	"AES-256-CBC",
 	"AES-128-CBC",
+	"AES-192-CBC",
+	"AES-256-CBC",
 }
 
 var supportedAuth = []string{
-	// SHA256
 	"SHA1",
+	"SHA256",
+	"SHA512",
 }
 
 var supportedTLSCipher = []string{
-	// DHE-RSA-AES128-SHA -> riseup legacy; this is problematic
+	// DHE-RSA-AES128-SHA -> riseup legacy; this is problematic because go
+	// tls doesn't implement finite DH.
 	// TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
 	// TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
+}
+
+func getHashLength(s string) int {
+	switch s {
+	case "sha1":
+		return 20
+	case "sha256":
+		return 32
+	case "sha512":
+		return 64
+	}
+	return 0
 }
 
 // i'm cutting some corners because serializing this is tedious

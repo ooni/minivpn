@@ -9,9 +9,9 @@ GPLv3
 ## OpenVPN Compatibility
 
 * Mode: Only `tls-client`.
-* Ciphers: `AES-128-CBC`, `AES-256-CBC`.
 * Protocol: Only `UDPv4`.
-* HMAC: Only `SHA1`.
+* Ciphers: `AES-128-CBC`, `AES-256-CBC`.
+* HMAC: `SHA1`, `SHA256`, `SHA512`.
 * Compression: `none`.
 * tls-auth: `TODO`.
 
@@ -20,5 +20,4 @@ GPLv3
 Big thanks to:
 
 * https://git.packetimpact.net/lvpn/ppyopenvpn
-* https://github.com/ibrahimnasson/pyopenvpn
 * https://github.com/roburio/openvpn

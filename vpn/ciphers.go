@@ -98,10 +98,11 @@ func (c *AESCipher) Encrypt(key, iv, plaintext []byte) ([]byte, error) {
 }
 
 func newCipherFromCipherSuite(c string) (Cipher, error) {
-	log.Println("Getting cipher:", c)
 	switch c {
 	case "AES-128-CBC":
 		return newCipher("aes", 128, "cbc")
+	case "AES-192-CBC":
+		return newCipher("aes", 192, "cbc")
 	case "AES-256-CBC":
 		return newCipher("aes", 256, "cbc")
 	default:

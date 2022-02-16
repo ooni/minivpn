@@ -92,11 +92,13 @@ func (d *data) setup() {
 }
 
 func (d *data) loadCipherFromOptions() {
+	log.Println("Setting cipher:", d.cipher)
 	c, err := newCipherFromCipherSuite(d.cipher)
 	if err != nil {
 		log.Fatal("bad cipher")
 	}
 	d.ciph = c
+	log.Println("Setting auth:", d.auth)
 	d.hmac = getHMAC(strings.ToLower(d.auth))
 }
 
@@ -117,8 +119,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 	ciphertext, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded)
 	checkError(err)
 
-	// XXX hardcoded for sha1, should add to a hash interface when I make this selectable
-	hashLength := 20
+	hashLength := getHashLength(strings.ToLower(d.auth))
 	key := d.hmacKeyLocal[:hashLength]
 	mac := hmac.New(d.hmac, key)
 	mac.Write(append(iv, ciphertext...))
@@ -141,8 +142,7 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 	if len(encrypted) < 28 {
 		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
 	}
-	// XXX hardcoded for sha1, should add to a hash interface when I make this selectable
-	hashLength := 20
+	hashLength := getHashLength(strings.ToLower(d.auth))
 	bs := d.ciph.BlockSize()
 	recvMAC := encrypted[:hashLength]
 	iv := encrypted[hashLength : hashLength+bs]
