@@ -111,7 +111,6 @@ func (d *data) encrypt(plaintext []byte) []byte {
 		packetId := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetId, d.localPacketId)
 		iv := append(packetId, d.hmacKeyLocal[:8]...)
-		log.Println(">>> sending iv:", iv)
 
 		ct, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded, packetId)
 		if err != nil {
@@ -180,7 +179,7 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 }
 
 func (d *data) decryptAEAD(dat []byte) []byte {
-	// Sample AES-GCM head:
+	// Sample AES-GCM head: (V2 though)
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
 	//            [4-byte
@@ -188,22 +187,15 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 	if len(dat) == 0 {
 		return []byte{}
 	}
-	recvHex := hex.EncodeToString(dat[:])
-	log.Println(recvHex)
-
 	packetId := dat[:4]
+	// weird sorcery:
 	// for some reason that I don't understand, this is not properly parsed
 	// as bytes... the tag gets mangled. but it's good if I convert it to hex and back...
+	recvHex := hex.EncodeToString(dat[:])
 	tagH := recvHex[8:40]
 	ctH := recvHex[40:]
 
 	iv := append(packetId, d.hmacKeyRemote[:8]...)
-
-	log.Println("ad", hex.EncodeToString(packetId)) // OK
-	log.Println("iv", hex.EncodeToString(iv))       // OK
-	log.Println("tag", tagH)                        //??
-	log.Println("ct", ctH, tagH)                    //??
-
 	ct, _ := hex.DecodeString(ctH)
 	tag, _ := hex.DecodeString(tagH)
 	reconstructed := append(ct, tag...)
@@ -241,18 +233,25 @@ func (d *data) handleIn(packet []byte) {
 		log.Println("could not decrypt, skipped")
 		return
 	}
-	// TODO handle AEAD!!
-	packetId := binary.BigEndian.Uint32(plaintext[:4])
-	if int(packetId) <= int(d.remotePacketId) {
-		log.Fatal("Replay attack detected, aborting!")
+
+	var compression byte
+	var payload []byte
+	if d.ciph.IsAEAD() {
+		compression = plaintext[0]
+		payload = plaintext[1:]
+	} else {
+		packetId := binary.BigEndian.Uint32(plaintext[:4])
+		if int(packetId) <= int(d.remotePacketId) {
+			log.Fatal("Replay attack detected, aborting!")
+		}
+		d.remotePacketId = packetId
+		compression = plaintext[4]
+		payload = plaintext[5:]
 	}
-	d.remotePacketId = packetId
-	compression := plaintext[4]
 	// http://build.openvpn.net/doxygen/html/comp_8h_source.html
 	if compression != 0xfa {
 		log.Fatal("no compression supported")
 	}
-	payload := plaintext[5:]
 	if areBytesEqual(payload, getPingData()) {
 		log.Println("openvpn-ping, sending reply")
 		d.send(getPingData())

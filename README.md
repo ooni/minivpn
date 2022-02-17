@@ -10,7 +10,7 @@ GPLv3
 
 * Mode: Only `tls-client`.
 * Protocol: Only `UDPv4`.
-* Ciphers: `AES-128-CBC`, `AES-256-CBC`.
+* Ciphers: `AES-128-CBC`, `AES-256-CBC`, `AES-128-GCM`.
 * HMAC: `SHA1`, `SHA256`, `SHA512`.
 * Compression: `none`.
 * tls-auth: `TODO`.

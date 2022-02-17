@@ -7,7 +7,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/hex"
 	"fmt"
 	"hash"
 	"log"
@@ -74,13 +73,9 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		log.Println(">> GCM decrypt")
-		log.Println("iv", len(iv), "CT", len(ciphertext), "ad", len(ad))
-		log.Println("AD:", ad)
 		plaintext, err := aesGCM.Open(nil, iv, ciphertext, ad)
 		if err != nil {
-			log.Println(">>> decryption failed!")
+			log.Println("decryption failed!")
 			return nil, err
 		}
 		return plaintext, nil
@@ -124,8 +119,6 @@ func (c *AESCipher) Encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 		// TLS session. This results in a unique IV for each packet, as
 		// required by GCM.
 		ciphertext = aesGCM.Seal(nil, iv, plaintext, ad)
-		log.Println("PT->", hex.EncodeToString(plaintext))
-		log.Println("CT->", hex.EncodeToString(ciphertext))
 	default:
 		log.Fatal("only CBC or GCM  modes allowed")
 	}
