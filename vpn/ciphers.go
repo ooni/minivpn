@@ -135,6 +135,8 @@ func newCipherFromCipherSuite(c string) (Cipher, error) {
 		return newCipher("aes", 256, "cbc")
 	case "AES-128-GCM":
 		return newCipher("aes", 128, "gcm")
+	case "AES-256-GCM":
+		return newCipher("aes", 256, "gcm")
 	default:
 		break
 	}

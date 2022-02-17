@@ -268,7 +268,7 @@ func (c *control) initTLS() bool {
 			log.Fatal(err)
 		}
 		ca.AppendCertsFromPEM(caData)
-		cert, err := tls.LoadX509KeyPair(c.Auth.Key, c.Auth.Cert)
+		cert, err := tls.LoadX509KeyPair(c.Auth.Cert, c.Auth.Key)
 		if err != nil {
 			log.Fatal(err)
 		}
