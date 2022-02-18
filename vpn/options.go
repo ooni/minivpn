@@ -170,6 +170,10 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 				return nil, fmt.Errorf("key expects a valid file")
 			}
 			s.key = parts[0]
+		case "allow-compression":
+			if len(parts) == 0 || parts[0] != "no" {
+				return nil, fmt.Errorf("no compression supported")
+			}
 		default:
 			log.Println("WARN unsupported key:", key)
 			continue
