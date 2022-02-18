@@ -2,11 +2,61 @@ package vpn
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"io/ioutil"
 	"log"
 	"net"
 	"sync"
 	"time"
 )
+
+// initTLS is part of the control channel
+func (c *control) initTLS() bool {
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS12,
+		// I need to specify this for my test endpoint, for some reason doesn't know how to negotiate tls max.
+		//MaxVersion:         tls.VersionTLS12,
+		//TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		},
+		//tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+		//DHE-RSA-AES128-SHA
+		//},
+		//calyx:
+	}
+
+	// we assume a non-empty cert means we've got also a valid ca and key,
+	// but should check
+	if c.Auth.Cert != "" {
+		ca := x509.NewCertPool()
+		caData, err := ioutil.ReadFile(c.Auth.Ca)
+		if err != nil {
+			log.Fatal(err)
+		}
+		ca.AppendCertsFromPEM(caData)
+		cert, err := tls.LoadX509KeyPair(c.Auth.Cert, c.Auth.Key)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tlsConf.RootCAs = ca
+		tlsConf.Certificates = []tls.Certificate{cert}
+	}
+
+	bufReader := bytes.NewBuffer(nil)
+	udp := controlWrapper{control: c, bufReader: bufReader}
+
+	tlsConn := tls.Client(udp, tlsConf)
+	if err := tlsConn.Handshake(); err != nil {
+		log.Println("ERROR Invalid handshake:")
+		log.Fatal(err)
+	}
+	log.Println("Handshake done!")
+	c.tls = net.Conn(tlsConn)
+	return true
+}
 
 // this wrapper allows TLS Handshake to send its records
 // as part of one openvpn CONTROL_V1 packet

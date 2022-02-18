@@ -1,11 +1,7 @@
 package vpn
 
 import (
-	"bytes"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/binary"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -246,45 +242,4 @@ func (c *control) handleIn(data []byte) {
 		c.sendAck(uint32(pid))
 		c.tlsIn <- payload
 	}
-}
-
-func (c *control) initTLS() bool {
-	tlsConf := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		MaxVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: true,
-		//CipherSuites:       []uint16{
-		//tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-		//DHE-RSA-AES128-SHA
-		//},
-	}
-
-	// we assume a non-empty cert means we've got also a valid ca and key,
-	// but should check
-	if c.Auth.Cert != "" {
-		ca := x509.NewCertPool()
-		caData, err := ioutil.ReadFile(c.Auth.Ca)
-		if err != nil {
-			log.Fatal(err)
-		}
-		ca.AppendCertsFromPEM(caData)
-		cert, err := tls.LoadX509KeyPair(c.Auth.Cert, c.Auth.Key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		tlsConf.RootCAs = ca
-		tlsConf.Certificates = []tls.Certificate{cert}
-	}
-
-	bufReader := bytes.NewBuffer(nil)
-	udp := controlWrapper{control: c, bufReader: bufReader}
-
-	tlsConn := tls.Client(udp, tlsConf)
-	if err := tlsConn.Handshake(); err != nil {
-		log.Println("ERROR Invalid handshake:")
-		log.Fatal(err)
-	}
-	log.Println("Handshake done!")
-	c.tls = net.Conn(tlsConn)
-	return true
 }

@@ -46,7 +46,12 @@ func getHashLength(s string) int {
 // i'm cutting some corners because serializing this is tedious
 // in any case... is this just informative, or what???
 // server doesn't seem to choke when I say one thing and do another.
+
+// this works against my primary test endpoint
 const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client,comp-lzo"
+
+// i'm debuggin this one for calyx
+// const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-256-GCM,auth SHA256,keysize 128,key-method 2,tls-client"
 
 // const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client"
 

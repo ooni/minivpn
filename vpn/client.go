@@ -194,7 +194,8 @@ func (c *Client) handleTLSIncoming() {
 		}
 		badauth := []byte("AUTH_FAILED")
 		if areBytesEqual(data[:len(badauth)], badauth) {
-			log.Fatal("Auth failed")
+			log.Println(string(data))
+			log.Fatal("Aborting")
 			return
 		}
 		log.Println("I DONT KNOW THAT TO DO WITH THIS")

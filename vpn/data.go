@@ -250,7 +250,7 @@ func (d *data) handleIn(packet []byte) {
 	}
 	// http://build.openvpn.net/doxygen/html/comp_8h_source.html
 	if compression != 0xfa {
-		log.Fatal("no compression supported")
+		log.Println("WARN no compression supported")
 	}
 	if areBytesEqual(payload, getPingData()) {
 		log.Println("openvpn-ping, sending reply")
