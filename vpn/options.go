@@ -24,6 +24,8 @@ var supportedAuth = []string{
 	"SHA512",
 }
 
+// TODO this should inform the selection of ciphers in initTLS,
+// but need to check the options too.
 var supportedTLSCipher = []string{
 	// DHE-RSA-AES128-SHA -> riseup legacy; this is problematic because go
 	// tls doesn't implement finite DH.
@@ -48,10 +50,10 @@ func getHashLength(s string) int {
 // server doesn't seem to choke when I say one thing and do another.
 
 // this works against my primary test endpoint
-const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client,comp-lzo"
+// const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client,comp-lzo"
 
 // i'm debuggin this one for calyx
-// const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-256-GCM,auth SHA256,keysize 128,key-method 2,tls-client"
+const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-256-GCM,auth SHA256,keysize 128,key-method 2,tls-client,allow compression no"
 
 // const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client"
 
