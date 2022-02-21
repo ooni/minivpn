@@ -53,11 +53,14 @@ func getOptionsAsBytes() []byte {
 	// FIXME testing hack - this needs to be a method on Options
 	o := string(hardcodedOpts)
 	if os.Getenv("COMP_STUB") == "1" {
-		o = o + ",compress"
-	} else {
+		o = o + ",compress stub"
+	} else if os.Getenv("NOLZO_COMP") == "1" {
 		o = o + ",lzo-comp no"
+	} else {
+		//nothing
 	}
-	return []byte(hardcodedOpts)
+	log.Println("Local opts: ", o)
+	return []byte(o)
 }
 
 // not used right now! but the idea is to get configs from here later on if

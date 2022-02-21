@@ -7,6 +7,7 @@ import (
 	"hash"
 	"log"
 	"net"
+	"os"
 	"strings"
 )
 
@@ -17,10 +18,15 @@ func getPingData() []byte {
 func newData(local, remote *keySource, cipher, auth string) *data {
 	q := make(chan []byte, 10)
 	dq := make(chan []byte, 20)
-	return &data{cipher: cipher, auth: auth, queue: q, dataQueue: dq, localKeySource: local, remoteKeySource: remote,
+	d := &data{cipher: cipher, auth: auth, queue: q, dataQueue: dq, localKeySource: local, remoteKeySource: remote,
 		remoteID: []byte{}, sessionID: []byte{}, cipherKeyLocal: []byte{}, cipherKeyRemote: []byte{},
 		hmacKeyLocal: []byte{}, hmacKeyRemote: []byte{}, localPacketId: 0, remotePacketId: 0,
-		conn: nil, ciph: nil, compr: "stub"}
+		conn: nil, ciph: nil}
+	// FIXME get this from config file instead
+	if os.Getenv("COMP_STUB") == "1" {
+		d.compr = "stub"
+	}
+	return d
 }
 
 type data struct {
@@ -238,9 +244,11 @@ func (d *data) send(payload []byte) {
 		// compress
 		plaintext = append(plaintext, plaintext[0])
 		plaintext[0] = 0xfb
-	} else {
+	} else if d.compr == "lzo-no" {
 		// this is the case for the old "comp-lzo no"
 		plaintext = append([]byte{0xfa}, plaintext...) // no compression
+	} else {
+		// just nothing
 	}
 
 	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
@@ -261,35 +269,61 @@ func (d *data) handleIn(packet []byte) {
 	var compression byte
 	var payload []byte
 	if d.ciph.IsAEAD() {
-		// XXX is this the case for comp-lzo, compress and allow-compression?
-		// i'm afraid not:
-		// Note: the stub (or empty) option is NOT compatible with the older option --comp-lzo no
-		compression = plaintext[0]
-		payload = plaintext[1:]
+		if d.compr == "stub" || d.compr == "lzo-no" {
+			compression = plaintext[0]
+			payload = plaintext[1:]
+		} else {
+			compression = 0x00
+			payload = plaintext[:]
+		}
 	} else {
 		packetId := binary.BigEndian.Uint32(plaintext[:4])
 		if int(packetId) <= int(d.remotePacketId) {
 			log.Fatal("Replay attack detected, aborting!")
 		}
+		// TODO for CBC mode the compression might need work...
 		d.remotePacketId = packetId
 		compression = plaintext[4]
 		payload = plaintext[5:]
 	}
-	// this "no compression" works for the old "comp-lzo no", that is deprecated.
-	// http://build.openvpn.net/doxygen/comp_8h_source.html
-	// see: https://community.openvpn.net/openvpn/ticket/952#comment:5
-	if compression == 0xfa {
+	if compression == 0x00 {
+		// all good, no need to do anything else
+	} else if compression == 0xfa {
 		// do nothing, this is the old no compression
 		// or comp-lzo no case.
+		// http://build.openvpn.net/doxygen/comp_8h_source.html
+		// see: https://community.openvpn.net/openvpn/ticket/952#comment:5
 	} else if compression == 0xfb {
-		// compression stub: get the last byte and replace the compression byte
+		// compression stub swap:
+		// we get the last byte and replace the compression byte
 		end := payload[len(payload)-1]
 		b := payload[:len(payload)-1]
 		payload = append([]byte{end}, b...)
+		/*
+			} else if compression == 0x45 {
+				log.Println("DEBUG (lz4)")
+				log.Println(hex.EncodeToString(payload))
+
+				end := payload[len(payload)-1]
+				b := payload[:len(payload)-1]
+				payload = append([]byte{end}, b...)
+				log.Println(hex.EncodeToString(payload))
+
+				decompr := make([]byte, len(payload)*20)
+				l, err := lz4.UncompressBlock(payload, decompr)
+				if err != nil {
+					log.Println("lz4 error:", err.Error())
+					return
+				}
+				payload = decompr[:l]
+				log.Println("payload:", payload)
+			} else if compression == 0x2a {
+				log.Println("LZO compression 0x2a not supported")
+		*/
 	} else {
-		log.Println("WARN no compression supported:", hex.EncodeToString([]byte{compression}))
-		log.Println("next byte:", hex.EncodeToString([]byte{plaintext[1]}))
+		log.Printf("WARN no compression supported: %x %d\n", compression, compression)
 	}
+
 	if areBytesEqual(payload, getPingData()) {
 		log.Println("openvpn-ping, sending reply")
 		d.send(getPingData())
