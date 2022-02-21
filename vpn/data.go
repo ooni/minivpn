@@ -20,7 +20,7 @@ func newData(local, remote *keySource, cipher, auth string) *data {
 	return &data{cipher: cipher, auth: auth, queue: q, dataQueue: dq, localKeySource: local, remoteKeySource: remote,
 		remoteID: []byte{}, sessionID: []byte{}, cipherKeyLocal: []byte{}, cipherKeyRemote: []byte{},
 		hmacKeyLocal: []byte{}, hmacKeyRemote: []byte{}, localPacketId: 0, remotePacketId: 0,
-		conn: nil, ciph: nil}
+		conn: nil, ciph: nil, compr: "stub"}
 }
 
 type data struct {
@@ -39,6 +39,7 @@ type data struct {
 	localPacketId   uint32
 	remotePacketId  uint32
 	conn            net.Conn
+	compr           string // need to to something with this mess
 
 	ciph Cipher
 	hmac func() hash.Hash
@@ -105,7 +106,19 @@ func (d *data) loadCipherFromOptions() {
 
 func (d *data) encrypt(plaintext []byte) []byte {
 	bs := d.ciph.BlockSize()
-	padded := padText(plaintext, bs)
+	var padded []byte
+
+	// we're only supporting stub or no compression
+	if d.compr == "stub" {
+		// for the compression stub, we need to send the first byte to
+		// the last one, after adding pading
+		lp := len(plaintext)
+		end := plaintext[lp-1]
+		padded = padText(plaintext[:lp-1], bs)
+		padded[len(padded)-1] = end
+	} else {
+		padded = padText(plaintext, bs)
+	}
 
 	if d.ciph.IsAEAD() {
 		packetId := make([]byte, 4)
@@ -213,12 +226,23 @@ func (d *data) send(payload []byte) {
 	d.localPacketId += 1
 	plaintext := []byte("")
 	if !d.ciph.IsAEAD() {
+		log.Println("non aead: adding packetid prefix")
 		packetId := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetId, d.localPacketId)
 		plaintext = packetId[:]
+	} else {
+		plaintext = payload[:]
 	}
-	plaintext = append(plaintext, 0xfa) // no compression
-	plaintext = append(plaintext, payload...)
+
+	if d.compr == "stub" {
+		// compress
+		plaintext = append(plaintext, plaintext[0])
+		plaintext[0] = 0xfb
+	} else {
+		// this is the case for the old "comp-lzo no"
+		plaintext = append([]byte{0xfa}, plaintext...) // no compression
+	}
+
 	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
 	d.conn.Write(buf)
 }
@@ -237,6 +261,9 @@ func (d *data) handleIn(packet []byte) {
 	var compression byte
 	var payload []byte
 	if d.ciph.IsAEAD() {
+		// XXX is this the case for comp-lzo, compress and allow-compression?
+		// i'm afraid not:
+		// Note: the stub (or empty) option is NOT compatible with the older option --comp-lzo no
 		compression = plaintext[0]
 		payload = plaintext[1:]
 	} else {
@@ -248,9 +275,20 @@ func (d *data) handleIn(packet []byte) {
 		compression = plaintext[4]
 		payload = plaintext[5:]
 	}
-	// http://build.openvpn.net/doxygen/html/comp_8h_source.html
-	if compression != 0xfa {
-		log.Println("WARN no compression supported")
+	// this "no compression" works for the old "comp-lzo no", that is deprecated.
+	// http://build.openvpn.net/doxygen/comp_8h_source.html
+	// see: https://community.openvpn.net/openvpn/ticket/952#comment:5
+	if compression == 0xfa {
+		// do nothing, this is the old no compression
+		// or comp-lzo no case.
+	} else if compression == 0xfb {
+		// compression stub: get the last byte and replace the compression byte
+		end := payload[len(payload)-1]
+		b := payload[:len(payload)-1]
+		payload = append([]byte{end}, b...)
+	} else {
+		log.Println("WARN no compression supported:", hex.EncodeToString([]byte{compression}))
+		log.Println("next byte:", hex.EncodeToString([]byte{plaintext[1]}))
 	}
 	if areBytesEqual(payload, getPingData()) {
 		log.Println("openvpn-ping, sending reply")

@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"log"
 	"net"
 	"strings"
@@ -143,6 +144,9 @@ func (c *Client) handleIncoming() {
 		c.ctrl.queue <- data
 	} else if isDataOpcode(op) {
 		c.data.queue <- data
+	} else {
+		log.Println("unhandled data:")
+		log.Println(hex.EncodeToString(data))
 	}
 }
 

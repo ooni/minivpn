@@ -104,17 +104,18 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 			return
 		}
 
+		// log.Println("Processing", numBytes, "bytes...")
 		op := data[0] >> 3
 		if op == byte(P_ACK_V1) {
 			// XXX might want to do something with this ACK
 			log.Println("Received ACK")
 			return
 		}
+		// this is *only* a DATA_V1 for now
 		if isDataOpcode(op) {
 			cw.control.dataQueue <- data
 			return
-		}
-		if op != byte(P_CONTROL_V1) {
+		} else if op != byte(P_CONTROL_V1) {
 			// FIXME need to pass this to data channel to decrypt...
 			log.Printf("Received unknown opcode: %v\n", op)
 			log.Printf("len: %d\n", len(data))

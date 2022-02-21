@@ -46,19 +46,17 @@ func getHashLength(s string) int {
 }
 
 // i'm cutting some corners because serializing this is tedious
-// in any case... is this just informative, or what???
-// server doesn't seem to choke when I say one thing and do another.
+// FIXME i'm still debugging compression frames to get riseup/calyx working
+const hardcodedOpts = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-256-GCM,auth SHA256,keysize 256,key-method 2,tls-client"
 
-// this works against my primary test endpoint
-// const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client,comp-lzo"
-
-// i'm debuggin this one for calyx
-const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-256-GCM,auth SHA256,keysize 128,key-method 2,tls-client,allow compression no"
-
-// const hardcodedOpts = "V1,dev-type tun,link-mtu 1542,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth SHA1,keysize 128,key-method 2,tls-client"
-
-// TODO rename to getOptionsAsBytes
-func getOptions() []byte {
+func getOptionsAsBytes() []byte {
+	// FIXME testing hack - this needs to be a method on Options
+	o := string(hardcodedOpts)
+	if os.Getenv("COMP_STUB") == "1" {
+		o = o + ",compress"
+	} else {
+		o = o + ",lzo-comp no"
+	}
 	return []byte(hardcodedOpts)
 }
 
@@ -86,6 +84,7 @@ type Options struct {
 	ca       string
 	cert     string
 	key      string
+	compress string
 
 	cipher string
 	auth   string
@@ -126,10 +125,6 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 			}
 			s.remote = parts[0]
 			s.port = parts[1]
-		case "comp-lzo":
-			if parts[0] != "no" {
-				return nil, fmt.Errorf("comp-lzo: compression not supported, sorry!")
-			}
 		case "cipher":
 			if len(parts) != 1 {
 				return nil, fmt.Errorf("cipher expects one arg")
@@ -172,10 +167,16 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 				return nil, fmt.Errorf("key expects a valid file")
 			}
 			s.key = parts[0]
-		case "allow-compression":
-			if len(parts) == 0 || parts[0] != "no" {
-				return nil, fmt.Errorf("no compression supported")
+		case "compress":
+			if len(parts) != 0 {
+				return nil, fmt.Errorf("only compress: empty option supported")
 			}
+			s.compress = "empty"
+		case "comp-lzo":
+			if parts[0] != "no" {
+				return nil, fmt.Errorf("comp-lzo: compression not supported, sorry!")
+			}
+			s.compress = "lzo-no"
 		default:
 			log.Println("WARN unsupported key:", key)
 			continue

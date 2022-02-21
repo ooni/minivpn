@@ -51,7 +51,7 @@ func (c *control) initSession() error {
 		return err
 	}
 	c.SessionID = b
-	log.Printf("Local session ID: %x\n", string(c.SessionID))
+	log.Printf("Local session id: %x\n", string(c.SessionID))
 	go c.processIncoming()
 	return nil
 }
@@ -69,17 +69,20 @@ func (c *control) sendHardReset() {
 
 // XXX refactor with readControl
 func (c *control) readHardReset(d []byte) int {
+	if len(d) == 0 {
+		return 0
+	}
 	if d[0] != 0x40 {
 		log.Fatal("Not a hard reset response packet")
 	}
 	if len(c.RemoteID) != 0 {
 		if !areBytesEqual(c.RemoteID[:], d[1:9]) {
 			log.Printf("Offending session id: %08x\n", d[1:9])
-			log.Fatal("Invalid remote session ID!")
+			log.Fatal("Invalid remote session id!")
 		}
 	} else {
 		c.RemoteID = d[1:9]
-		log.Printf("Learned Remote Session id: %x\n", c.RemoteID)
+		log.Printf("Learned remote session id: %x\n", c.RemoteID)
 	}
 	return 0
 }
@@ -116,7 +119,7 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 		}
 	} else {
 		c.RemoteID = d[1:9]
-		log.Printf("Learned Remote Session id: %x\n", c.RemoteID)
+		log.Printf("Learned Remote Session ID: %x\n", c.RemoteID)
 	}
 	ackLen := int(d[9])
 	offset := 10
@@ -156,7 +159,7 @@ func (c *control) sendControlMessage() {
 	d := []byte{0x00, 0x00, 0x00, 0x00}
 	d = append(d, 0x02) // key method (2)
 	d = append(d, c.keySrc.Bytes()...)
-	d = append(d, encodeBytes(getOptions())...)
+	d = append(d, encodeBytes(getOptionsAsBytes())...)
 	d = append(d, encodeBytes([]byte(user))...)
 	d = append(d, encodeBytes([]byte(pass))...)
 	c.tls.Write(d)

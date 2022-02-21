@@ -18,28 +18,6 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
-/* TODO not used yet -----
-
-type packet struct {
-	bytes  []byte
-	rtt    time.Duration
-	nbytes int
-	ttl    int
-	id     int
-}
-
-type stats struct {
-	packetsRecv int
-	packetsSent int
-	packetLoss  float64
-	rtts        []time.Duration
-	maxRtt      time.Duration
-	minRtt      time.Duration
-	AvgRtt      time.Duration
-}
-
-*/
-
 func NewPinger(c *vpn.Client, host string, count uint32, done chan bool) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
