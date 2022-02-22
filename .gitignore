@@ -3,7 +3,4 @@ minivpn
 *.swo
 *.pem
 *.ovpn
-data/
-Makefile
-config
-creds
+data/*
