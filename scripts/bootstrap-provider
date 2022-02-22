@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import urllib.request
+
+APIS = {
+        "calyx": "https://api.vpn.calyx.dev/",
+        "riseup": "https://api.float.hexacab.org/"
+}
+
+CAURI = "ca.crt"
+CERTURI = "3/cert"
+
+IPS = {
+    "calyx": "185.220.103.44",
+    "riseup": "204.13.164.252"
+}
+
+def getConfig(p):
+    ip = IPS.get(p)
+    return f"""remote {ip} 1194
+cipher AES-256-GCM
+auth SHA512
+ca ca.crt
+cert cert.pem
+key cert.pem
+"""
+
+def check_args():
+    if len(sys.argv) != 2:
+        print("Usage: bootstrap-provider <provider>")
+        os.exit(1)
+
+
+def getPath(provider):
+    return os.path.join(os.getcwd(), "data", provider)
+
+
+def downloadFile(uri, path):
+    with urllib.request.urlopen(uri) as resp, open(path, 'wb') as out:
+        data = resp.read()
+        out.write(data)
+
+
+def fetchCa(p):
+    if not os.path.isfile(path:=os.path.join(getPath(p), "ca.crt")):
+        downloadFile(APIS[p] + CAURI, path)
+
+
+def fetchCert(p):
+    if not os.path.isfile(path:=os.path.join(getPath(p), "cert.pem")):
+        downloadFile(APIS[p] + CERTURI, path)
+
+
+def writeConfig(p):
+    path = os.path.join(getPath(p), "config")
+    config = getConfig(p)
+    with open(path, 'wb') as out:
+        out.write(bytes(config, 'utf-8'))
+
+
+if __name__ == "__main__":
+    check_args()
+    p = sys.argv[1]
+    print("[+] Bootstrapping provider:", p)
+    os.makedirs(getPath(p), exist_ok=True)
+    fetchCa(p)
+    fetchCert(p)
+    writeConfig(p)
+    print("[+] Done")
