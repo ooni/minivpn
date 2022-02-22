@@ -131,6 +131,8 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 		// part of the problem is that I don't quite understand why some times
 		// something enters the tls queue that is not what's expected for a tls
 		// record.
+		// TODO since it's a buffered channel, perhaps it's easier to
+		// let the consumer evaluate the order and queue the out-of-order packets again
 		if int(pid)-cw.control.lastAck > 1 {
 			go func() {
 				log.Println("DEBUG delay in TLS buffer...")

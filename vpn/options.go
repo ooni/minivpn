@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -95,13 +96,14 @@ type Options struct {
 
 func ParseConfigFile(filePath string) (*Options, error) {
 	lines, err := getLinesFromFile(filePath)
+	dir, _ := filepath.Split(filePath)
 	if err != nil {
 		return nil, err
 	}
-	return getOptionsFromLines(lines)
+	return getOptionsFromLines(lines, dir)
 }
 
-func getOptionsFromLines(lines []string) (*Options, error) {
+func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 	s := &Options{}
 
 	// TODO be even more defensive
@@ -115,6 +117,7 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 		}
 		var key string
 		var parts []string
+		var e error
 		if len(p) == 1 {
 			key = p[0]
 		} else {
@@ -156,20 +159,37 @@ func getOptionsFromLines(lines []string) (*Options, error) {
 			}
 			s.username, s.password = creds[0], creds[1]
 		case "ca":
-			if len(parts) != 1 || !existsFile(parts[0]) {
-				return nil, fmt.Errorf("ca expects a valid file")
+			e = fmt.Errorf("ca expects a valid file")
+			if len(parts) != 1 {
+				return nil, e
 			}
-			s.ca = parts[0]
+			ca := filepath.Join(dir, parts[0])
+			if !existsFile(ca) {
+				return nil, e
+			}
+			s.ca = ca
+
 		case "cert":
-			if len(parts) != 1 || !existsFile(parts[0]) {
-				return nil, fmt.Errorf("cert expects a valid file")
+			e = fmt.Errorf("cert expects a valid file")
+			if len(parts) != 1 {
+				return nil, e
 			}
-			s.cert = parts[0]
+			cert := filepath.Join(dir, parts[0])
+			if !existsFile(cert) {
+				return nil, e
+			}
+			s.cert = cert
+
 		case "key":
-			if len(parts) != 1 || !existsFile(parts[0]) {
-				return nil, fmt.Errorf("key expects a valid file")
+			e = fmt.Errorf("key expects a valid file")
+			if len(parts) != 1 {
+				return nil, e
 			}
-			s.key = parts[0]
+			key := filepath.Join(dir, parts[0])
+			if !existsFile(key) {
+				return nil, e
+			}
+			s.key = key
 		case "compress":
 			if len(parts) != 0 {
 				return nil, fmt.Errorf("only compress: empty option supported")
