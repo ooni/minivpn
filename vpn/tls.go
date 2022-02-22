@@ -8,11 +8,11 @@ import (
 	"log"
 	"net"
 	"os"
-	"sync"
 	"time"
 )
 
-// initTLS is part of the control channel
+// initTLS is part of the control channel. it initializes the TLS options with
+// certificate, key and ca comings in the control.Auth struct.
 func (c *control) initTLS() bool {
 
 	max := tls.VersionTLS12
@@ -51,7 +51,9 @@ func (c *control) initTLS() bool {
 	}
 
 	bufReader := bytes.NewBuffer(nil)
-	udp := controlWrapper{control: c, bufReader: bufReader}
+	ackq := make(chan []byte, 50)
+	udp := controlWrapper{control: c, bufReader: bufReader, ackQueue: ackq}
+	go udp.dataProcessLoop()
 
 	tlsConn := tls.Client(udp, tlsConf)
 	if err := tlsConn.Handshake(); err != nil {
@@ -63,84 +65,78 @@ func (c *control) initTLS() bool {
 	return true
 }
 
-// this wrapper allows TLS Handshake to send its records
-// as part of one openvpn CONTROL_V1 packet
-
+// controlWrapper allows TLS Handshake to send its records
+// as part of one openvpn CONTROL_V1 packet. It reads from the net.Conn in the
+// wrapped control struct, and it writes to control.tlsIn buffered channel.
 type controlWrapper struct {
 	control   *control
 	bufReader *bytes.Buffer
-	mu        sync.Mutex
+	ackQueue  chan []byte
 }
 
 func (cw controlWrapper) Write(b []byte) (n int, err error) {
 	return cw.control.sendControlV1(b)
 }
 
+func (cw controlWrapper) isConsecutive(b []byte) bool {
+	pid, _, _ := cw.control.readControl(b)
+	return int(pid)-cw.control.lastAck == 1
+}
+
+func (cw controlWrapper) dataProcessLoop() {
+	for {
+		select {
+		case data := <-cw.ackQueue:
+			go cw.processControlData(data)
+		}
+	}
+}
+
+func (cw controlWrapper) processControlData(d []byte) {
+	op := d[0] >> 3
+	if op == byte(P_ACK_V1) {
+		// might want to do something with this ACK
+		log.Println("Received ACK")
+		return
+	}
+	// this is *only* a DATA_V1 for now
+	if isDataOpcode(op) {
+		cw.control.dataQueue <- d
+		return
+	} else if op != byte(P_CONTROL_V1) {
+		log.Printf("Received unknown opcode: %v\n", op)
+	}
+	if cw.isConsecutive(d) {
+		pid, _, payload := cw.control.readControl(d)
+		cw.control.sendAck(pid)
+		cw.control.tlsIn <- payload
+	} else {
+		cw.ackQueue <- d
+	}
+}
+
 func (cw controlWrapper) Read(b []byte) (int, error) {
-	cw.mu.Lock()
-	defer cw.mu.Unlock()
-	var data []byte
 	if len(b) == 0 {
 		return 0, nil
 	}
-	// quick hack: w/o this wait, we arrive here while some other data
-	// is being processed going to the tlsIn queue. use a proper sync
-	// primitive instead! -- interestingly, this one wait seems to be needed
-	// even with the delayed out-of-order hack below.
-	time.Sleep(50 * time.Millisecond)
-
-	if len(cw.control.tlsIn) != 0 {
-		var p []byte
-		p = <-cw.control.tlsIn
+	// TODO I have "avoided" the sleep by stuffing it as a select timeout
+	// but I still don't understand why the results are so unstable
+	// without it...
+	// time.Sleep(50 * time.Millisecond)
+	select {
+	case p := <-cw.control.tlsIn:
 		cw.bufReader.Write(p)
 		return cw.bufReader.Read(b)
+	case <-time.After(10 * time.Millisecond):
+		break
 	}
 	go func() {
-		buf := make([]byte, len(b))
+		// perhaps is a good idea to use a semaphore here?
+		// at times we're exhausting this poor conn guy...
+		buf := make([]byte, 4096)
 		numBytes, _ := cw.control.conn.Read(buf)
-		data = buf[:numBytes]
-
-		if numBytes == 0 {
-			return
-		}
-
-		// log.Println("Processing", numBytes, "bytes...")
-		op := data[0] >> 3
-		if op == byte(P_ACK_V1) {
-			// XXX might want to do something with this ACK
-			log.Println("Received ACK")
-			return
-		}
-		// this is *only* a DATA_V1 for now
-		if isDataOpcode(op) {
-			cw.control.dataQueue <- data
-			return
-		} else if op != byte(P_CONTROL_V1) {
-			// FIXME need to pass this to data channel to decrypt...
-			log.Printf("Received unknown opcode: %v\n", op)
-			log.Printf("len: %d\n", len(data))
-			log.Printf("data: %v\n", data)
-			log.Fatal("Unknown Opcode")
-		}
-
-		pid, _, payload := cw.control.readControl(data)
-		cw.control.sendAck(pid)
-		// same hack that in ACK'ing on the control channel.
-		// instead of the ugly hack of waiting, it'd be more elegant to
-		// find the right sync primitive to avoid this.
-		// part of the problem is that I don't quite understand why some times
-		// something enters the tls queue that is not what's expected for a tls
-		// record.
-		// TODO since it's a buffered channel, perhaps it's easier to
-		// let the consumer evaluate the order and queue the out-of-order packets again
-		if int(pid)-cw.control.lastAck > 1 {
-			go func() {
-				log.Println("DEBUG delay in TLS buffer...")
-				time.Sleep(time.Second)
-				cw.control.tlsIn <- payload
-			}()
-		} else {
-			cw.control.tlsIn <- payload
+		if numBytes != 0 {
+			cw.ackQueue <- buf[:numBytes]
 		}
 	}()
 	return 0, nil
