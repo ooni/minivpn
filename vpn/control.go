@@ -141,21 +141,12 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 
 // sends a control channel packet, not a P_CONTROL
 func (c *control) sendControlMessage() {
-	// TODO get user & pass from parsing auth-user-pass creds file
-	user := os.Getenv("VPN_USERNAME")
-	pass := ""
-	if user != "" {
-		pass = os.Getenv("VPN_PASSWORD")
-		if len(pass) == 0 {
-			log.Fatal("ERROR: Need VPN credentials to continue!")
-		}
-	}
 	d := []byte{0x00, 0x00, 0x00, 0x00}
 	d = append(d, 0x02) // key method (2)
 	d = append(d, c.keySrc.Bytes()...)
 	d = append(d, encodeBytes(getOptionsAsBytes(c.Opts))...)
-	d = append(d, encodeBytes([]byte(user))...)
-	d = append(d, encodeBytes([]byte(pass))...)
+	d = append(d, encodeBytes([]byte(c.Opts.Username))...)
+	d = append(d, encodeBytes([]byte(c.Opts.Password))...)
 	c.tls.Write(d)
 }
 
