@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"time"
 )
 
 func newControl(c net.Conn, k *keySource, a *Auth) *control {
@@ -63,11 +62,9 @@ func (c *control) addDataQueue(queue chan []byte) {
 }
 
 func (c *control) sendHardReset() {
-	// log.Println("Sending HARD_RESET")
 	c.sendControl(P_CONTROL_HARD_RESET_CLIENT_V2, 0, []byte(""))
 }
 
-// XXX refactor with readControl
 func (c *control) readHardReset(d []byte) int {
 	if len(d) == 0 {
 		return 0
@@ -88,7 +85,6 @@ func (c *control) readHardReset(d []byte) int {
 }
 
 func (c *control) sendControlV1(data []byte) (n int, err error) {
-	// log.Printf("DEBUG Sending CONTROL_V1 %08x (with %d bytes)...", c.localPID, len(data))
 	return c.sendControl(P_CONTROL_V1, 0, data)
 }
 
@@ -133,8 +129,6 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 		offset = offset + 8
 		if !areBytesEqual(ackSession, c.SessionID) {
 			log.Printf("Invalid local session ID in ACK: expected %08x, got %08x\n", c.SessionID, ackSession)
-			log.Println("delay to shutdown...")
-			time.Sleep(5 * time.Second)
 			log.Fatal("Error in ACK")
 		}
 	}
@@ -188,11 +182,9 @@ func (c *control) readControlMessage(d []byte) *keySource {
 	optLen := binary.BigEndian.Uint16(d[offset:offset+2]) - 1
 	remoteOpts := string(d[offset : offset+int(optLen)])
 
-	// TODO convert this to a settings struct
 	log.Println("Remote opts:", remoteOpts)
 	c.remoteOpts = remoteOpts
 
-	// log.Printf("Received Control Message: %d bytes\n", len(d))
 	remoteKey := &keySource{r1: random1, r2: random2}
 	return remoteKey
 }
@@ -203,15 +195,6 @@ func (c *control) sendPushRequest() {
 }
 
 func (c *control) sendAck(pid uint32) {
-	// log.Printf("Control: ACK'ing packet %08x...", pid)
-	if int(pid)-c.lastAck > 1 {
-		log.Println("Out of order, delay...")
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			c.sendAck(pid)
-		}()
-		return
-	}
 	if len(c.RemoteID) == 0 {
 		log.Fatal("Remote session should not be null!")
 	}

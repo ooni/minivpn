@@ -45,7 +45,7 @@ type data struct {
 	localPacketId   uint32
 	remotePacketId  uint32
 	conn            net.Conn
-	compr           string // need to to something with this mess
+	compr           string // TODO need to to something with this mess
 
 	ciph Cipher
 	hmac func() hash.Hash
@@ -114,7 +114,6 @@ func (d *data) encrypt(plaintext []byte) []byte {
 	bs := d.ciph.BlockSize()
 	var padded []byte
 
-	// we're only supporting stub or no compression
 	if d.compr == "stub" {
 		// for the compression stub, we need to send the first byte to
 		// the last one, after adding pading
@@ -228,7 +227,6 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 }
 
 func (d *data) send(payload []byte) {
-	// log.Println("sending", len(payload), "bytes...")
 	d.localPacketId += 1
 	plaintext := []byte("")
 	if !d.ciph.IsAEAD() {
