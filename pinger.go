@@ -123,7 +123,7 @@ func (p *Pinger) printStats() {
 	}
 	sd = float32(math.Sqrt(float64(sd / float32(len(r)))))
 	log.Printf("%d packets transmitted, %d received, %d%% packet loss", p.PacketsSent, p.PacketsRecv, loss)
-	log.Printf("rtt min/avg/max/mdev = %.3f, %.3f, %.3f, %.3f ms", min, avg, max, sd)
+	log.Printf("rtt min/avg/max/stdev = %.3f, %.3f, %.3f, %.3f ms", min, avg, max, sd)
 }
 
 func (p *Pinger) consumeData() {

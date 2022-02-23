@@ -12,6 +12,8 @@ import (
 	"log"
 )
 
+// TODO see if it's feasible to replace in part with some stdlib interfaces
+// because this might be redundant
 type Cipher interface {
 	KeySizeBytes() int
 	IsAEAD() bool
@@ -53,7 +55,6 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	//var plaintext []byte
 	var mode cipher.BlockMode
 
 	switch c.mode {
@@ -164,26 +165,29 @@ func newCipher(name string, bits int, mode string) (Cipher, error) {
 	return &AESCipher{bits, mode}, nil
 }
 
-func getHMAC(name string) func() hash.Hash {
+// getHMAC accepts a label coming from an OpenVPN auth label, and returns two
+// values: a function that will return a Hash implementation, and a boolean
+// indicating if the operation was successful.
+func getHMAC(name string) (func() hash.Hash, bool) {
 	switch name {
 	case "sha1":
-		return sha1.New
+		return sha1.New, true
 	case "sha256":
-		return sha256.New
+		return sha256.New, true
 	case "sha512":
-		return sha512.New
+		return sha512.New, true
 	default:
-		return nil
+		return nil, false
 	}
 }
 
-// pkcs7 unpadding
+// unpadText does pkcs7 unpadding of a byte array.
 func unpadText(buf []byte) []byte {
 	padding := int(buf[len(buf)-1])
 	return buf[:len(buf)-padding]
 }
 
-// pkcs7 padding
+// padText does pkcs7 padding of a byte array.
 func padText(buf []byte, bs int) []byte {
 	padding := bs - len(buf)%bs
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)

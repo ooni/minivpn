@@ -97,6 +97,7 @@ func (d *data) setup() {
 	log.Printf("Hmac key remote:   %x\n", d.hmacKeyRemote)
 }
 
+// TODO bubble errors up
 func (d *data) loadCipherFromOptions() {
 	log.Println("Setting cipher:", d.opts.Cipher)
 	c, err := newCipherFromCipherSuite(d.opts.Cipher)
@@ -105,7 +106,12 @@ func (d *data) loadCipherFromOptions() {
 	}
 	d.ciph = c
 	log.Println("Setting auth:", d.opts.Auth)
-	d.hmac = getHMAC(strings.ToLower(d.opts.Auth))
+	h, ok := getHMAC(strings.ToLower(d.opts.Auth))
+	if !ok {
+		log.Println("error: no such mac")
+		return
+	}
+	d.hmac = h
 }
 
 func (d *data) encrypt(plaintext []byte) []byte {

@@ -21,11 +21,21 @@ GPLv3
 * Compression: `none`, `compress stub`, `comp-lzo no`.
 * tls-auth: `TODO`.
 
+## Pointers
+
+* [Security Overview](https://community.openvpn.net/openvpn/wiki/SecurityOverview) in the OpenVPN wiki.
+* [doc_procotocol_overview.h](https://github.com/OpenVPN/openvpn/blob/master/doc/doxygen/doc_protocol_overview.h) in OpenVPN source code.
+* [OpenVPN page in Wireshark wiki](https://wiki.wireshark.org/OpenVPN), with some available `pcaps`.
+
 ## References
+
+* https://github.com/OpenVPN/openvpn the reference implementation.
+* https://github.com/OpenVPN/openvpn3 the c++ class library for the client, protocol-compatible with the OpenVPN 2.x branch.
+* https://github.com/roburio/openvpn an ocaml implementation of a minimal subset of the protocol.
+* https://git.packetimpact.net/lvpn/ppyopenvpn a pure python implementation.
+
+## Acknowledgements
 
 Big thanks to people that wrote other implementations, that made easier for
 me to understand the protocol. This project started as a learning exercise
-adapting `ppyopenvpn` to Go.
-
-* https://git.packetimpact.net/lvpn/ppyopenvpn
-* https://github.com/roburio/openvpn
+adapting `ppyopenvpn` to Go, and wouldn't have been possible without it.
