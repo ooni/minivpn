@@ -44,7 +44,7 @@ type Client struct {
 func (c *Client) Run() {
 	c.localKeySrc = newKeySource()
 	log.Printf("Connecting to %s:%s with proto UDP\n", c.Opts.Remote, c.Opts.Port)
-	conn, err := net.Dial(c.Opts.Proto, c.Opts.Remote+":"+c.Opts.Port)
+	conn, err := net.Dial(c.Opts.Proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 	checkError(err)
 	c.con = conn
 	c.ctrl = newControl(conn, c.localKeySrc, c.Opts)
@@ -157,7 +157,7 @@ func (c *Client) onPush(data []byte) {
 	}
 }
 
-func (c *Client) GetTunnelIP() string {
+func (c *Client) TunnelIP() string {
 	return c.tunnelIP
 }
 

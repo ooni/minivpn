@@ -136,7 +136,7 @@ func (p *Pinger) consumeData() {
 }
 
 func (p *Pinger) SendPayload(s int) {
-	src := p.c.GetTunnelIP()
+	src := p.c.TunnelIP()
 	srcIP := net.ParseIP(src)
 	dstIP := net.ParseIP(p.host)
 	p.ts[s] = time.Now().UnixNano()
@@ -170,7 +170,7 @@ func (p *Pinger) handleIncoming(d []byte) {
 	for _, layerType := range decoded {
 		switch layerType {
 		case layers.LayerTypeIPv4:
-			if ip.DstIP.String() != p.c.GetTunnelIP() {
+			if ip.DstIP.String() != p.c.TunnelIP() {
 				log.Println("warn: icmp response with wrong dst")
 				return
 			}

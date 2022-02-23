@@ -5,6 +5,9 @@ COUNT ?= 3
 build:
 	@go build
 
+build-race:
+	@go build -race
+
 bootstrap:
 	@./scripts/bootstrap-provider ${PROVIDER}
 
