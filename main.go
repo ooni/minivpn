@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/ainghazal/minivpn/vpn"
-	"github.com/pborman/getopt"
+	"github.com/pborman/getopt/v2"
 )
 
 func main() {
