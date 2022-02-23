@@ -5,7 +5,6 @@ package main
 // Copyright (c) 2022 Ain Ghazal
 
 // TODO
-// [ ] collect stats
 // [ ] optional: return json output
 // [ ] define DataHandler / DataProducer interface better
 // [ ] mark concrete functions that are taken from go-ping
@@ -13,6 +12,7 @@ package main
 import (
 	"encoding/binary"
 	"log"
+	"math"
 	"net"
 	"os"
 	"sync"
@@ -24,33 +24,45 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
+// NewPinger returns a pointer to a Pinger struct configured to handle data from a
+// vpn.Client. It needs host and count as parameters, and also accepts a done
+// channel in which termination of the measurement series will be notified.
 func NewPinger(c *vpn.Client, host string, count uint32, done chan bool) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
 	ts := make(map[int]int64)
+	stats := make(chan st, int(count))
 	return &Pinger{
-		c: c, host: host,
-		ts:    ts,
-		Count: int(count), Interval: 1, Id: id,
-		TTL:  64,
-		done: done,
+		c:        c,
+		host:     host,
+		ts:       ts,
+		Count:    int(count),
+		Interval: 1,
+		ID:       id,
+		TTL:      64,
+		done:     done,
+		stats:    stats,
 	}
 }
 
+type st struct {
+	rtt float32
+	ttl uint8
+}
+
 type Pinger struct {
-	// this should be an interface that defines the methods
-	// that we use...
-	c    *vpn.Client
-	dc   chan []byte
-	done chan bool
+	c     *vpn.Client
+	dc    chan []byte
+	done  chan bool
+	stats chan st
+	st    []st
+	mu    sync.Mutex
 
 	host string
 
 	Count    int
 	Interval time.Duration
-	Id       int
-
-	statsMu sync.RWMutex
+	ID       int
 
 	ts map[int]int64
 
@@ -59,17 +71,63 @@ type Pinger struct {
 	TTL         int
 }
 
-func (p *Pinger) Init() {
+func (p *Pinger) Run() {
 	p.dc = p.c.GetDataChannel()
-	go p.SendPayloads()
-	go p.ConsumeData()
-	// TODO this needs better error catching.
-	// for one, it needs a timeout, in case we don't receive some of the
-	// replies.
+	go p.consumeData()
+	for i := 0; i < p.Count; i++ {
+		go p.SendPayload(i)
+		if i < p.Count-1 {
+			time.Sleep(time.Second * 1)
+		} else {
+			time.Sleep(time.Millisecond * 200)
+		}
+
+	}
+	go func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		for i := 0; i < p.Count; i++ {
+			st := <-p.stats
+			p.st = append(p.st, st)
+			p.PacketsRecv += 1
+		}
+		// alternatively, catch SIGINT here and do this too:
+		p.Shutdown()
+	}()
 }
 
-func (p *Pinger) ConsumeData() {
-	for {
+func (p *Pinger) Shutdown() {
+	p.printStats()
+	p.done <- true
+}
+
+func (p *Pinger) printStats() {
+	log.Println("--- " + p.host + " ping statistics ---")
+	loss := (p.PacketsRecv / p.PacketsSent) / 100
+	var r []float32
+	var sum, sd, min, max float32
+	min = p.st[0].rtt
+	for _, s := range p.st {
+		r = append(r, s.rtt)
+		sum += s.rtt
+		if s.rtt < min {
+			min = s.rtt
+		}
+		if s.rtt > max {
+			max = s.rtt
+		}
+	}
+	avg := float32(float32(sum) / float32(len(r)))
+	for _, s := range p.st {
+		sd += float32(math.Pow(float64(s.rtt-avg), 2))
+	}
+	sd = float32(math.Sqrt(float64(sd / float32(len(r)))))
+	log.Printf("%d packets transmitted, %d received, %d%% packet loss", p.PacketsSent, p.PacketsRecv, loss)
+	log.Printf("rtt min/avg/max/mdev = %.3f, %.3f, %.3f, %.3f ms", min, avg, max, sd)
+}
+
+func (p *Pinger) consumeData() {
+	for i := 0; i < p.Count; i++ {
 		select {
 		case data := <-p.dc:
 			go p.handleIncoming(data)
@@ -77,26 +135,24 @@ func (p *Pinger) ConsumeData() {
 	}
 }
 
-func (p *Pinger) SendPayloads() {
+func (p *Pinger) SendPayload(s int) {
 	src := p.c.GetTunnelIP()
 	srcIP := net.ParseIP(src)
 	dstIP := net.ParseIP(p.host)
-	for seqn := 0; seqn < p.Count; seqn++ {
-		p.ts[seqn] = time.Now().UnixNano()
-		// increment a wg.Group for waiting?
-		go p.craftAndSendICMP(&srcIP, &dstIP, p.TTL, seqn)
-		time.Sleep(time.Second * 1)
-	}
+	p.ts[s] = time.Now().UnixNano()
+	go p.craftAndSendICMP(&srcIP, &dstIP, p.TTL, s)
+	p.PacketsSent += 1
 }
 
 func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
-	buf := newIcmpData(src, dst, 8, ttl, seq, p.Id)
+	buf := newIcmpData(src, dst, 8, ttl, seq, p.ID)
 	p.c.SendData(buf)
 }
 
 func (p *Pinger) handleIncoming(d []byte) {
 	now := time.Now().UnixNano()
 	var ip layers.IPv4
+
 	var udp layers.UDP
 	var icmp layers.ICMPv4
 	var payload gopacket.Payload
@@ -124,8 +180,8 @@ func (p *Pinger) handleIncoming(d []byte) {
 		case layers.LayerTypeUDP:
 			// what's here? XXX
 		case layers.LayerTypeICMPv4:
-			if icmp.Id != uint16(p.Id) {
-				log.Println("warn: icmp response with wrong id")
+			if icmp.Id != uint16(p.ID) {
+				log.Println("warn: icmp response with wrong ID")
 				return
 			}
 			// XXX what's the payload here??
@@ -136,19 +192,8 @@ func (p *Pinger) handleIncoming(d []byte) {
 	interval := time.Duration(now - p.ts[int(icmp.Seq)])
 	rtt := float32(interval/time.Microsecond) / 1000
 	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
-	// TODO keep statistics
+	p.stats <- st{rtt, ip.TTL}
 
-	// TODO use a channel to collect the results, and wait/cancel on it...
-	go p.updateStats()
-}
-
-func (p *Pinger) updateStats() {
-	p.statsMu.Lock()
-	defer p.statsMu.Unlock()
-	p.PacketsRecv++
-	if p.PacketsRecv >= p.Count {
-		p.done <- true
-	}
 }
 
 func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int) (data []byte) {

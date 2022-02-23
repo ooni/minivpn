@@ -10,7 +10,7 @@ import (
 )
 
 type DataHandler interface {
-	Init()
+	Run()
 }
 
 type Auth struct {
@@ -96,7 +96,7 @@ func (c *Client) Run() {
 			c.initSt = ST_INITIALIZED
 		} else if c.initSt == ST_INITIALIZED {
 			go c.handleTLSIncoming()
-			c.DataHandler.Init()
+			go c.DataHandler.Run()
 			c.initSt = ST_DATA_READY
 		}
 	}

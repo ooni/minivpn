@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
-	"os"
 )
 
 func newControl(c net.Conn, k *keySource, o *Options) *control {
