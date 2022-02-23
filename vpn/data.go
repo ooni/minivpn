@@ -7,7 +7,6 @@ import (
 	"hash"
 	"log"
 	"net"
-	"os"
 	"strings"
 )
 
@@ -15,23 +14,23 @@ func getPingData() []byte {
 	return []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
 }
 
-func newData(local, remote *keySource, cipher, auth string) *data {
+func newData(local, remote *keySource, o *Options) *data {
 	q := make(chan []byte, 10)
 	dq := make(chan []byte, 20)
-	d := &data{cipher: cipher, auth: auth, queue: q, dataQueue: dq, localKeySource: local, remoteKeySource: remote,
-		remoteID: []byte{}, sessionID: []byte{}, cipherKeyLocal: []byte{}, cipherKeyRemote: []byte{},
-		hmacKeyLocal: []byte{}, hmacKeyRemote: []byte{}, localPacketId: 0, remotePacketId: 0,
-		conn: nil, ciph: nil}
-	// FIXME get this from config file instead
-	if os.Getenv("COMP_STUB") == "1" {
-		d.compr = "stub"
+	d := &data{
+		opts:  o,
+		queue: q, dataQueue: dq,
+		localKeySource:  local,
+		remoteKeySource: remote,
 	}
 	return d
 }
 
 type data struct {
-	cipher          string
-	auth            string
+	/* get this from options */
+	// compr  string // TODO need to to something with this mess
+
+	opts            *Options
 	queue           chan []byte
 	dataQueue       chan []byte
 	localKeySource  *keySource
@@ -45,7 +44,6 @@ type data struct {
 	localPacketId   uint32
 	remotePacketId  uint32
 	conn            net.Conn
-	compr           string // TODO need to to something with this mess
 
 	ciph Cipher
 	hmac func() hash.Hash
@@ -100,23 +98,24 @@ func (d *data) setup() {
 }
 
 func (d *data) loadCipherFromOptions() {
-	log.Println("Setting cipher:", d.cipher)
-	c, err := newCipherFromCipherSuite(d.cipher)
+	log.Println("Setting cipher:", d.opts.Cipher)
+	c, err := newCipherFromCipherSuite(d.opts.Cipher)
 	if err != nil {
 		log.Fatal("bad cipher")
 	}
 	d.ciph = c
-	log.Println("Setting auth:", d.auth)
-	d.hmac = getHMAC(strings.ToLower(d.auth))
+	log.Println("Setting auth:", d.opts.Auth)
+	d.hmac = getHMAC(strings.ToLower(d.opts.Auth))
 }
 
 func (d *data) encrypt(plaintext []byte) []byte {
 	bs := d.ciph.BlockSize()
 	var padded []byte
 
-	if d.compr == "stub" {
+	// FIXME emtpy is this case too I think
+	if d.opts.Compress == "stub" {
 		// for the compression stub, we need to send the first byte to
-		// the last one, after adding pading
+		// the last one, after padding
 		lp := len(plaintext)
 		end := plaintext[lp-1]
 		padded = padText(plaintext[:lp-1], bs)
@@ -152,7 +151,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 	ciphertext, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded, []byte(""))
 	checkError(err)
 
-	hashLength := getHashLength(strings.ToLower(d.auth))
+	hashLength := getHashLength(strings.ToLower(d.opts.Auth))
 	key := d.hmacKeyLocal[:hashLength]
 	mac := hmac.New(d.hmac, key)
 	mac.Write(append(iv, ciphertext...))
@@ -174,7 +173,7 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 	if len(encrypted) < 28 {
 		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
 	}
-	hashLength := getHashLength(strings.ToLower(d.auth))
+	hashLength := getHashLength(strings.ToLower(d.opts.Auth))
 	bs := d.ciph.BlockSize()
 	recvMAC := encrypted[:hashLength]
 	iv := encrypted[hashLength : hashLength+bs]
@@ -238,11 +237,11 @@ func (d *data) send(payload []byte) {
 		plaintext = payload[:]
 	}
 
-	if d.compr == "stub" {
+	if d.opts.Compress == "stub" {
 		// compress
 		plaintext = append(plaintext, plaintext[0])
 		plaintext[0] = 0xfb
-	} else if d.compr == "lzo-no" {
+	} else if d.opts.Compress == "lzo-no" {
 		// this is the case for the old "comp-lzo no"
 		plaintext = append([]byte{0xfa}, plaintext...) // no compression
 	} else {
@@ -267,7 +266,7 @@ func (d *data) handleIn(packet []byte) {
 	var compression byte
 	var payload []byte
 	if d.ciph.IsAEAD() {
-		if d.compr == "stub" || d.compr == "lzo-no" {
+		if d.opts.Compress == "stub" || d.opts.Compress == "lzo-no" {
 			compression = plaintext[0]
 			payload = plaintext[1:]
 		} else {
@@ -297,26 +296,26 @@ func (d *data) handleIn(packet []byte) {
 		end := payload[len(payload)-1]
 		b := payload[:len(payload)-1]
 		payload = append([]byte{end}, b...)
-		/*
-			} else if compression == 0x45 {
-				log.Println("DEBUG (lz4)")
-				log.Println(hex.EncodeToString(payload))
+		/* I don't think I'm going to use this anytime soon, better remove
+		} else if compression == 0x45 {
+			log.Println("DEBUG (lz4)")
+			log.Println(hex.EncodeToString(payload))
 
-				end := payload[len(payload)-1]
-				b := payload[:len(payload)-1]
-				payload = append([]byte{end}, b...)
-				log.Println(hex.EncodeToString(payload))
+			end := payload[len(payload)-1]
+			b := payload[:len(payload)-1]
+			payload = append([]byte{end}, b...)
+			log.Println(hex.EncodeToString(payload))
 
-				decompr := make([]byte, len(payload)*20)
-				l, err := lz4.UncompressBlock(payload, decompr)
-				if err != nil {
-					log.Println("lz4 error:", err.Error())
-					return
-				}
-				payload = decompr[:l]
-				log.Println("payload:", payload)
-			} else if compression == 0x2a {
-				log.Println("LZO compression 0x2a not supported")
+			decompr := make([]byte, len(payload)*20)
+			l, err := lz4.UncompressBlock(payload, decompr)
+			if err != nil {
+				log.Println("lz4 error:", err.Error())
+				return
+			}
+			payload = decompr[:l]
+			log.Println("payload:", payload)
+		} else if compression == 0x2a {
+			log.Println("LZO compression 0x2a not supported")
 		*/
 	} else {
 		log.Printf("WARN no compression supported: %x %d\n", compression, compression)

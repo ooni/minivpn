@@ -29,7 +29,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	var a *vpn.Auth
 	var c *vpn.Client
 
 	if *optConfig != "" {
@@ -40,18 +39,15 @@ func main() {
 		}
 		c = vpn.NewClientFromSettings(opts)
 	} else {
-		a = &vpn.Auth{
-			Ca:   *optCa,
-			Cert: *optCert,
-			Key:  *optKey,
+		o := &vpn.Options{
+			Remote: *optServer,
+			Port:   *optPort,
+			Proto:  "udp",
+			Ca:     *optCa,
+			Cert:   *optCert,
+			Key:    *optKey,
 		}
-
-		c = &vpn.Client{
-			Host:  *optServer,
-			Port:  *optPort,
-			Proto: "udp",
-			Auth:  a,
-		}
+		c = vpn.NewClientFromSettings(o)
 	}
 	done := make(chan bool)
 	c.DataHandler = NewPinger(c, *optTarget, *optCount, done)

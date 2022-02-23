@@ -22,30 +22,15 @@ type Auth struct {
 }
 
 func NewClientFromSettings(o *Options) *Client {
-	a := &Auth{
-		Ca:   o.ca,
-		Cert: o.cert,
-		Key:  o.key,
-	}
+	o.Proto = "udp"
 	return &Client{
-		Host:    o.remote,
-		Port:    o.port,
-		Auth:    a,
-		Proto:   "udp",
-		Options: o,
+		Opts: o,
 	}
 }
 
 type Client struct {
-	DataHandler DataHandler
-
-	// TODO remove, if I'm passing pointer to options
-	Host  string
-	Port  string
-	Proto string
-	Auth  *Auth
-	// ------------------------------------------
-	Options      *Options
+	DataHandler  DataHandler
+	Opts         *Options
 	localKeySrc  *keySource
 	remoteKeySrc *keySource
 	running      bool
@@ -58,13 +43,13 @@ type Client struct {
 
 func (c *Client) Run() {
 	c.localKeySrc = newKeySource()
-	log.Printf("Connecting to %s:%s with proto UDP\n", c.Host, c.Port)
-	conn, err := net.Dial(c.Proto, c.Host+":"+c.Port)
+	log.Printf("Connecting to %s:%s with proto UDP\n", c.Opts.Remote, c.Opts.Port)
+	conn, err := net.Dial(c.Opts.Proto, c.Opts.Remote+":"+c.Opts.Port)
 	checkError(err)
 	c.con = conn
-	c.ctrl = newControl(conn, c.localKeySrc, c.Auth)
+	c.ctrl = newControl(conn, c.localKeySrc, c.Opts)
 	c.ctrl.initSession()
-	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Options.cipher, c.Options.auth)
+	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Opts)
 	c.ctrl.addDataQueue(c.data.queue)
 	c.ctrl.sendHardReset()
 	id := c.ctrl.readHardReset(c.recv(0))

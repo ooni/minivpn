@@ -7,11 +7,11 @@ import (
 	"os"
 )
 
-func newControl(c net.Conn, k *keySource, a *Auth) *control {
+func newControl(c net.Conn, k *keySource, o *Options) *control {
 	q := make(chan []byte)
 	tlsIn := make(chan []byte, 10)
 	return &control{
-		Auth:   a,
+		Opts:   o,
 		conn:   c,
 		queue:  q,
 		tlsIn:  tlsIn,
@@ -20,7 +20,7 @@ func newControl(c net.Conn, k *keySource, a *Auth) *control {
 }
 
 type control struct {
-	Auth       *Auth
+	Opts       *Options
 	RemoteID   []byte
 	SessionID  []byte
 	localPID   uint32
@@ -153,7 +153,7 @@ func (c *control) sendControlMessage() {
 	d := []byte{0x00, 0x00, 0x00, 0x00}
 	d = append(d, 0x02) // key method (2)
 	d = append(d, c.keySrc.Bytes()...)
-	d = append(d, encodeBytes(getOptionsAsBytes())...)
+	d = append(d, encodeBytes(getOptionsAsBytes(c.Opts))...)
 	d = append(d, encodeBytes([]byte(user))...)
 	d = append(d, encodeBytes([]byte(pass))...)
 	c.tls.Write(d)

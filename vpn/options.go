@@ -25,13 +25,28 @@ var supportedAuth = []string{
 	"SHA512",
 }
 
-// TODO this should inform the selection of ciphers in initTLS,
-// but need to check the options too.
+// TODO this should inform the selection of ciphers in initTLS
 var supportedTLSCipher = []string{
 	// DHE-RSA-AES128-SHA -> riseup legacy; this is problematic because go
 	// tls doesn't implement finite DH.
 	// TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
 	// TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
+}
+
+// Options make all the relevant configuration options accessible to the
+// different modules that need it.
+type Options struct {
+	Remote   string
+	Port     string
+	Proto    string
+	Username string
+	Password string
+	Ca       string
+	Cert     string
+	Key      string
+	Compress string
+	Cipher   string
+	Auth     string
 }
 
 func getHashLength(s string) int {
@@ -46,52 +61,20 @@ func getHashLength(s string) int {
 	return 0
 }
 
-// i'm cutting some corners because serializing this is tedious
-// FIXME i'm still debugging compression frames to get riseup/calyx working
-const hardcodedOpts = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-256-GCM,auth SHA256,keysize 256,key-method 2,tls-client"
+const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
 
-func getOptionsAsBytes() []byte {
-	// FIXME testing hack - this needs to be a method on Options
-	o := string(hardcodedOpts)
-	if os.Getenv("COMP_STUB") == "1" {
+func getOptionsAsBytes(opts *Options) []byte {
+	keysize := strings.Split(opts.Cipher, "-")[1]
+	o := fmt.Sprintf(
+		clientOptions,
+		opts.Cipher, opts.Auth, keysize)
+	if opts.Compress == "stub" {
 		o = o + ",compress stub"
-	} else if os.Getenv("NOLZO_COMP") == "1" {
+	} else if opts.Compress == "lzo-no" {
 		o = o + ",lzo-comp no"
-	} else {
-		//nothing
 	}
 	log.Println("Local opts: ", o)
 	return []byte(o)
-}
-
-// not used right now! but the idea is to get configs from here later on if
-// they're not explicitely specified
-// and serialize  this directly if nothing else is provided
-var defaultOptions = map[string]interface{}{
-	"tls-client": true,
-	"cipher":     "AES-128-CBC",
-	"auth":       "SHA1",
-	"dev-type":   "tun",
-	"link-mtu":   "1542",
-	"tun-mtu":    "1500",
-	"proto":      "UDPv4",
-	"comp-lzo":   false,
-	"keysize":    "128",
-	"key-method": "2",
-}
-
-type Options struct {
-	remote   string
-	port     string
-	username string
-	password string
-	ca       string
-	cert     string
-	key      string
-	compress string
-
-	cipher string
-	auth   string
 }
 
 func ParseConfigFile(filePath string) (*Options, error) {
@@ -129,8 +112,8 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("remote needs two args")
 			}
-			s.remote = parts[0]
-			s.port = parts[1]
+			s.Remote = parts[0]
+			s.Port = parts[1]
 		case "cipher":
 			if len(parts) != 1 {
 				return nil, fmt.Errorf("cipher expects one arg")
@@ -139,7 +122,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			if !hasElement(cipher, supportedCiphers) {
 				return nil, fmt.Errorf("unsupported cipher: %s", cipher)
 			}
-			s.cipher = cipher
+			s.Cipher = cipher
 		case "auth":
 			if len(parts) != 1 {
 				return nil, fmt.Errorf("invalid auth entry")
@@ -148,7 +131,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			if !hasElement(auth, supportedAuth) {
 				return nil, fmt.Errorf("unsupported auth: %s", auth)
 			}
-			s.auth = auth
+			s.Auth = auth
 		case "auth-user-pass":
 			if len(parts) != 1 || !existsFile(parts[0]) {
 				return nil, fmt.Errorf("auth-user-pass expects a valid file")
@@ -157,7 +140,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			if err != nil {
 				return nil, err
 			}
-			s.username, s.password = creds[0], creds[1]
+			s.Username, s.Password = creds[0], creds[1]
 		case "ca":
 			e = fmt.Errorf("ca expects a valid file")
 			if len(parts) != 1 {
@@ -167,7 +150,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			if !existsFile(ca) {
 				return nil, e
 			}
-			s.ca = ca
+			s.Ca = ca
 
 		case "cert":
 			e = fmt.Errorf("cert expects a valid file")
@@ -178,7 +161,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			if !existsFile(cert) {
 				return nil, e
 			}
-			s.cert = cert
+			s.Cert = cert
 
 		case "key":
 			e = fmt.Errorf("key expects a valid file")
@@ -189,17 +172,23 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			if !existsFile(key) {
 				return nil, e
 			}
-			s.key = key
+			s.Key = key
 		case "compress":
-			if len(parts) != 0 {
-				return nil, fmt.Errorf("only compress: empty option supported")
+			if len(parts) > 1 {
+				return nil, fmt.Errorf("compress: only empty/stub options supported")
 			}
-			s.compress = "empty"
+			if len(parts) == 0 {
+				s.Compress = "empty"
+				continue
+			}
+			if parts[0] == "stub" {
+				s.Compress = "stub"
+			}
 		case "comp-lzo":
 			if parts[0] != "no" {
 				return nil, fmt.Errorf("comp-lzo: compression not supported, sorry!")
 			}
-			s.compress = "lzo-no"
+			s.Compress = "lzo-no"
 		default:
 			log.Println("WARN unsupported key:", key)
 			continue

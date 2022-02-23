@@ -4,6 +4,12 @@ package main
 // Copyright (c) 2016 Cameron Sparr and contributors.
 // Copyright (c) 2022 Ain Ghazal
 
+// TODO
+// [ ] collect stats
+// [ ] optional: return json output
+// [ ] define DataHandler / DataProducer interface better
+// [ ] mark concrete functions that are taken from go-ping
+
 import (
 	"encoding/binary"
 	"log"
@@ -57,6 +63,9 @@ func (p *Pinger) Init() {
 	p.dc = p.c.GetDataChannel()
 	go p.SendPayloads()
 	go p.ConsumeData()
+	// TODO this needs better error catching.
+	// for one, it needs a timeout, in case we don't receive some of the
+	// replies.
 }
 
 func (p *Pinger) ConsumeData() {
@@ -74,8 +83,8 @@ func (p *Pinger) SendPayloads() {
 	dstIP := net.ParseIP(p.host)
 	for seqn := 0; seqn < p.Count; seqn++ {
 		p.ts[seqn] = time.Now().UnixNano()
+		// increment a wg.Group for waiting?
 		go p.craftAndSendICMP(&srcIP, &dstIP, p.TTL, seqn)
-		// TODO replace by ticker
 		time.Sleep(time.Second * 1)
 	}
 }
@@ -85,7 +94,6 @@ func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
 	p.c.SendData(buf)
 }
 
-// XXX refactor into Send/Receive functions
 func (p *Pinger) handleIncoming(d []byte) {
 	now := time.Now().UnixNano()
 	var ip layers.IPv4
@@ -130,6 +138,7 @@ func (p *Pinger) handleIncoming(d []byte) {
 	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
 	// TODO keep statistics
 
+	// TODO use a channel to collect the results, and wait/cancel on it...
 	go p.updateStats()
 }
 

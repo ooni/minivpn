@@ -35,14 +35,14 @@ func (c *control) initTLS() bool {
 
 	// we assume a non-empty cert means we've got also a valid ca and key,
 	// but should check
-	if c.Auth.Cert != "" {
+	if c.Opts.Cert != "" {
 		ca := x509.NewCertPool()
-		caData, err := ioutil.ReadFile(c.Auth.Ca)
+		caData, err := ioutil.ReadFile(c.Opts.Ca)
 		if err != nil {
 			log.Fatal(err)
 		}
 		ca.AppendCertsFromPEM(caData)
-		cert, err := tls.LoadX509KeyPair(c.Auth.Cert, c.Auth.Key)
+		cert, err := tls.LoadX509KeyPair(c.Opts.Cert, c.Opts.Key)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -105,6 +105,7 @@ func (cw controlWrapper) processControlData(d []byte) {
 		return
 	} else if op != byte(P_CONTROL_V1) {
 		log.Printf("Received unknown opcode: %v\n", op)
+		return
 	}
 	if cw.isConsecutive(d) {
 		pid, _, payload := cw.control.readControl(d)
@@ -131,7 +132,7 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 		break
 	}
 	go func() {
-		// perhaps is a good idea to use a semaphore here?
+		// use a semaphore?
 		// at times we're exhausting this poor conn guy...
 		buf := make([]byte, 4096)
 		numBytes, _ := cw.control.conn.Read(buf)
