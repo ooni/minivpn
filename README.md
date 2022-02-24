@@ -1,12 +1,14 @@
 # minivpn
 
-A dumb implementation of OpenVPN in Go (client only).
+A dumb implementation of OpenVPN in pure Go (client only).
 
 This implementation has serious flaws, so do **not** use this for any other
 purposes than your own learning and research.
 
 This is not, and will never be, a working implementation with all the
-properties that you need from software that can protect your privacy.
+properties that you need from software that can protect your privacy. If you
+arrived here looking for such a thing, please use
+[misteriumnetwork/go-openvpn](https://github.com/mysteriumnetwork/go-openvpn) instead.
 
 ## License
 
