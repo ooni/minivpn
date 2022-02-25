@@ -1,12 +1,12 @@
 package vpn
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"log"
 	"net"
 	"strings"
-	"time"
 )
 
 type DataHandler interface {
@@ -33,17 +33,25 @@ type Client struct {
 	Opts         *Options
 	localKeySrc  *keySource
 	remoteKeySrc *keySource
-	running      bool
-	initSt       int
-	tunnelIP     string
-	con          net.Conn
-	ctrl         *control
-	data         *data
+	ctx          context.Context
+	cancel       context.CancelFunc
+	//Done         chan bool
+	initSt   int
+	tunnelIP string
+	con      net.Conn
+	ctrl     *control
+	data     *data
 }
 
 func (c *Client) Run() {
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	c.ctx = ctx
+	c.cancel = cancel
+
 	c.localKeySrc = newKeySource()
 	log.Printf("Connecting to %s:%s with proto UDP\n", c.Opts.Remote, c.Opts.Port)
+
 	conn, err := net.Dial(c.Opts.Proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 	checkError(err)
 	c.con = conn
@@ -51,56 +59,63 @@ func (c *Client) Run() {
 	c.ctrl.initSession()
 	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Opts)
 	c.ctrl.addDataQueue(c.data.queue)
+
 	c.ctrl.sendHardReset()
 	id := c.ctrl.readHardReset(c.recv(0))
 	c.sendAck(uint32(id))
-	go func() {
-		c.handleIncoming()
+	go c.handleIncoming()
 
-	}()
-	for {
-		if c.ctrl.initTLS() {
-			break
-		}
-	}
-	c.running = true
+	c.ctrl.initTLS()
 	c.initSt = ST_CONTROL_CHANNEL_OPEN
 
-	go func() {
-		// XXX just to debug for now,
-		// should implement a proper cancellable
-		// also catch SIGINT and call a shutdown method on the
-		// datahandler (so that they can print stats, etc)
-		time.Sleep(60 * time.Second)
-		c.Stop()
-	}()
-
 	for {
-		if !c.running {
-			break
-		}
-		if c.initSt == ST_CONTROL_CHANNEL_OPEN {
-			log.Println("Control channel open, sending auth...")
-			c.ctrl.sendControlMessage()
-			c.initSt = ST_CONTROL_MESSAGE_SENT
-			c.handleTLSIncoming()
-		} else if c.initSt == ST_KEY_EXCHANGED {
-			log.Println("Key exchange complete")
-			c.ctrl.sendPushRequest()
-			c.initSt = ST_PULL_REQUEST_SENT
-			c.handleTLSIncoming()
-		} else if c.initSt == ST_OPTIONS_PUSHED {
-			c.data.initSession(c.ctrl)
-			c.data.setup()
-			log.Println("Initialization complete")
-			c.initSt = ST_INITIALIZED
-		} else if c.initSt == ST_INITIALIZED {
-			go c.handleTLSIncoming()
-			go c.DataHandler.Run()
-			c.initSt = ST_DATA_READY
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			switch {
+			case c.initSt == ST_CONTROL_CHANNEL_OPEN:
+				c.sendFirstControl()
+			case c.initSt == ST_KEY_EXCHANGED:
+				c.sendPushRequest()
+			case c.initSt == ST_OPTIONS_PUSHED:
+				c.initDataChannel()
+			case c.initSt == ST_INITIALIZED:
+				c.handleDataChannel()
+			}
 		}
 	}
-	log.Println("bye!")
+}
+
+func (c *Client) sendFirstControl() {
+	log.Println("Control channel open, sending auth...")
+	c.ctrl.sendControlMessage()
+	c.initSt = ST_CONTROL_MESSAGE_SENT
+	c.handleTLSIncoming()
+}
+
+func (c *Client) sendPushRequest() {
+	log.Println("Key exchange complete")
+	c.ctrl.sendPushRequest()
+	c.initSt = ST_PULL_REQUEST_SENT
+	c.handleTLSIncoming()
+}
+
+func (c *Client) initDataChannel() {
+	c.data.initSession(c.ctrl)
+	c.data.setup()
+	log.Println("Initialization complete")
+	c.initSt = ST_INITIALIZED
+}
+
+func (c *Client) handleDataChannel() {
+	go c.handleTLSIncoming()
+	go c.DataHandler.Run()
+	c.initSt = ST_DATA_READY
+}
+
+func (c *Client) onKeyExchanged() {
+	c.initSt = ST_KEY_EXCHANGED
 }
 
 func (c *Client) sendAck(ackPid uint32) {
@@ -135,10 +150,6 @@ func (c *Client) handleIncoming() {
 	}
 }
 
-func (c *Client) onKeyExchanged() {
-	c.initSt = ST_KEY_EXCHANGED
-}
-
 // I don't think I want to do much with the pushed options for now, other
 // than extracting the tunnel ip, but it can be useful to parse them into a map
 // and compare if there's a strong disagreement with the remote opts
@@ -159,10 +170,6 @@ func (c *Client) onPush(data []byte) {
 
 func (c *Client) TunnelIP() string {
 	return c.tunnelIP
-}
-
-func (c *Client) SendData(b []byte) {
-	c.data.send(b)
 }
 
 func (c *Client) handleTLSIncoming() {
@@ -191,6 +198,10 @@ func (c *Client) handleTLSIncoming() {
 	}
 }
 
+func (c *Client) SendData(b []byte) {
+	c.data.send(b)
+}
+
 func (c *Client) WaitUntil(done chan bool) {
 	go func() {
 		select {
@@ -198,6 +209,10 @@ func (c *Client) WaitUntil(done chan bool) {
 			c.Stop()
 		}
 	}()
+}
+
+func (c *Client) Stop() {
+	c.cancel()
 }
 
 func (c *Client) recv(size int) []byte {
@@ -209,12 +224,8 @@ func (c *Client) recv(size int) []byte {
 	return recvData[:numBytes]
 }
 
-func (c *Client) GetDataChannel() chan []byte {
-	return c.data.getDataChan()
-}
-
-func (c *Client) Stop() {
-	c.running = false
+func (c *Client) DataChannel() chan []byte {
+	return c.data.dataChan()
 }
 
 func checkError(err error) {

@@ -72,7 +72,7 @@ type Pinger struct {
 }
 
 func (p *Pinger) Run() {
-	p.dc = p.c.GetDataChannel()
+	p.dc = p.c.DataChannel()
 	go p.consumeData()
 	for i := 0; i < p.Count; i++ {
 		go p.SendPayload(i)

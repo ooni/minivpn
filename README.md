@@ -22,6 +22,7 @@ GPLv3
 * HMAC: `SHA1`, `SHA256`, `SHA512`.
 * Compression: `none`, `compress stub`, `comp-lzo no`.
 * tls-auth: `TODO`.
+* tls-crypt & [tls-crypt-v2](https://raw.githubusercontent.com/OpenVPN/openvpn/master/doc/tls-crypt-v2.txt): `TODO`.
 
 ## Pointers
 

@@ -49,7 +49,7 @@ type data struct {
 	hmac func() hash.Hash
 }
 
-func (d *data) getDataChan() chan []byte {
+func (d *data) dataChan() chan []byte {
 	return d.dataQueue
 }
 
