@@ -56,7 +56,10 @@ type Pinger struct {
 	done  chan bool
 	stats chan st
 	st    []st
-	mu    sync.Mutex
+	// stats mutex
+	mu sync.Mutex
+	// send payload mutex
+	pmu sync.Mutex
 
 	host string
 
@@ -136,6 +139,8 @@ func (p *Pinger) consumeData() {
 }
 
 func (p *Pinger) SendPayload(s int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	src := p.c.TunnelIP()
 	srcIP := net.ParseIP(src)
 	dstIP := net.ParseIP(p.host)
@@ -190,11 +195,17 @@ func (p *Pinger) handleIncoming(d []byte) {
 		}
 	}
 
-	interval := time.Duration(now - p.ts[int(icmp.Seq)])
+	interval := p.getInterval(now, int(icmp.Seq))
 	rtt := float32(interval/time.Microsecond) / 1000
 	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
 	p.stats <- st{rtt, ip.TTL}
 
+}
+
+func (p *Pinger) getInterval(now int64, seq int) time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return time.Duration(now - p.ts[seq])
 }
 
 func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int) (data []byte) {

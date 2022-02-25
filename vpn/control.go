@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
+	"sync"
 )
 
 func newControl(c net.Conn, k *keySource, o *Options) *control {
@@ -31,6 +32,7 @@ type control struct {
 	tlsIn      chan []byte
 	remoteOpts string
 	lastAck    int
+	ackmu      sync.Mutex
 }
 
 func (c *control) processIncoming() {
@@ -185,6 +187,8 @@ func (c *control) sendPushRequest() {
 }
 
 func (c *control) sendAck(pid uint32) {
+	c.ackmu.Lock()
+	defer c.ackmu.Unlock()
 	if len(c.RemoteID) == 0 {
 		log.Fatal("Remote session should not be null!")
 	}

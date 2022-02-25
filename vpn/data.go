@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 )
 
 func getPingData() []byte {
@@ -44,6 +45,7 @@ type data struct {
 	localPacketId   uint32
 	remotePacketId  uint32
 	conn            net.Conn
+	mu              sync.Mutex
 
 	ciph Cipher
 	hmac func() hash.Hash
@@ -232,6 +234,9 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 }
 
 func (d *data) send(payload []byte) {
+	// TODO use a channel here instead?
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.localPacketId += 1
 	plaintext := []byte("")
 	if !d.ciph.IsAEAD() {

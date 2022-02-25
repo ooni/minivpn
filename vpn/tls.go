@@ -79,6 +79,8 @@ func (cw controlWrapper) Write(b []byte) (n int, err error) {
 }
 
 func (cw controlWrapper) isConsecutive(b []byte) bool {
+	cw.control.ackmu.Lock()
+	defer cw.control.ackmu.Unlock()
 	pid, _, _ := cw.control.readControl(b)
 	return int(pid)-cw.control.lastAck == 1
 }

@@ -35,12 +35,11 @@ type Client struct {
 	remoteKeySrc *keySource
 	ctx          context.Context
 	cancel       context.CancelFunc
-	//Done         chan bool
-	initSt   int
-	tunnelIP string
-	con      net.Conn
-	ctrl     *control
-	data     *data
+	initSt       int
+	tunnelIP     string
+	con          net.Conn
+	ctrl         *control
+	data         *data
 }
 
 func (c *Client) Run() {
