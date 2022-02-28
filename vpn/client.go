@@ -9,10 +9,6 @@ import (
 	"strings"
 )
 
-type DataHandler interface {
-	Run()
-}
-
 type Auth struct {
 	Ca   string
 	Cert string
@@ -29,7 +25,6 @@ func NewClientFromSettings(o *Options) *Client {
 }
 
 type Client struct {
-	DataHandler  DataHandler
 	Opts         *Options
 	localKeySrc  *keySource
 	remoteKeySrc *keySource
@@ -81,9 +76,11 @@ func (c *Client) Run() {
 				c.initDataChannel()
 			case c.initSt == ST_INITIALIZED:
 				c.handleDataChannel()
+				goto done
 			}
 		}
 	}
+done:
 }
 
 func (c *Client) sendFirstControl() {
@@ -109,7 +106,6 @@ func (c *Client) initDataChannel() {
 
 func (c *Client) handleDataChannel() {
 	go c.handleTLSIncoming()
-	go c.DataHandler.Run()
 	c.initSt = ST_DATA_READY
 }
 

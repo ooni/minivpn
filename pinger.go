@@ -27,13 +27,13 @@ import (
 // NewPinger returns a pointer to a Pinger struct configured to handle data from a
 // vpn.Client. It needs host and count as parameters, and also accepts a done
 // channel in which termination of the measurement series will be notified.
-func NewPinger(c *vpn.Client, host string, count uint32, done chan bool) *Pinger {
+func NewPinger(d *vpn.Dialer, host string, count uint32, done chan bool) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
 	ts := make(map[int]int64)
 	stats := make(chan st, int(count))
 	return &Pinger{
-		c:        c,
+		dialer:   d,
 		host:     host,
 		ts:       ts,
 		Count:    int(count),
@@ -51,11 +51,11 @@ type st struct {
 }
 
 type Pinger struct {
-	c     *vpn.Client
-	dc    chan []byte
-	done  chan bool
-	stats chan st
-	st    []st
+	dialer *vpn.Dialer
+	conn   net.PacketConn
+	done   chan bool
+	stats  chan st
+	st     []st
 	// stats mutex
 	mu sync.Mutex
 	// send payload mutex
@@ -75,20 +75,13 @@ type Pinger struct {
 }
 
 func (p *Pinger) Run() {
-	p.dc = p.c.DataChannel()
-	go p.consumeData()
-	for i := 0; i < p.Count; i++ {
-		go p.SendPayload(i)
-		if i < p.Count-1 {
-			time.Sleep(time.Second * 1)
-		} else {
-			time.Sleep(time.Millisecond * 200)
-		}
-
+	conn, err := p.dialer.Dial()
+	if err != nil {
+		log.Fatal("error dialing:", err)
 	}
+	p.conn = conn
+	go p.consumeData()
 	go func() {
-		p.mu.Lock()
-		defer p.mu.Unlock()
 		for i := 0; i < p.Count; i++ {
 			st := <-p.stats
 			p.st = append(p.st, st)
@@ -97,6 +90,15 @@ func (p *Pinger) Run() {
 		// alternatively, catch SIGINT here and do this too:
 		p.Shutdown()
 	}()
+	for i := 0; i < p.Count; i++ {
+		go p.SendPayload(i)
+		if i < p.Count-1 {
+			time.Sleep(time.Second * 1)
+		} else {
+			time.Sleep(time.Millisecond * 500)
+		}
+
+	}
 }
 
 func (p *Pinger) Shutdown() {
@@ -131,17 +133,18 @@ func (p *Pinger) printStats() {
 
 func (p *Pinger) consumeData() {
 	for i := 0; i < p.Count; i++ {
-		select {
-		case data := <-p.dc:
-			go p.handleIncoming(data)
-		}
+		d := make([]byte, 4096)
+		go func(d []byte) {
+			p.conn.ReadFrom(d)
+			p.handleIncoming(d)
+		}(d)
 	}
 }
 
 func (p *Pinger) SendPayload(s int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	src := p.c.TunnelIP()
+	src := p.conn.LocalAddr().String()
 	srcIP := net.ParseIP(src)
 	dstIP := net.ParseIP(p.host)
 	p.ts[s] = time.Now().UnixNano()
@@ -151,7 +154,7 @@ func (p *Pinger) SendPayload(s int) {
 
 func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
 	buf := newIcmpData(src, dst, 8, ttl, seq, p.ID)
-	p.c.SendData(buf)
+	p.conn.WriteTo(buf, nil)
 }
 
 func (p *Pinger) handleIncoming(d []byte) {
@@ -175,7 +178,7 @@ func (p *Pinger) handleIncoming(d []byte) {
 	for _, layerType := range decoded {
 		switch layerType {
 		case layers.LayerTypeIPv4:
-			if ip.DstIP.String() != p.c.TunnelIP() {
+			if ip.DstIP.String() != p.conn.LocalAddr().String() {
 				log.Println("warn: icmp response with wrong dst")
 				return
 			}
