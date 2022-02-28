@@ -37,35 +37,73 @@ type Client struct {
 	data         *data
 }
 
-func (c *Client) Run() {
+func (c *Client) Run() error {
+	if err := c.Init(); err != nil {
+		return err
+	}
+	if err := c.Dial(); err != nil {
+		return err
+	}
+	if err := c.Reset(); err != nil {
+		return err
+	}
+	if err := c.InitTLS(); err != nil {
+		return err
+	}
+	if err := c.InitData(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) Init() error {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	c.ctx = ctx
 	c.cancel = cancel
-
 	c.localKeySrc = newKeySource()
-	log.Printf("Connecting to %s:%s with proto UDP\n", c.Opts.Remote, c.Opts.Port)
+	return nil
+}
 
+func (c *Client) Dial() error {
+	log.Printf("Connecting to %s:%s with proto UDP\n", c.Opts.Remote, c.Opts.Port)
+	// TODO pass context?
 	conn, err := net.Dial(c.Opts.Proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
-	checkError(err)
+	if err != nil {
+		// TODO wrap this error
+		return err
+	}
 	c.con = conn
 	c.ctrl = newControl(conn, c.localKeySrc, c.Opts)
 	c.ctrl.initSession()
 	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Opts)
 	c.ctrl.addDataQueue(c.data.queue)
+	return nil
+}
 
+func (c *Client) Reset() error {
 	c.ctrl.sendHardReset()
 	id := c.ctrl.readHardReset(c.recv(0))
 	c.sendAck(uint32(id))
+	// should we block/wait until we see the response?
 	go c.handleIncoming()
+	return nil
+}
 
-	c.ctrl.initTLS()
+func (c *Client) InitTLS() error {
+	err := c.ctrl.initTLS()
 	c.initSt = ST_CONTROL_CHANNEL_OPEN
+	// TODO these errors can be configuration errors (loading the keypair)
+	// or actual handshake errors, need to separate them.
+	// perhaps it make sense to load the certificates etc before touching the net...
+	return err
+}
 
+func (c *Client) InitData() error {
 	for {
 		select {
-		case <-ctx.Done():
-			return
+		case <-c.ctx.Done():
+			return nil
 		default:
 			switch {
 			case c.initSt == ST_CONTROL_CHANNEL_OPEN:
@@ -81,6 +119,7 @@ func (c *Client) Run() {
 		}
 	}
 done:
+	return nil
 }
 
 func (c *Client) sendFirstControl() {

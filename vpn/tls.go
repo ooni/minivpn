@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// initTLS is part of the control channel. it initializes the TLS options with
-// certificate, key and ca comings in the control.Auth struct.
-func (c *control) initTLS() bool {
-
+// initTLS is part of the control channel. It initializes the TLS options with
+// certificate, key and ca comings in the control.Auth struct, and it performs
+// a handshake wrapped as payloads in the control channel.
+func (c *control) initTLS() error {
 	max := tls.VersionTLS12
 	if os.Getenv("TLSv13") == "1" {
 		max = tls.VersionTLS13
@@ -39,12 +39,12 @@ func (c *control) initTLS() bool {
 		ca := x509.NewCertPool()
 		caData, err := ioutil.ReadFile(c.Opts.Ca)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		ca.AppendCertsFromPEM(caData)
 		cert, err := tls.LoadX509KeyPair(c.Opts.Cert, c.Opts.Key)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		tlsConf.RootCAs = ca
 		tlsConf.Certificates = []tls.Certificate{cert}
@@ -57,12 +57,11 @@ func (c *control) initTLS() bool {
 
 	tlsConn := tls.Client(udp, tlsConf)
 	if err := tlsConn.Handshake(); err != nil {
-		log.Println("ERROR Invalid handshake:")
-		log.Fatal(err)
+		return err
 	}
 	log.Println("Handshake done!")
 	c.tls = net.Conn(tlsConn)
-	return true
+	return nil
 }
 
 // controlWrapper allows TLS Handshake to send its records

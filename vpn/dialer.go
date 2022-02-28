@@ -22,8 +22,11 @@ type Dialer struct {
 func (d *Dialer) Dial() (net.PacketConn, error) {
 	// TODO catch error here
 	c := NewClientFromSettings(d.Options)
-	// TODO call UDP Dial, TLSInit explicitely and catch those errors
-	c.Run()
+	// TODO unwrap these errors and classify them in connection stages
+	err := c.Run()
+	if err != nil {
+		return nil, err
+	}
 	dc := c.DataChannel()
 	done := make(chan bool)
 	c.WaitUntil(done)
