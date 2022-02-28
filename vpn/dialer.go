@@ -46,10 +46,7 @@ type Conn struct {
 // was on the packet.
 func (c Conn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	data := <-c.dc
-	for i, v := range data {
-		p[i] = v
-	}
-	return len(data), nil, err
+	return copy(p, data), nil, err
 }
 
 // WriteTo writes a packet with payload p to addr.
