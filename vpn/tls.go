@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
@@ -39,12 +40,12 @@ func (c *control) initTLS() error {
 		ca := x509.NewCertPool()
 		caData, err := ioutil.ReadFile(c.Opts.Ca)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s %w", ErrBadCA, err)
 		}
 		ca.AppendCertsFromPEM(caData)
 		cert, err := tls.LoadX509KeyPair(c.Opts.Cert, c.Opts.Key)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s %w", ErrBadKeypair, err)
 		}
 		tlsConf.RootCAs = ca
 		tlsConf.Certificates = []tls.Certificate{cert}
@@ -57,7 +58,7 @@ func (c *control) initTLS() error {
 
 	tlsConn := tls.Client(udp, tlsConf)
 	if err := tlsConn.Handshake(); err != nil {
-		return err
+		return fmt.Errorf("%s %w", ErrBadHandshake, err)
 	}
 	log.Println("Handshake done!")
 	c.tls = net.Conn(tlsConn)
