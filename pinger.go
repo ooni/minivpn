@@ -156,13 +156,11 @@ func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {
 
 func (p *Pinger) handleIncoming(d []byte) {
 	now := time.Now().UnixNano()
-	var (
-		ip      layers.IPv4
-		udp     layers.UDP
-		icmp    layers.ICMPv4
-		payload gopacket.Payload
-	)
 
+	ip := layers.IPv4{}
+	udp := layers.UDP{}
+	icmp := layers.ICMPv4{}
+	payload := gopacket.Payload{}
 	decoded := []gopacket.LayerType{}
 	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeIPv4, &ip, &icmp, &udp, &payload)
 
