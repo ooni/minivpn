@@ -36,8 +36,7 @@ func main() {
 		fmt.Println("fatal: " + err.Error())
 		os.Exit(1)
 	}
-	done := make(chan bool)
 	dialer := vpn.NewDialer(opts)
-	pinger := NewPinger(dialer, *optTarget, *optCount, done)
+	pinger := NewPinger(dialer, *optTarget, *optCount)
 	pinger.Run()
 }
