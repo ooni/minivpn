@@ -6,7 +6,6 @@ package main
 
 // TODO
 // [ ] optional: return json output
-// [ ] define DataHandler / DataProducer interface better
 // [ ] mark concrete functions that are taken from go-ping
 
 import (
@@ -73,7 +72,8 @@ type Pinger struct {
 }
 
 func (p *Pinger) Run() {
-	conn, err := p.dialer.Dial()
+	conn, err := p.dialer.Dial(nil, "", "")
+
 	if err != nil {
 		log.Fatal("error dialing:", err)
 	}

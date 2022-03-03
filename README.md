@@ -34,6 +34,7 @@ GPLv3
 
 * https://github.com/OpenVPN/openvpn the reference implementation.
 * https://github.com/OpenVPN/openvpn3 the c++ class library for the client, protocol-compatible with the OpenVPN 2.x branch.
+* https://github.com/glacjay/govpn another go implementation
 * https://github.com/roburio/openvpn an ocaml implementation of a minimal subset of the protocol.
 * https://git.packetimpact.net/lvpn/ppyopenvpn a pure python implementation.
 
@@ -42,3 +43,7 @@ GPLv3
 Big thanks to people that wrote other implementations, that made easier for
 me to understand the protocol. This project started as a learning exercise
 adapting `ppyopenvpn` to Go, and wouldn't have been possible without it.
+
+And to Jason Donenfeld for making gVisor more palatable :)
+
+

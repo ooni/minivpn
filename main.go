@@ -8,6 +8,12 @@ import (
 	"github.com/pborman/getopt/v2"
 )
 
+func printUsage() {
+	fmt.Println("valid commands: ping, proxy")
+	getopt.Usage()
+	os.Exit(0)
+}
+
 func main() {
 	optConfig := getopt.StringLong("config", 'c', "", "Configuration file")
 	optServer := getopt.StringLong("server", 's', "", "VPN Server to connect to")
@@ -22,11 +28,16 @@ func main() {
 	helpFlag := getopt.Bool('h', "Display help")
 
 	getopt.Parse()
+	args := getopt.Args()
+
+	if len(args) != 1 {
+		printUsage()
+
+	}
 	fmt.Println("config file:", *optConfig)
 
 	if *helpFlag || (*optServer == "" && *optConfig == "") {
-		getopt.Usage()
-		os.Exit(0)
+		printUsage()
 	}
 
 	var opts *vpn.Options
@@ -36,7 +47,15 @@ func main() {
 		fmt.Println("fatal: " + err.Error())
 		os.Exit(1)
 	}
-	dialer := vpn.NewDialer(opts)
-	pinger := NewPinger(dialer, *optTarget, *optCount)
-	pinger.Run()
+	switch args[0] {
+	case "ping":
+		dialer := vpn.NewDialer(opts)
+		pinger := NewPinger(dialer, *optTarget, *optCount)
+		pinger.Run()
+	case "proxy":
+		dialer := vpn.NewDialer(opts)
+		ListenAndServeSocks(dialer)
+	default:
+		printUsage()
+	}
 }

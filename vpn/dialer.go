@@ -1,6 +1,9 @@
 package vpn
 
 import (
+	"context"
+	"encoding/hex"
+	"fmt"
 	"net"
 	"time"
 )
@@ -19,7 +22,14 @@ type Dialer struct {
 	// TODO can map to kepalive openvpn option
 }
 
-func (d *Dialer) Dial() (net.PacketConn, error) {
+// Dial functions return an implementor of net.Conn that writes to and reads
+// from the VPN tunnel. All the parameters passed to the Dial function are
+// currently ignored.
+
+// TODO probably need to register a handler for this connection
+// or, perhaps easier, add destination in the conn struct
+
+func (d *Dialer) Dial(ctx context.Context, network, addr string) (net.PacketConn, error) {
 	// TODO catch error here
 	c := NewClientFromSettings(d.Options)
 	// TODO unwrap these errors and classify them in connection stages
@@ -30,12 +40,12 @@ func (d *Dialer) Dial() (net.PacketConn, error) {
 	dc := c.DataChannel()
 	done := make(chan bool)
 	c.WaitUntil(done)
-	return Conn{cl: c, dc: dc}, nil
+	return PacketConn{cl: c, dc: dc}, nil
 }
 
 // Conn is a packet-oriented network connection using an OpenVPN tunnel. It
 // implements the PacketConn interface.
-type Conn struct {
+type PacketConn struct {
 	cl *Client
 	dc chan []byte
 }
@@ -44,53 +54,35 @@ type Conn struct {
 // copying the payload into p. It returns the number of
 // bytes copied into p and the return address that
 // was on the packet.
-func (c Conn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	data := <-c.dc
-	return copy(p, data), nil, err
+func (p PacketConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+	data := <-p.dc
+	return copy(b, data), p.LocalAddr(), nil
 }
 
 // WriteTo writes a packet with payload p to addr.
 // WriteTo can be made to time out and return an Error after a
 // fixed time limit; see SetDeadline and SetWriteDeadline.
 // On packet-oriented connections, write timeouts are rare.
-func (c Conn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	c.cl.SendData(p)
-	return len(p), nil
+func (p PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
+	fmt.Println(hex.Dump(b))
+	p.cl.SendData(b)
+	return len(b), nil
 }
-
-/* -------------------------------------------------------------------------------------------*/
-/* TODO this is from the net.Conn interface, I don't know if it makes sense to implement this */
-
-// Read reads data from the connection.
-// Read can be made to time out and return an error after a fixed
-// time limit; see SetDeadline and SetReadDeadline.
-func (c Conn) Read(b []byte) (n int, err error) {
-	return 0, nil
-}
-
-// Write writes data to the connection.
-// Write can be made to time out and return an error after a fixed
-// time limit; see SetDeadline and SetWriteDeadline.
-func (c Conn) Write(b []byte) (n int, err error) {
-	return 0, nil
-}
-
-/* ------------------------------------------------------------------------------------------ */
 
 // Close closes the connection.
-func (c Conn) Close() error {
-	c.cl.Stop()
+func (p PacketConn) Close() error {
+	p.cl.Stop()
 	return nil
 }
 
 // LocalAddr returns the local network address, if known.
-func (c Conn) LocalAddr() net.Addr {
-	addr, _ := net.ResolveIPAddr("ip", c.cl.TunnelIP())
+func (p PacketConn) LocalAddr() net.Addr {
+	addr, _ := net.ResolveIPAddr("ip", p.cl.TunnelIP())
 	return addr
 }
 
 // RemoteAddr returns the remote network address, if known.
-func (c Conn) RemoteAddr() net.Addr {
+func (p PacketConn) RemoteAddr() net.Addr {
 	return nil
 }
 
@@ -115,14 +107,14 @@ func (c Conn) RemoteAddr() net.Addr {
 // the deadline after successful Read or Write calls.
 //
 // A zero value for t means I/O operations will not time out.
-func (c Conn) SetDeadline(t time.Time) error {
+func (p PacketConn) SetDeadline(t time.Time) error {
 	return nil
 }
 
 // SetReadDeadline sets the deadline for future Read calls
 // and any currently-blocked Read call.
 // A zero value for t means Read will not time out.
-func (c Conn) SetReadDeadline(t time.Time) error {
+func (p PacketConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
@@ -131,6 +123,6 @@ func (c Conn) SetReadDeadline(t time.Time) error {
 // Even if write times out, it may return n > 0, indicating that
 // some of the data was successfully written.
 // A zero value for t means Write will not time out.
-func (c Conn) SetWriteDeadline(t time.Time) error {
+func (p PacketConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }

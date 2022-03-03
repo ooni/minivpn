@@ -4,3 +4,4 @@ minivpn
 *.pem
 *.ovpn
 data/*
+ping/ping
