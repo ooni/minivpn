@@ -17,12 +17,23 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
-type Device struct {
+// XXX just for testing, get it from cli params
+func vpnRawDialer() *vpn.RawDialer {
+	opts, err := vpn.ParseConfigFile("data/calyx/config")
+	if err != nil {
+		panic(err)
+	}
+	return vpn.NewRawDialer(opts)
+}
+
+// -------------------- move to dialer ------------------------------------
+
+type device struct {
 	tun tun.Device
 	raw net.PacketConn
 }
 
-func (d *Device) Up() {
+func (d *device) Up() {
 	go func() {
 		b := make([]byte, 4096)
 		for {
@@ -47,14 +58,6 @@ func (d *Device) Up() {
 	}()
 }
 
-func vpnRawDialer() *vpn.RawDialer {
-	opts, err := vpn.ParseConfigFile("data/calyx/config")
-	if err != nil {
-		panic(err)
-	}
-	return vpn.NewRawDialer(opts)
-}
-
 type Dialer struct {
 	NameServer string
 	raw        *vpn.RawDialer
@@ -71,7 +74,7 @@ func (d Dialer) Dial(network, address string) (net.Conn, error) {
 		return nil, err
 	}
 	localIP := raw.LocalAddr().String()
-	// create a virtual device in userspace
+	// create a virtual device in userspace, courtesy of wireguard-go
 	tun, tnet, err := netstack.CreateNetTUN(
 		[]netip.Addr{netip.MustParseAddr(localIP)},
 		[]netip.Addr{netip.MustParseAddr(d.NameServer)},
@@ -79,13 +82,18 @@ func (d Dialer) Dial(network, address string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	// connect the virtual device to our openvpn tunnel implementation
-	dev := &Device{tun, raw}
+	// connect the virtual device to our openvpn tunnel
+	dev := &device{tun, raw}
 	dev.Up()
 	return tnet.Dial(network, address)
 }
 
-//func DialTimeout(network, address string, timeout time.Duration) (Conn, error) {
+// perhaps useful to implement too?
+// just set the socket deadline at now + timeout, I think...
+// func DialTimeout(network, address string, timeout time.Duration) (Conn, error)
+// socket.SetReadDeadline(time.Now().Add(time.Second * 10))
+
+// ----------------------------------------------------------------------------
 
 func main() {
 	raw := vpnRawDialer()
