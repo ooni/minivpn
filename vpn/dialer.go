@@ -4,6 +4,7 @@ package vpn
 // an OpenVPN connection.
 
 import (
+	"context"
 	"log"
 	"net"
 	"time"
@@ -37,6 +38,12 @@ func NewDialerWithNameservers(raw *RawDialer, ns1, ns2 string) Dialer {
 	return Dialer{raw: raw, ns1: ns1, ns2: ns2}
 }
 
+// NewDialerFromOptions creates a new Dialer directly from an Options object.
+func NewDialerFromOptions(o *Options) Dialer {
+	raw := NewRawDialer(o)
+	return Dialer{raw: raw, ns1: openDNSPrimary, ns2: openDNSSecondary}
+}
+
 // Dial connects to the address on the named network, via the OpenVPN endpoint
 // that is configured in the dialer.
 //
@@ -51,6 +58,34 @@ func NewDialerWithNameservers(raw *RawDialer, ns1, ns2 string) Dialer {
 // Known networks are "tcp", "tcp4" (IPv4-only), "tcp6" (IPv6-only),
 // "udp", "udp4" (IPv4-only), "udp6" (IPv6-only), "ping4", "ping6".
 func (d Dialer) Dial(network, address string) (net.Conn, error) {
+	tnet, err := d.createNetTUN()
+	if err != nil {
+		return nil, err
+	}
+	return tnet.Dial(network, address)
+}
+
+// DialTimeout acts like Dial but takes a timeout.
+func (d Dialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
+	conn, err := d.Dial(network, address)
+	if err != nil {
+		return nil, err
+	}
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	return conn, nil
+}
+
+// DialContext connects to the address on the named network using
+// the provided context.
+func (d Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	tnet, err := d.createNetTUN()
+	if err != nil {
+		return nil, err
+	}
+	return tnet.DialContext(ctx, network, address)
+}
+
+func (d Dialer) createNetTUN() (*netstack.Net, error) {
 	raw, err := d.raw.Dial()
 	if err != nil {
 		return nil, err
@@ -63,7 +98,7 @@ func (d Dialer) Dial(network, address string) (net.Conn, error) {
 		[]netip.Addr{
 			netip.MustParseAddr(d.ns1),
 			netip.MustParseAddr(d.ns2)},
-		d.raw.MTU)
+		d.raw.MTU-100) // BUG(ainghazal): cannot use the tun-mtu that the remote advertises
 	if err != nil {
 		return nil, err
 	}
@@ -72,17 +107,7 @@ func (d Dialer) Dial(network, address string) (net.Conn, error) {
 	dev := &device{tun, raw}
 	dev.Up()
 
-	return tnet.Dial(network, address)
-}
-
-// DialTimeout acts like Dial but takes a timeout.
-func (d Dialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
-	conn, err := d.Dial(network, address)
-	if err != nil {
-		return nil, err
-	}
-	conn.SetReadDeadline(time.Now().Add(timeout))
-	return conn, nil
+	return tnet, nil
 }
 
 // device contains the two halves of the tunnel that we are connecting in our

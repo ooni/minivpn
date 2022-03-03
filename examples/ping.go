@@ -1,3 +1,14 @@
+//go:build ignore
+// +build ignore
+
+// This file is modified after tun/netstack/examples/ping_client.go in the
+// wireguard-go implementation.
+
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (C) 2019-2021 WireGuard LLC. All Rights Reserved.
+ * Copyright (C) 2022 Ain Ghazal. All Rights Reversed.
+ */
 package main
 
 import (
@@ -12,18 +23,16 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
-// XXX just for testing, get it from cli params
-func vpnRawDialer() *vpn.RawDialer {
+func main() {
 	opts, err := vpn.ParseConfigFile("data/calyx/config")
 	if err != nil {
 		panic(err)
 	}
-	return vpn.NewRawDialer(opts)
-}
+	dialer := vpn.NewDialerFromOptions(opts)
+	if err != nil {
+		log.Panic(err)
+	}
 
-func main() {
-	raw := vpnRawDialer()
-	dialer := vpn.NewDialer(raw)
 	socket, err := dialer.Dial("ping4", "riseup.net")
 	if err != nil {
 		log.Panic(err)
