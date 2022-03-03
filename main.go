@@ -49,12 +49,11 @@ func main() {
 	}
 	switch args[0] {
 	case "ping":
-		dialer := vpn.NewDialer(opts)
-		pinger := NewPinger(dialer, *optTarget, *optCount)
+		raw := vpn.NewRawDialer(opts)
+		pinger := NewPinger(raw, *optTarget, *optCount)
 		pinger.Run()
 	case "proxy":
-		dialer := vpn.NewDialer(opts)
-		ListenAndServeSocks(dialer)
+		ListenAndServeSocks(opts)
 	default:
 		printUsage()
 	}

@@ -37,7 +37,8 @@ func main() {
 		},
 	}
 	// BUG(ainghazal): https stalls unless I tweak the tun-mtu that the
-	// remote announces
+	// remote announces. I might want to look at the mtu discovery that
+	// openvpn does.
 	if len(os.Args) != 2 {
 		log.Println("Usage: get <https://foobar>")
 		os.Exit(1)

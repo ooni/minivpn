@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	"golang.zx2c4.com/go118/netip"
@@ -19,29 +20,47 @@ var (
 	openDNSSecondary = "208.67.220.220"
 )
 
+type network struct {
+	up   bool
+	tnet *netstack.Net
+	mu   sync.Mutex
+}
+
+func (n *network) init(tnet *netstack.Net) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.tnet = tnet
+	n.up = true
+}
+
+func (n *network) isUp() bool {
+	return n.up
+}
+
 // A Dialer contains options for obtaining a network connection tunneled
 // through an OpenVPN endpoint.
 type Dialer struct {
 	ns1 string
 	ns2 string
 	raw *RawDialer
+	net *network
 }
 
 // NewDialer creates a new Dialer with the default nameservers (OpenDNS).
 func NewDialer(raw *RawDialer) Dialer {
-	return Dialer{raw: raw, ns1: openDNSPrimary, ns2: openDNSSecondary}
+	return Dialer{raw: raw, ns1: openDNSPrimary, ns2: openDNSSecondary, net: &network{}}
 }
 
 // NewDialerNewDialerWithNameservers creates a new Dialer with the passed nameservers.
 // You probably want to pass the nameservers for your own VPN service here.
 func NewDialerWithNameservers(raw *RawDialer, ns1, ns2 string) Dialer {
-	return Dialer{raw: raw, ns1: ns1, ns2: ns2}
+	return Dialer{raw: raw, ns1: ns1, ns2: ns2, net: &network{}}
 }
 
 // NewDialerFromOptions creates a new Dialer directly from an Options object.
 func NewDialerFromOptions(o *Options) Dialer {
 	raw := NewRawDialer(o)
-	return Dialer{raw: raw, ns1: openDNSPrimary, ns2: openDNSSecondary}
+	return Dialer{raw: raw, ns1: openDNSPrimary, ns2: openDNSSecondary, net: &network{}}
 }
 
 // Dial connects to the address on the named network, via the OpenVPN endpoint
@@ -58,10 +77,14 @@ func NewDialerFromOptions(o *Options) Dialer {
 // Known networks are "tcp", "tcp4" (IPv4-only), "tcp6" (IPv6-only),
 // "udp", "udp4" (IPv4-only), "udp6" (IPv6-only), "ping4", "ping6".
 func (d Dialer) Dial(network, address string) (net.Conn, error) {
+	if d.net.isUp() {
+		return d.net.tnet.Dial(network, address)
+	}
 	tnet, err := d.createNetTUN()
 	if err != nil {
 		return nil, err
 	}
+	d.net.init(tnet)
 	return tnet.Dial(network, address)
 }
 
@@ -78,10 +101,14 @@ func (d Dialer) DialTimeout(network, address string, timeout time.Duration) (net
 // DialContext connects to the address on the named network using
 // the provided context.
 func (d Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.net.isUp() {
+		return d.net.tnet.DialContext(ctx, network, address)
+	}
 	tnet, err := d.createNetTUN()
 	if err != nil {
 		return nil, err
 	}
+	d.net.init(tnet)
 	return tnet.DialContext(ctx, network, address)
 }
 

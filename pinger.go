@@ -26,7 +26,7 @@ import (
 // NewPinger returns a pointer to a Pinger struct configured to handle data from a
 // vpn.Client. It needs host and count as parameters, and also accepts a done
 // channel in which termination of the measurement series will be notified.
-func NewPinger(d *vpn.Dialer, host string, count uint32) *Pinger {
+func NewPinger(d *vpn.RawDialer, host string, count uint32) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
 	ts := make(map[int]int64)
@@ -49,7 +49,7 @@ type st struct {
 }
 
 type Pinger struct {
-	dialer *vpn.Dialer
+	dialer *vpn.RawDialer
 	conn   net.PacketConn
 	stats  chan st
 	st     []st
@@ -72,7 +72,7 @@ type Pinger struct {
 }
 
 func (p *Pinger) Run() {
-	conn, err := p.dialer.Dial(nil, "", "")
+	conn, err := p.dialer.Dial()
 
 	if err != nil {
 		log.Fatal("error dialing:", err)
