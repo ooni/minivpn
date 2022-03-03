@@ -1,7 +1,7 @@
 minivpn
+ping
 *.swp
 *.swo
 *.pem
 *.ovpn
 data/*
-ping/ping
