@@ -1,19 +1,11 @@
-/* SPDX-License-Identifier: MIT
- *
- * Copyright (C) 2019-2021 WireGuard LLC. All Rights Reserved.
- */
-
 package main
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"math/rand"
 	"net"
 	"time"
-
-	"encoding/hex"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
@@ -31,17 +23,15 @@ type Device struct {
 }
 
 func (d *Device) Up() {
-	log.Println("Initializing VPN device on virtual interface...")
 	go func() {
 		b := make([]byte, 4096)
 		for {
-			n, err := d.tun.Read(b, 0)
+			n, err := d.tun.Read(b, 0) // zero offset
 			if err != nil {
 				log.Println("tun read error:", err)
-			} else {
-				log.Println("tun->raw")
-				d.raw.WriteTo(b[0:n], nil)
+				break
 			}
+			d.raw.WriteTo(b[0:n], nil)
 		}
 	}()
 	go func() {
@@ -50,49 +40,65 @@ func (d *Device) Up() {
 			n, _, err := d.raw.ReadFrom(b)
 			if err != nil {
 				log.Println("raw read error:", err)
-			} else {
-				log.Println("raw->tun")
+				break
 			}
-			fmt.Println(hex.Dump(b[0:n]))
-			d.tun.Write(b[0:n], 0)
+			d.tun.Write(b[0:n], 0) // zero offset
 		}
 	}()
 }
 
-func vpnConn() net.PacketConn {
+func vpnRawDialer() *vpn.RawDialer {
 	opts, err := vpn.ParseConfigFile("data/calyx/config")
 	if err != nil {
 		panic(err)
 	}
-	dialer := vpn.NewDialer(opts)
-	raw, err := dialer.Dial(nil, "", "")
-	if err != nil {
-		panic(err)
-	}
-	return raw
+	return vpn.NewRawDialer(opts)
 }
 
-func main() {
-	raw := vpnConn()
+type Dialer struct {
+	MTU        int
+	NameServer string
+	raw        *vpn.RawDialer
+}
+
+func NewDialer(raw *vpn.RawDialer) Dialer {
+	ns := "8.8.8.8"
+	mtu := 1500 // need to get this from the remote strings
+	return Dialer{raw: raw, NameServer: ns, MTU: mtu}
+}
+
+func (d Dialer) Dial(network, address string) (net.Conn, error) {
+	raw, err := d.raw.Dial()
+	if err != nil {
+		return nil, err
+	}
 	localIP := raw.LocalAddr().String()
+	// create a virtual device in userspace
 	tun, tnet, err := netstack.CreateNetTUN(
 		[]netip.Addr{netip.MustParseAddr(localIP)},
-		[]netip.Addr{netip.MustParseAddr("8.8.8.8")},
-		1500)
+		[]netip.Addr{netip.MustParseAddr(d.NameServer)},
+		d.MTU)
 	if err != nil {
-		log.Panic(err)
+		return nil, err
 	}
-
+	// connect the virtual device to our openvpn tunnel implementation
 	dev := &Device{tun, raw}
 	dev.Up()
+	return tnet.Dial(network, address)
+}
 
-	socket, err := tnet.Dial("ping4", "8.8.8.8")
+//func DialTimeout(network, address string, timeout time.Duration) (Conn, error) {
+
+func main() {
+	raw := vpnRawDialer()
+	dialer := NewDialer(raw)
+	socket, err := dialer.Dial("ping4", "8.8.8.8")
 	if err != nil {
 		log.Panic(err)
 	}
 	requestPing := icmp.Echo{
 		Seq:  rand.Intn(1 << 16),
-		Data: []byte("hello filternet"),
+		Data: []byte("hello filternet"), // get the start ts in here, as sbasso suggested
 	}
 	icmpBytes, _ := (&icmp.Message{Type: ipv4.ICMPTypeEcho, Code: 0, Body: &requestPing}).Marshal(nil)
 	socket.SetReadDeadline(time.Now().Add(time.Second * 10))

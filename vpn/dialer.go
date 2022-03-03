@@ -1,25 +1,22 @@
 package vpn
 
 import (
-	"context"
-	"encoding/hex"
-	"fmt"
 	"net"
 	"time"
 )
 
-// NewDialer returns a Dialer configured with the given Options.
-func NewDialer(opts *Options) *Dialer {
-	return &Dialer{Options: opts}
+// NewDialer returns a RawDialer configured with the given Options.
+func NewRawDialer(opts *Options) *RawDialer {
+	return &RawDialer{Options: opts}
 }
 
-// A Dialer contains options for connecting to an OpenVPN endpoint.
-type Dialer struct {
-	Options   *Options
-	Timeout   time.Duration
-	Deadline  time.Time
-	KeepAlive time.Duration
-	// TODO can map to kepalive openvpn option
+// A RawDialer contains options for connecting to an OpenVPN endpoint.
+type RawDialer struct {
+	Options    *Options
+	Timeout    time.Duration
+	Deadline   time.Time
+	KeepAlive  time.Duration
+	NameServer string
 }
 
 // Dial functions return an implementor of net.Conn that writes to and reads
@@ -29,7 +26,7 @@ type Dialer struct {
 // TODO probably need to register a handler for this connection
 // or, perhaps easier, add destination in the conn struct
 
-func (d *Dialer) Dial(ctx context.Context, network, addr string) (net.PacketConn, error) {
+func (d *RawDialer) Dial() (net.PacketConn, error) {
 	// TODO catch error here
 	c := NewClientFromSettings(d.Options)
 	// TODO unwrap these errors and classify them in connection stages
@@ -64,7 +61,6 @@ func (p PacketConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 // fixed time limit; see SetDeadline and SetWriteDeadline.
 // On packet-oriented connections, write timeouts are rare.
 func (p PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	fmt.Println(hex.Dump(b))
 	p.cl.SendData(b)
 	return len(b), nil
 }
