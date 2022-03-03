@@ -26,10 +26,10 @@ type network struct {
 	mu   sync.Mutex
 }
 
-func (n *network) init(tnet *netstack.Net) {
+func (n *network) init(t *netstack.Net) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.tnet = tnet
+	n.tnet = t
 	n.up = true
 }
 
@@ -173,9 +173,8 @@ func (d *device) Up() {
 
 // RawDialer contains options for connecting to an OpenVPN endpoint.
 type RawDialer struct {
-	Options    *Options
-	NameServer string
-	MTU        int
+	Options *Options
+	MTU     int
 }
 
 // NewRawDialer returns a RawDialer configured with the given Options.
@@ -206,15 +205,15 @@ type packetConn struct {
 	dc chan []byte
 }
 
-// ReadFrom reads a packet from the connection, copying the payload into p. It
-// returns the number of bytes copied into p and the return address that
+// ReadFrom reads a packet from the connection, copying the payload into b. It
+// returns the number of bytes copied into b and the return address that
 // was on the packet.
 func (p packetConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	data := <-p.dc
 	return copy(b, data), p.LocalAddr(), nil
 }
 
-// WriteTo writes a packet with payload p to addr.
+// WriteTo writes a packet with payload b to addr.
 func (p packetConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	p.cl.SendData(b)
 	return len(b), nil
