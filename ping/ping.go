@@ -56,15 +56,13 @@ func vpnRawDialer() *vpn.RawDialer {
 }
 
 type Dialer struct {
-	MTU        int
 	NameServer string
 	raw        *vpn.RawDialer
 }
 
 func NewDialer(raw *vpn.RawDialer) Dialer {
-	ns := "8.8.8.8"
-	mtu := 1500 // need to get this from the remote strings
-	return Dialer{raw: raw, NameServer: ns, MTU: mtu}
+	ns := "8.8.8.8" // it'd be nice to get this config externally.
+	return Dialer{raw: raw, NameServer: ns}
 }
 
 func (d Dialer) Dial(network, address string) (net.Conn, error) {
@@ -77,7 +75,7 @@ func (d Dialer) Dial(network, address string) (net.Conn, error) {
 	tun, tnet, err := netstack.CreateNetTUN(
 		[]netip.Addr{netip.MustParseAddr(localIP)},
 		[]netip.Addr{netip.MustParseAddr(d.NameServer)},
-		d.MTU)
+		d.raw.MTU)
 	if err != nil {
 		return nil, err
 	}

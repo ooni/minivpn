@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"log"
 	"net"
 	"time"
 )
@@ -17,6 +18,7 @@ type RawDialer struct {
 	Deadline   time.Time
 	KeepAlive  time.Duration
 	NameServer string
+	MTU        int
 }
 
 // Dial functions return an implementor of net.Conn that writes to and reads
@@ -37,6 +39,8 @@ func (d *RawDialer) Dial() (net.PacketConn, error) {
 	dc := c.DataChannel()
 	done := make(chan bool)
 	c.WaitUntil(done)
+	d.MTU = c.TunMTU()
+	log.Println(">>> setting mtu", d.MTU)
 	return PacketConn{cl: c, dc: dc}, nil
 }
 

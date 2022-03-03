@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -32,6 +33,7 @@ type Client struct {
 	cancel       context.CancelFunc
 	initSt       int
 	tunnelIP     string
+	tunMTU       int
 	con          net.Conn
 	ctrl         *control
 	data         *data
@@ -184,6 +186,22 @@ func (c *Client) handleIncoming() {
 	}
 }
 
+func (c *Client) onRemoteOpts() {
+	opts := strings.Split(c.ctrl.remoteOpts, ",")
+	for _, opt := range opts {
+		vals := strings.Split(opt, " ")
+		k, v := vals[0], vals[1:]
+		if k == "tun-mtu" {
+			mtu, err := strconv.Atoi(v[0])
+			if err != nil {
+				log.Println("bad mtu:", err)
+				continue
+			}
+			c.tunMTU = mtu
+		}
+	}
+}
+
 // I don't think I want to do much with the pushed options for now, other
 // than extracting the tunnel ip, but it can be useful to parse them into a map
 // and compare if there's a strong disagreement with the remote opts
@@ -206,12 +224,17 @@ func (c *Client) TunnelIP() string {
 	return c.tunnelIP
 }
 
+func (c *Client) TunMTU() int {
+	return c.tunMTU
+}
+
 func (c *Client) handleTLSIncoming() {
 	var recv = make([]byte, 4096)
 	var n, _ = c.ctrl.tls.Read(recv)
 	data := recv[:n]
 	if areBytesEqual(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
 		remoteKey := c.ctrl.readControlMessage(data)
+		c.onRemoteOpts()
 		// XXX update only one pointer
 		c.remoteKeySrc = remoteKey
 		c.data.remoteKeySource = remoteKey
