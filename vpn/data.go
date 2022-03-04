@@ -47,7 +47,7 @@ type data struct {
 	conn            net.Conn
 	mu              sync.Mutex
 
-	ciph Cipher
+	c    dataCipher
 	hmac func() hash.Hash
 }
 
@@ -106,7 +106,7 @@ func (d *data) loadCipherFromOptions() {
 	if err != nil {
 		log.Fatal("bad cipher")
 	}
-	d.ciph = c
+	d.c = c
 	log.Println("Setting auth:", d.opts.Auth)
 	h, ok := getHMAC(strings.ToLower(d.opts.Auth))
 	if !ok {
@@ -117,7 +117,7 @@ func (d *data) loadCipherFromOptions() {
 }
 
 func (d *data) encrypt(plaintext []byte) []byte {
-	bs := d.ciph.BlockSize()
+	bs := d.c.blockSize()
 	var padded []byte
 
 	// FIXME emtpy is this case too I think
@@ -132,12 +132,12 @@ func (d *data) encrypt(plaintext []byte) []byte {
 		padded = padText(plaintext, bs)
 	}
 
-	if d.ciph.IsAEAD() {
+	if d.c.isAEAD() {
 		packetId := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetId, d.localPacketId)
 		iv := append(packetId, d.hmacKeyLocal[:8]...)
 
-		ct, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded, packetId)
+		ct, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, packetId)
 		if err != nil {
 			log.Println("error:", err)
 			return []byte("")
@@ -156,7 +156,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
 	iv, err := genRandomBytes(bs)
 	checkError(err)
-	ciphertext, err := d.ciph.Encrypt(d.cipherKeyLocal, iv, padded, []byte(""))
+	ciphertext, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, []byte(""))
 	checkError(err)
 
 	hashLength := getHashLength(strings.ToLower(d.opts.Auth))
@@ -171,7 +171,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 }
 
 func (d *data) decrypt(encrypted []byte) []byte {
-	if d.ciph.IsAEAD() {
+	if d.c.isAEAD() {
 		return d.decryptAEAD(encrypted)
 	}
 	return d.decryptV1(encrypted)
@@ -182,7 +182,7 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
 	}
 	hashLength := getHashLength(strings.ToLower(d.opts.Auth))
-	bs := d.ciph.BlockSize()
+	bs := d.c.blockSize()
 	recvMAC := encrypted[:hashLength]
 	iv := encrypted[hashLength : hashLength+bs]
 	cipherText := encrypted[hashLength+bs:]
@@ -196,7 +196,7 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 		log.Fatal("Cannot decrypt!")
 	}
 
-	plainText, err := d.ciph.Decrypt(d.cipherKeyRemote, iv, cipherText, []byte(""))
+	plainText, err := d.c.decrypt(d.cipherKeyRemote, iv, cipherText, []byte(""))
 	if err != nil {
 		log.Fatal("Decryption error")
 	}
@@ -224,7 +224,7 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 	ct, _ := hex.DecodeString(ctH)
 	tag, _ := hex.DecodeString(tagH)
 	reconstructed := append(ct, tag...)
-	plaintext, err := d.ciph.Decrypt(d.cipherKeyRemote, iv, reconstructed, packetId)
+	plaintext, err := d.c.decrypt(d.cipherKeyRemote, iv, reconstructed, packetId)
 
 	if err != nil {
 		log.Println("error", err.Error())
@@ -239,7 +239,7 @@ func (d *data) send(payload []byte) {
 	defer d.mu.Unlock()
 	d.localPacketId += 1
 	plaintext := []byte("")
-	if !d.ciph.IsAEAD() {
+	if !d.c.isAEAD() {
 		log.Println("non aead: adding packetid prefix")
 		packetId := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetId, d.localPacketId)
@@ -276,7 +276,7 @@ func (d *data) handleIn(packet []byte) {
 
 	var compression byte
 	var payload []byte
-	if d.ciph.IsAEAD() {
+	if d.c.isAEAD() {
 		if d.opts.Compress == "stub" || d.opts.Compress == "lzo-no" {
 			compression = plaintext[0]
 			payload = plaintext[1:]

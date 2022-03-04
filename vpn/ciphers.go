@@ -14,40 +14,47 @@ import (
 
 // TODO see if it's feasible to replace in part with some stdlib interfaces
 // because this might be redundant
-type Cipher interface {
-	KeySizeBytes() int
-	IsAEAD() bool
-	BlockSize() int
-	Encrypt(key, iv, plaintext, ad []byte) ([]byte, error)
-	Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error)
+
+var (
+	cbcMode  = "cbc"
+	gcmMode  = "gcm"
+	aesLabel = "aes"
+)
+
+type dataCipher interface {
+	keySizeBytes() int
+	isAEAD() bool
+	blockSize() int
+	encrypt(key, iv, plaintext, ad []byte) ([]byte, error)
+	decrypt(key, iv, ciphertext, ad []byte) ([]byte, error)
 }
 
-type AESCipher struct {
+type aesCipher struct {
 	keySizeBits int
 	mode        string
 }
 
-func (c *AESCipher) KeySizeBytes() int {
-	return c.keySizeBits / 8
+func (a *aesCipher) keySizeBytes() int {
+	return a.keySizeBits / 8
 }
 
-func (c *AESCipher) IsAEAD() bool {
-	if c.mode == "cbc" {
+func (a *aesCipher) isAEAD() bool {
+	if a.mode == cbcMode {
 		return false
 	}
 	return true
 }
 
-func (c *AESCipher) BlockSize() int {
-	if c.mode == "cbc" || c.mode == "gcm" {
+func (a *aesCipher) blockSize() int {
+	if a.mode == cbcMode || a.mode == gcmMode {
 		return 16
 	}
 	return 0
 }
 
-// data is optional, and only used in AEAD modes
-func (c *AESCipher) Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
-	k := key[:c.KeySizeBytes()]
+// decrypt tries to decrypt the ciphertext. ad is optional, and only used in AEAD modes.
+func (a *aesCipher) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
+	k := key[:a.keySizeBytes()] // use stdlib
 
 	var block cipher.Block
 	block, err := aes.NewCipher(k)
@@ -57,8 +64,8 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 
 	var mode cipher.BlockMode
 
-	switch c.mode {
-	case "cbc":
+	switch a.mode {
+	case cbcMode:
 		iv_ := iv[:block.BlockSize()]
 		mode = cipher.NewCBCDecrypter(block, iv_)
 		plaintext := make([]byte, len(ciphertext))
@@ -69,7 +76,7 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 			log.Fatal("Padding error")
 		}
 		return plaintext, nil
-	case "gcm":
+	case gcmMode:
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
@@ -84,15 +91,13 @@ func (c *AESCipher) Decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 		log.Fatal("only CBC or GCM modes allowed")
 	}
 
-	if c.mode == "cbc" {
-	}
 	return nil, nil
 }
 
-// data is optional, and only used in AEAD modes
-func (c *AESCipher) Encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
-	k := key[:c.KeySizeBytes()]
-	iv_ := iv[:c.BlockSize()]
+// encrypt encrypts the plaintext. ad is optional, and only used in AEAD modes
+func (a *aesCipher) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
+	k := key[:a.keySizeBytes()] // get from stdlib
+	iv_ := iv[:a.blockSize()]
 
 	var block cipher.Block
 	block, err := aes.NewCipher(k)
@@ -103,12 +108,12 @@ func (c *AESCipher) Encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 	var ciphertext []byte
 	var mode cipher.BlockMode
 
-	switch c.mode {
-	case "cbc":
+	switch a.mode {
+	case cbcMode:
 		mode = cipher.NewCBCEncrypter(block, iv_)
 		ciphertext = make([]byte, len(plaintext))
 		mode.CryptBlocks(ciphertext, plaintext)
-	case "gcm":
+	case gcmMode:
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
@@ -126,43 +131,43 @@ func (c *AESCipher) Encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func newCipherFromCipherSuite(c string) (Cipher, error) {
+func newCipherFromCipherSuite(c string) (dataCipher, error) {
 	switch c {
 	case "AES-128-CBC":
-		return newCipher("aes", 128, "cbc")
+		return newCipher(aesLabel, 128, cbcMode)
 	case "AES-192-CBC":
-		return newCipher("aes", 192, "cbc")
+		return newCipher(aesLabel, 192, cbcMode)
 	case "AES-256-CBC":
-		return newCipher("aes", 256, "cbc")
+		return newCipher(aesLabel, 256, cbcMode)
 	case "AES-128-GCM":
-		return newCipher("aes", 128, "gcm")
+		return newCipher(aesLabel, 128, gcmMode)
 	case "AES-256-GCM":
-		return newCipher("aes", 256, "gcm")
+		return newCipher(aesLabel, 256, gcmMode)
 	default:
 		break
 	}
 	return nil, fmt.Errorf("unsupported cipher")
 }
 
-func newCipher(name string, bits int, mode string) (Cipher, error) {
+func newCipher(name string, bits int, mode string) (dataCipher, error) {
 	if bits%8 != 0 || bits > 512 || bits < 64 {
 		return nil, fmt.Errorf("invalid key size: %d", bits)
 	}
 	switch name {
-	case "aes":
+	case aesLabel:
 		break
 	default:
 		return nil, fmt.Errorf("unsupported cipher: %s", name)
 	}
 	switch mode {
-	case "cbc":
+	case cbcMode:
 		break
-	case "gcm":
+	case gcmMode:
 		break
 	default:
 		return nil, fmt.Errorf("unsupported mode: %s", mode)
 	}
-	return &AESCipher{bits, mode}, nil
+	return &aesCipher{bits, mode}, nil
 }
 
 // getHMAC accepts a label coming from an OpenVPN auth label, and returns two
