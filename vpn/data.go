@@ -42,8 +42,8 @@ type data struct {
 	cipherKeyRemote []byte
 	hmacKeyLocal    []byte
 	hmacKeyRemote   []byte
-	localPacketId   uint32
-	remotePacketId  uint32
+	localPacketID   uint32
+	remotePacketID  uint32
 	conn            net.Conn
 	mu              sync.Mutex
 
@@ -132,11 +132,11 @@ func (d *data) encrypt(plaintext []byte) []byte {
 	}
 
 	if d.c.isAEAD() {
-		packetId := make([]byte, 4)
-		binary.BigEndian.PutUint32(packetId, d.localPacketId)
-		iv := append(packetId, d.hmacKeyLocal[:8]...)
+		packetID := make([]byte, 4)
+		binary.BigEndian.PutUint32(packetID, d.localPacketID)
+		iv := append(packetID, d.hmacKeyLocal[:8]...)
 
-		ct, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, packetId)
+		ct, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, packetID)
 		if err != nil {
 			log.Println("error:", err)
 			return []byte("")
@@ -146,7 +146,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 		tag := ct[len(ct)-16:]
 		payload := ct[:len(ct)-16]
 
-		p := append(packetId, tag...)
+		p := append(packetID, tag...)
 		p = append(p, payload...)
 		return p
 	}
@@ -211,7 +211,7 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 	if len(dat) == 0 {
 		return []byte{}
 	}
-	packetId := dat[:4]
+	packetID := dat[:4]
 	// weird sorcery:
 	// for some reason that I don't understand, this is not properly parsed
 	// as bytes... the tag gets mangled. but it's good if I convert it to hex and back...
@@ -219,11 +219,11 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 	tagH := recvHex[8:40]
 	ctH := recvHex[40:]
 
-	iv := append(packetId, d.hmacKeyRemote[:8]...)
+	iv := append(packetID, d.hmacKeyRemote[:8]...)
 	ct, _ := hex.DecodeString(ctH)
 	tag, _ := hex.DecodeString(tagH)
 	reconstructed := append(ct, tag...)
-	plaintext, err := d.c.decrypt(d.cipherKeyRemote, iv, reconstructed, packetId)
+	plaintext, err := d.c.decrypt(d.cipherKeyRemote, iv, reconstructed, packetID)
 
 	if err != nil {
 		log.Println("error", err.Error())
@@ -236,13 +236,13 @@ func (d *data) send(payload []byte) {
 	// TODO use a channel here instead?
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.localPacketId += 1
+	d.localPacketID++
 	plaintext := []byte("")
 	if !d.c.isAEAD() {
 		log.Println("non aead: adding packetid prefix")
-		packetId := make([]byte, 4)
-		binary.BigEndian.PutUint32(packetId, d.localPacketId)
-		plaintext = packetId[:]
+		packetID := make([]byte, 4)
+		binary.BigEndian.PutUint32(packetID, d.localPacketID)
+		plaintext = packetID[:]
 	} else {
 		plaintext = payload[:]
 	}
@@ -284,12 +284,12 @@ func (d *data) handleIn(packet []byte) {
 			payload = plaintext[:]
 		}
 	} else {
-		packetId := binary.BigEndian.Uint32(plaintext[:4])
-		if int(packetId) <= int(d.remotePacketId) {
+		packetID := binary.BigEndian.Uint32(plaintext[:4])
+		if int(packetID) <= int(d.remotePacketID) {
 			log.Fatal("Replay attack detected, aborting!")
 		}
 		// TODO for CBC mode the compression might need work...
-		d.remotePacketId = packetId
+		d.remotePacketID = packetID
 		compression = plaintext[4]
 		payload = plaintext[5:]
 	}

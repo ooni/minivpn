@@ -6,7 +6,7 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
-// ListenAnListenAndServeSocks configures a vpn dialer, and configures and runs a
+// ListenAndServeSocks configures a vpn dialer, and configures and runs a
 // socks5 server to use dialer.DialContext. The vpn dialer will initialize the tunnel
 // upon receiving the first proxied request, and will reuse the same session
 // for all further requests.

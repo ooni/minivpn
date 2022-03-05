@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// NewClientFromSettings returns a Client configured with the given Options.
 func NewClientFromSettings(o *Options) *Client {
 	o.Proto = "udp"
 	return &Client{
@@ -17,6 +18,11 @@ func NewClientFromSettings(o *Options) *Client {
 	}
 }
 
+// Client implements the OpenVPN protocol. If you're just interested in writing
+// to and reading from the tunnel you should use the dialer methods instead.
+// This type is only intended to be instantiated by users that need a finer control
+// of the protocol steps (i.e., you want to be sure that you are only calling
+// the handshake, etc.)
 type Client struct {
 	Opts         *Options
 	localKeySrc  *keySource
@@ -31,6 +37,9 @@ type Client struct {
 	data         *data
 }
 
+// Run starts the OpenVPN tunnel. It calls all the protocol steps serially.
+// If you want to perform only some parts, you should use each of the methods
+// above instead.
 func (c *Client) Run() error {
 	if err := c.Init(); err != nil {
 		return err
@@ -50,6 +59,8 @@ func (c *Client) Run() error {
 	return nil
 }
 
+// Init is the first step to stablish an OpenVPN tunnel (out of five). It only
+// initializes local state, so it's not expected to fail.
 func (c *Client) Init() error {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
@@ -59,6 +70,8 @@ func (c *Client) Init() error {
 	return nil
 }
 
+// Dial opens an UDP socket against the remote, and creates an internal
+// data channel. It is the second step in an OpenVPN connection (out of five).
 func (c *Client) Dial() error {
 	log.Printf("Connecting to %s:%s with proto UDP\n", c.Opts.Remote, c.Opts.Port)
 	// TODO pass context?
@@ -75,6 +88,8 @@ func (c *Client) Dial() error {
 	return nil
 }
 
+// Reset sends a hard-reset packet to the server, and waits for the server
+// confirmation. It is the third step in an OpenVPN connection (out of five).
 func (c *Client) Reset() error {
 	c.ctrl.sendHardReset()
 	id := c.ctrl.readHardReset(c.recv(0))
@@ -84,6 +99,8 @@ func (c *Client) Reset() error {
 	return nil
 }
 
+// InitTLS performs a TLS handshake over the control channel. It is the fourth
+// step in an OpenVPN connection (out of five).
 func (c *Client) InitTLS() error {
 	err := c.ctrl.initTLS()
 	c.initSt = stControlChannelOpen
@@ -93,6 +110,11 @@ func (c *Client) InitTLS() error {
 	return err
 }
 
+// InitData initializes the internal data channel. To do that, it sends a
+// control packet, parses the response, and derives the cryptographic material
+// that will be used to encrypt and decrypt data through the tunnel. At the end
+// of this exchange, the data channel is ready to be used. This is the fifth
+// and last step in an OpenVPN connection.
 func (c *Client) InitData() error {
 	for {
 		select {
@@ -212,10 +234,12 @@ func (c *Client) onPush(data []byte) {
 	}
 }
 
+// TunnelIP returns the local IP that the server assigned us.
 func (c *Client) TunnelIP() string {
 	return c.tunnelIP
 }
 
+// TunMTU returns the tun-mtu value that the remote advertises.
 func (c *Client) TunMTU() int {
 	return c.tunMTU
 }
@@ -247,10 +271,14 @@ func (c *Client) handleTLSIncoming() {
 	}
 }
 
+// SendData writes bytes into the tunnel.
+// this probably should be renamed to Write.
 func (c *Client) SendData(b []byte) {
 	c.data.send(b)
 }
 
+// WaitUntil accepts a chan bool, and will stop the tunnel upon receiving on
+// this channel.
 func (c *Client) WaitUntil(done chan bool) {
 	go func() {
 		select {
@@ -260,6 +288,7 @@ func (c *Client) WaitUntil(done chan bool) {
 	}()
 }
 
+// Stop closes the tunnel connection.
 func (c *Client) Stop() {
 	c.cancel()
 }
@@ -273,6 +302,8 @@ func (c *Client) recv(size int) []byte {
 	return recvData[:numBytes]
 }
 
+// DataChannel returns the internal data channel.
+// There's probably no need to export this.
 func (c *Client) DataChannel() chan []byte {
 	return c.data.dataChan()
 }

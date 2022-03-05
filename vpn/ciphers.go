@@ -66,8 +66,8 @@ func (a *aesCipher) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 
 	switch a.mode {
 	case cbcMode:
-		iv_ := iv[:block.BlockSize()]
-		mode = cipher.NewCBCDecrypter(block, iv_)
+		i := iv[:block.BlockSize()]
+		mode = cipher.NewCBCDecrypter(block, i)
 		plaintext := make([]byte, len(ciphertext))
 		mode.CryptBlocks(plaintext, ciphertext)
 		plaintext = unpadText(plaintext)
@@ -97,7 +97,7 @@ func (a *aesCipher) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 // encrypt encrypts the plaintext. ad is optional, and only used in AEAD modes
 func (a *aesCipher) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 	k := key[:a.keySizeBytes()] // get from stdlib
-	iv_ := iv[:a.blockSize()]
+	i := iv[:a.blockSize()]
 
 	var block cipher.Block
 	block, err := aes.NewCipher(k)
@@ -110,7 +110,7 @@ func (a *aesCipher) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 
 	switch a.mode {
 	case cbcMode:
-		mode = cipher.NewCBCEncrypter(block, iv_)
+		mode = cipher.NewCBCEncrypter(block, i)
 		ciphertext = make([]byte, len(plaintext))
 		mode.CryptBlocks(ciphertext, plaintext)
 	case gcmMode:

@@ -51,7 +51,7 @@ func NewDialer(raw *RawDialer) Dialer {
 	return Dialer{raw: raw, ns1: openDNSPrimary, ns2: openDNSSecondary, net: &network{}}
 }
 
-// NewDialerNewDialerWithNameservers creates a new Dialer with the passed nameservers.
+// NewDialerWithNameservers creates a new Dialer with the passed nameservers.
 // You probably want to pass the nameservers for your own VPN service here.
 func NewDialerWithNameservers(raw *RawDialer, ns1, ns2 string) Dialer {
 	return Dialer{raw: raw, ns1: ns1, ns2: ns2, net: &network{}}

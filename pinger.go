@@ -38,7 +38,7 @@ func NewPinger(d *vpn.RawDialer, host string, count uint32) *Pinger {
 		Count:    int(count),
 		Interval: 1,
 		ID:       id,
-		TTL:      64,
+		ttl:      64,
 		stats:    stats,
 	}
 }
@@ -48,6 +48,7 @@ type st struct {
 	ttl uint8
 }
 
+// Pinger holds all the needed info to ping a target.
 type Pinger struct {
 	dialer *vpn.RawDialer
 	conn   net.PacketConn
@@ -66,11 +67,13 @@ type Pinger struct {
 
 	ts map[int]int64
 
-	PacketsSent int
-	PacketsRecv int
-	TTL         int
+	packetsSent int
+	packetsRecv int
+	ttl         int
 }
 
+// Run performs a icmp ping measurements to the configured target, and with the
+// parameters defined on the initialization of Pinger.
 func (p *Pinger) Run() {
 	conn, err := p.dialer.Dial()
 
@@ -83,13 +86,13 @@ func (p *Pinger) Run() {
 		for i := 0; i < p.Count; i++ {
 			st := <-p.stats
 			p.st = append(p.st, st)
-			p.PacketsRecv += 1
+			p.packetsRecv++
 		}
 		// alternatively, catch SIGINT here and do this too:
 		p.Shutdown()
 	}()
 	for i := 0; i < p.Count; i++ {
-		go p.SendPayload(i)
+		go p.sendPayload(i)
 		if i < p.Count-1 {
 			time.Sleep(time.Second * 1)
 		} else {
@@ -99,13 +102,14 @@ func (p *Pinger) Run() {
 	}
 }
 
+// Shutdown prints ping statistics before quitting.
 func (p *Pinger) Shutdown() {
 	p.printStats()
 }
 
 func (p *Pinger) printStats() {
 	log.Println("--- " + p.host + " ping statistics ---")
-	loss := (p.PacketsRecv / p.PacketsSent) / 100
+	loss := (p.packetsRecv / p.packetsSent) / 100
 	var r []float32
 	var sum, sd, min, max float32
 	min = p.st[0].rtt
@@ -124,7 +128,7 @@ func (p *Pinger) printStats() {
 		sd += float32(math.Pow(float64(s.rtt-avg), 2))
 	}
 	sd = float32(math.Sqrt(float64(sd / float32(len(r)))))
-	log.Printf("%d packets transmitted, %d received, %d%% packet loss", p.PacketsSent, p.PacketsRecv, loss)
+	log.Printf("%d packets transmitted, %d received, %d%% packet loss", p.packetsSent, p.packetsRecv, loss)
 	log.Printf("rtt min/avg/max/stdev = %.3f, %.3f, %.3f, %.3f ms", min, avg, max, sd)
 }
 
@@ -138,15 +142,15 @@ func (p *Pinger) consumeData() {
 	}
 }
 
-func (p *Pinger) SendPayload(s int) {
+func (p *Pinger) sendPayload(s int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	src := p.conn.LocalAddr().String()
 	srcIP := net.ParseIP(src)
 	dstIP := net.ParseIP(p.host)
 	p.ts[s] = time.Now().UnixNano()
-	go p.craftAndSendICMP(&srcIP, &dstIP, p.TTL, s)
-	p.PacketsSent += 1
+	go p.craftAndSendICMP(&srcIP, &dstIP, p.ttl, s)
+	p.packetsSent++
 }
 
 func (p *Pinger) craftAndSendICMP(src, dst *net.IP, ttl, seq int) {

@@ -98,7 +98,7 @@ func (c *control) sendControl(opcode int, ack int, payload []byte) (n int, err e
 	pid := make([]byte, 4)
 	binary.BigEndian.PutUint32(pid, c.localPID)
 	p = append(p, pid...)
-	c.localPID += 1
+	c.localPID++
 	if len(payload) != 0 {
 		p = append(p, payload...)
 	}

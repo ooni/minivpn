@@ -77,6 +77,8 @@ func getOptionsAsBytes(opts *Options) []byte {
 	return []byte(o)
 }
 
+// ParseConfigFile expects a path to a valid config file and returns an Option
+// object after parsing the file.
 func ParseConfigFile(filePath string) (*Options, error) {
 	lines, err := getLinesFromFile(filePath)
 	dir, _ := filepath.Split(filePath)
@@ -186,7 +188,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 			}
 		case "comp-lzo":
 			if parts[0] != "no" {
-				return nil, fmt.Errorf("comp-lzo: compression not supported, sorry!")
+				return nil, fmt.Errorf("comp-lzo: compression not supported, sorry")
 			}
 			s.Compress = "lzo-no"
 		default:
