@@ -10,14 +10,6 @@ import (
 	"strings"
 )
 
-type Auth struct {
-	Ca   string
-	Cert string
-	Key  string
-	User string
-	Pass string
-}
-
 func NewClientFromSettings(o *Options) *Client {
 	o.Proto = "udp"
 	return &Client{
