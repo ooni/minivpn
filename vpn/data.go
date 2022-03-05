@@ -120,7 +120,6 @@ func (d *data) encrypt(plaintext []byte) []byte {
 	bs := d.c.blockSize()
 	var padded []byte
 
-	// FIXME emtpy is this case too I think
 	if d.opts.Compress == "stub" {
 		// for the compression stub, we need to send the first byte to
 		// the last one, after padding

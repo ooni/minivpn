@@ -3,6 +3,7 @@
 A dumb implementation of OpenVPN in pure Go (client only).
 
 [![Go Documentation](https://godocs.io/github.com/ainghazal/minivpn/vpn?status.svg)](https://godocs.io/github.com/ainghazal/minivpn/vpn)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ainghazal/minivpn)](https://goreportcard.com/report/github.com/ainghazal/minivpn)
 
 This implementation has serious flaws, so do **not** use this for any other
 purposes than your own learning and research.
