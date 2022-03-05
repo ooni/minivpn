@@ -1,29 +1,29 @@
 package vpn
 
 var (
-	ST_NOTHING              = 0
-	ST_CONTROL_CHANNEL_OPEN = 1
-	ST_CONTROL_MESSAGE_SENT = 2
-	ST_KEY_EXCHANGED        = 3
-	ST_PULL_REQUEST_SENT    = 4
-	ST_OPTIONS_PUSHED       = 5
-	ST_INITIALIZED          = 6
-	ST_DATA_READY           = 7
+	stNothing            = 0
+	stControlChannelOpen = 1
+	stControlMessageSent = 2
+	stKeyExchanged       = 3
+	stPullRequestSent    = 4
+	stOptionsPushed      = 5
+	stInitialized        = 6
+	stDataReady          = 7
 
-	P_CONTROL_HARD_RESET_CLIENT_V1 = 1
-	P_CONTROL_HARD_RESET_SERVER_V1 = 2
-	P_CONTROL_SOFT_RESET_V1        = 3
-	P_CONTROL_V1                   = 4
-	P_ACK_V1                       = 5
-	P_DATA_V1                      = 6
-	P_DATA_V2                      = 9
-	P_CONTROL_HARD_RESET_CLIENT_V2 = 7
-	P_CONTROL_HARD_RESET_SERVER_V2 = 8
+	pControlHardResetClientV1 = 1
+	pControlHardResetServerV1 = 2
+	pControlSoftResetV1       = 3
+	pControlV1                = 4
+	pACKV1                    = 5
+	pDataV1                   = 6
+	pDataV2                   = 9
+	pControlHardResetClientV2 = 7
+	pControlHardResetServerV2 = 8
 )
 
 func isControlOpcode(b byte) bool {
 	switch b {
-	case byte(P_CONTROL_HARD_RESET_SERVER_V2), byte(P_CONTROL_V1):
+	case byte(pControlHardResetServerV2), byte(pControlV1):
 		return true
 	default:
 		return false
@@ -32,7 +32,7 @@ func isControlOpcode(b byte) bool {
 
 func isDataOpcode(b byte) bool {
 	switch b {
-	case byte(P_DATA_V1):
+	case byte(pDataV1):
 		return true
 	default:
 		return false

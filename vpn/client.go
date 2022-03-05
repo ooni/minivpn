@@ -86,7 +86,7 @@ func (c *Client) Reset() error {
 
 func (c *Client) InitTLS() error {
 	err := c.ctrl.initTLS()
-	c.initSt = ST_CONTROL_CHANNEL_OPEN
+	c.initSt = stControlChannelOpen
 	// TODO these errors can be configuration errors (loading the keypair)
 	// or actual handshake errors, need to separate them.
 	// perhaps it make sense to load the certificates etc before touching the net...
@@ -100,13 +100,13 @@ func (c *Client) InitData() error {
 			return nil
 		default:
 			switch {
-			case c.initSt == ST_CONTROL_CHANNEL_OPEN:
+			case c.initSt == stControlChannelOpen:
 				c.sendFirstControl()
-			case c.initSt == ST_KEY_EXCHANGED:
+			case c.initSt == stKeyExchanged:
 				c.sendPushRequest()
-			case c.initSt == ST_OPTIONS_PUSHED:
+			case c.initSt == stOptionsPushed:
 				c.initDataChannel()
-			case c.initSt == ST_INITIALIZED:
+			case c.initSt == stInitialized:
 				c.handleDataChannel()
 				goto done
 			}
@@ -119,14 +119,14 @@ done:
 func (c *Client) sendFirstControl() {
 	log.Println("Control channel open, sending auth...")
 	c.ctrl.sendControlMessage()
-	c.initSt = ST_CONTROL_MESSAGE_SENT
+	c.initSt = stControlMessageSent
 	c.handleTLSIncoming()
 }
 
 func (c *Client) sendPushRequest() {
 	log.Println("Key exchange complete")
 	c.ctrl.sendPushRequest()
-	c.initSt = ST_PULL_REQUEST_SENT
+	c.initSt = stPullRequestSent
 	c.handleTLSIncoming()
 }
 
@@ -134,16 +134,16 @@ func (c *Client) initDataChannel() {
 	c.data.initSession(c.ctrl)
 	c.data.setup()
 	log.Println("Initialization complete")
-	c.initSt = ST_INITIALIZED
+	c.initSt = stInitialized
 }
 
 func (c *Client) handleDataChannel() {
 	go c.handleTLSIncoming()
-	c.initSt = ST_DATA_READY
+	c.initSt = stDataReady
 }
 
 func (c *Client) onKeyExchanged() {
-	c.initSt = ST_KEY_EXCHANGED
+	c.initSt = stKeyExchanged
 }
 
 func (c *Client) sendAck(ackPid uint32) {
@@ -165,7 +165,7 @@ func (c *Client) sendAck(ackPid uint32) {
 func (c *Client) handleIncoming() {
 	data := c.recv(4096)
 	op := data[0] >> 3
-	if op == byte(P_ACK_V1) {
+	if op == byte(pACKV1) {
 		log.Println("DEBUG Received ACK in main loop")
 	}
 	if isControlOpcode(op) {
@@ -199,7 +199,7 @@ func (c *Client) onRemoteOpts() {
 // and compare if there's a strong disagreement with the remote opts
 func (c *Client) onPush(data []byte) {
 	log.Println("Server pushed options")
-	c.initSt = ST_OPTIONS_PUSHED
+	c.initSt = stOptionsPushed
 	optStr := string(data[:len(data)-1])
 	opts := strings.Split(optStr, ",")
 	for _, opt := range opts {

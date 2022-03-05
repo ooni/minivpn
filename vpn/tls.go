@@ -96,7 +96,7 @@ func (cw controlWrapper) dataProcessLoop() {
 
 func (cw controlWrapper) processControlData(d []byte) {
 	op := d[0] >> 3
-	if op == byte(P_ACK_V1) {
+	if op == byte(pACKV1) {
 		// might want to do something with this ACK
 		log.Println("Received ACK")
 		return
@@ -105,7 +105,7 @@ func (cw controlWrapper) processControlData(d []byte) {
 	if isDataOpcode(op) {
 		cw.control.dataQueue <- d
 		return
-	} else if op != byte(P_CONTROL_V1) {
+	} else if op != byte(pControlV1) {
 		log.Printf("Received unknown opcode: %v\n", op)
 		return
 	}

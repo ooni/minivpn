@@ -63,7 +63,7 @@ func (c *control) addDataQueue(queue chan []byte) {
 }
 
 func (c *control) sendHardReset() {
-	c.sendControl(P_CONTROL_HARD_RESET_CLIENT_V2, 0, []byte(""))
+	c.sendControl(pControlHardResetClientV2, 0, []byte(""))
 }
 
 func (c *control) readHardReset(d []byte) int {
@@ -86,7 +86,7 @@ func (c *control) readHardReset(d []byte) int {
 }
 
 func (c *control) sendControlV1(data []byte) (n int, err error) {
-	return c.sendControl(P_CONTROL_V1, 0, data)
+	return c.sendControl(pControlV1, 0, data)
 }
 
 func (c *control) sendControl(opcode int, ack int, payload []byte) (n int, err error) {
@@ -210,14 +210,14 @@ func (c *control) recv() {
 	data := recv[:numBytes]
 	op := data[0] >> 3
 
-	if op == byte(P_ACK_V1) {
+	if op == byte(pACKV1) {
 		log.Println("Received ACK")
 	}
 }
 
 func (c *control) handleIn(data []byte) {
 	op := data[0] >> 3
-	if op == byte(P_CONTROL_V1) {
+	if op == byte(pControlV1) {
 		pid, _, payload := c.readControl(data)
 		c.sendAck(uint32(pid))
 		c.tlsIn <- payload
