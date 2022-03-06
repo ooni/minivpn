@@ -271,9 +271,8 @@ func (c *Client) handleTLSIncoming() {
 	}
 }
 
-// SendData writes bytes into the tunnel.
-// this probably should be renamed to Write.
-func (c *Client) SendData(b []byte) {
+// Write sends bytes into the tunnel.
+func (c *Client) Write(b []byte) {
 	c.data.send(b)
 }
 

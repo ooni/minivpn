@@ -23,6 +23,14 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
+// RunPinger takes an Option object, gets a Dialer, and runs a Pinger against
+// the passed target, for count packets.
+func RunPinger(o *vpn.Options, target string, count uint32) {
+	raw := vpn.NewRawDialer(o)
+	pinger := NewPinger(raw, target, count)
+	pinger.Run()
+}
+
 // NewPinger returns a pointer to a Pinger struct configured to handle data from a
 // vpn.Client. It needs host and count as parameters, and also accepts a done
 // channel in which termination of the measurement series will be notified.

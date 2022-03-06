@@ -215,7 +215,7 @@ func (p packetConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 // WriteTo writes a packet with payload b to addr.
 func (p packetConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	p.cl.SendData(b)
+	p.cl.Write(b)
 	return len(b), nil
 }
 
