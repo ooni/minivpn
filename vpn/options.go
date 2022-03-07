@@ -88,6 +88,144 @@ func ParseConfigFile(filePath string) (*Options, error) {
 	return getOptionsFromLines(lines, dir)
 }
 
+func parseRemote(p []string, o *Options) error {
+	if len(p) != 2 {
+		return fmt.Errorf("remote needs two args")
+	}
+	o.Remote, o.Port = p[0], p[1]
+	return nil
+}
+
+func parseCipher(p []string, o *Options) error {
+	if len(p) != 1 {
+		return fmt.Errorf("cipher expects one arg")
+	}
+	cipher := p[0]
+	if !hasElement(cipher, supportedCiphers) {
+		return fmt.Errorf("unsupported cipher: %s", cipher)
+	}
+	o.Cipher = cipher
+	return nil
+}
+
+func parseAuth(p []string, o *Options) error {
+	if len(p) != 1 {
+		return fmt.Errorf("invalid auth entry")
+	}
+	auth := p[0]
+	if !hasElement(auth, supportedAuth) {
+		return fmt.Errorf("unsupported auth: %s", auth)
+	}
+	o.Auth = auth
+	return nil
+}
+
+func parseAuthUser(p []string, o *Options) error {
+	if len(p) != 1 || !existsFile(p[0]) {
+		return fmt.Errorf("auth-user-pass expects a valid file")
+	}
+	creds, err := getCredentialsFromFile(p[0])
+	if err != nil {
+		return err
+	}
+	o.Username, o.Password = creds[0], creds[1]
+	return nil
+}
+
+func parseCA(p []string, o *Options, d string) error {
+	e := fmt.Errorf("ca expects a valid file")
+	if len(p) != 1 {
+		return e
+	}
+	ca := filepath.Join(d, p[0])
+	if !existsFile(ca) {
+		return e
+	}
+	o.Ca = ca
+	return nil
+}
+
+func parseCert(p []string, o *Options, d string) error {
+	e := fmt.Errorf("cert expects a valid file")
+	if len(p) != 1 {
+		return e
+	}
+	cert := filepath.Join(d, p[0])
+	if !existsFile(cert) {
+		return e
+	}
+	o.Cert = cert
+	return nil
+}
+
+func parseKey(p []string, o *Options, d string) error {
+	e := fmt.Errorf("key expects a valid file")
+	if len(p) != 1 {
+		return e
+	}
+	key := filepath.Join(d, p[0])
+	if !existsFile(key) {
+		return e
+	}
+	o.Key = key
+	return nil
+}
+
+func parseCompress(p []string, o *Options) error {
+	if len(p) > 1 {
+		return fmt.Errorf("compress: only empty/stub options supported")
+	}
+	if len(p) == 0 {
+		o.Compress = "empty"
+		return nil
+	}
+	if p[0] == "stub" {
+		o.Compress = "stub"
+	}
+	return nil
+}
+
+func parseCompLZO(p []string, o *Options) error {
+	if p[0] != "no" {
+		return fmt.Errorf("comp-lzo: compression not supported, sorry")
+	}
+	o.Compress = "lzo-no"
+	return nil
+}
+
+var pMap = map[string]interface{}{
+	"remote":         parseRemote,
+	"cipher":         parseCipher,
+	"auth":           parseAuth,
+	"auth-user-pass": parseAuthUser,
+	"compress":       parseCompress,
+	"comp-lzo":       parseCompLZO,
+}
+
+var pMapDir = map[string]interface{}{
+	"ca":   parseCA,
+	"cert": parseCert,
+	"key":  parseKey,
+}
+
+func parseOption(o *Options, dir, key string, p []string) error {
+	switch key {
+	case "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo":
+		fn := pMap[key].(func([]string, *Options) error)
+		if e := fn(p, o); e != nil {
+			return e
+		}
+	case "ca", "cert", "key":
+		fn := pMapDir[key].(func([]string, *Options, string) error)
+		if e := fn(p, o, dir); e != nil {
+			return e
+		}
+	default:
+		log.Println("warn: unsupported key:", key)
+	}
+	return nil
+}
+
 func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 	s := &Options{}
 
@@ -100,100 +238,18 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 		if len(p) == 0 {
 			continue
 		}
-		var key string
-		var parts []string
-		var e error
+		var (
+			key   string
+			parts []string
+		)
 		if len(p) == 1 {
 			key = p[0]
 		} else {
 			key, parts = p[0], p[1:]
 		}
-
-		switch key {
-		case "remote":
-			if len(parts) != 2 {
-				return nil, fmt.Errorf("remote needs two args")
-			}
-			s.Remote = parts[0]
-			s.Port = parts[1]
-		case "cipher":
-			if len(parts) != 1 {
-				return nil, fmt.Errorf("cipher expects one arg")
-			}
-			cipher := parts[0]
-			if !hasElement(cipher, supportedCiphers) {
-				return nil, fmt.Errorf("unsupported cipher: %s", cipher)
-			}
-			s.Cipher = cipher
-		case "auth":
-			if len(parts) != 1 {
-				return nil, fmt.Errorf("invalid auth entry")
-			}
-			auth := parts[0]
-			if !hasElement(auth, supportedAuth) {
-				return nil, fmt.Errorf("unsupported auth: %s", auth)
-			}
-			s.Auth = auth
-		case "auth-user-pass":
-			if len(parts) != 1 || !existsFile(parts[0]) {
-				return nil, fmt.Errorf("auth-user-pass expects a valid file")
-			}
-			creds, err := getCredentialsFromFile(parts[0])
-			if err != nil {
-				return nil, err
-			}
-			s.Username, s.Password = creds[0], creds[1]
-		case "ca":
-			e = fmt.Errorf("ca expects a valid file")
-			if len(parts) != 1 {
-				return nil, e
-			}
-			ca := filepath.Join(dir, parts[0])
-			if !existsFile(ca) {
-				return nil, e
-			}
-			s.Ca = ca
-
-		case "cert":
-			e = fmt.Errorf("cert expects a valid file")
-			if len(parts) != 1 {
-				return nil, e
-			}
-			cert := filepath.Join(dir, parts[0])
-			if !existsFile(cert) {
-				return nil, e
-			}
-			s.Cert = cert
-
-		case "key":
-			e = fmt.Errorf("key expects a valid file")
-			if len(parts) != 1 {
-				return nil, e
-			}
-			key := filepath.Join(dir, parts[0])
-			if !existsFile(key) {
-				return nil, e
-			}
-			s.Key = key
-		case "compress":
-			if len(parts) > 1 {
-				return nil, fmt.Errorf("compress: only empty/stub options supported")
-			}
-			if len(parts) == 0 {
-				s.Compress = "empty"
-				continue
-			}
-			if parts[0] == "stub" {
-				s.Compress = "stub"
-			}
-		case "comp-lzo":
-			if parts[0] != "no" {
-				return nil, fmt.Errorf("comp-lzo: compression not supported, sorry")
-			}
-			s.Compress = "lzo-no"
-		default:
-			log.Println("WARN unsupported key:", key)
-			continue
+		e := parseOption(s, dir, key, parts)
+		if e != nil {
+			return nil, e
 		}
 
 	}
