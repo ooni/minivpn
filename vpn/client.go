@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"net"
 	"strconv"
@@ -77,8 +78,7 @@ func (c *Client) Dial() error {
 	// TODO pass context?
 	conn, err := net.Dial(c.Opts.Proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 	if err != nil {
-		// TODO wrap this error
-		return err
+		return fmt.Errorf("%s: %w", ErrDialError, err)
 	}
 	c.con = conn
 	c.ctrl = newControl(conn, c.localKeySrc, c.Opts)

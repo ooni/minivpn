@@ -7,4 +7,6 @@ var (
 	ErrBadKeypair = "bad keypair conf"
 	// ErrBadHandshake is returned when the OpenVPN handshake failed.
 	ErrBadHandshake = "handshake failure"
+	// ErrDialError
+	ErrDialError = "dial error"
 )
