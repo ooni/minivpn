@@ -8,6 +8,9 @@ build:
 build-race:
 	@go build -race
 
+build-ping:
+	@go build -v ./cmd/ping
+
 bootstrap:
 	@./scripts/bootstrap-provider ${PROVIDER}
 
