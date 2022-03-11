@@ -19,6 +19,11 @@ import (
 	"github.com/ainghazal/minivpn/vpn"
 )
 
+const (
+	// time, in seconds, before we timeout the connection used for sending an ECHO request.
+	timeoutSeconds = 10
+)
+
 // NewPinger returns a pointer to a Pinger struct configured to handle data from a
 // vpn.Client. It needs host and count as parameters, and also accepts a done
 // channel in which termination of the measurement series will be notified.
@@ -97,6 +102,15 @@ func (p *Pinger) printStats() {
 func (p *Pinger) Run() {
 	p.raw.Dial()
 	d := vpn.NewDialer(p.raw)
+	/* TODO
+	   By using this Dial method, we lose access to TTL in the received packet.
+	   I can either revert back to using the raw dialer (and reserve gvisor for TCP socks, http streams etc),
+	   or try forking wireguard-go tun implementation. I believe this
+	   discarded return parameter has the acces to the ttl via a
+	   PacketConn:
+
+	   https://git.zx2c4.com/wireguard-go/tree/tun/netstack/tun.go?id=ae6bc4dd64e1#n480
+	*/
 	socket, err := d.Dial("ping4", p.host)
 	if err != nil {
 		log.Panic(err)
@@ -109,7 +123,7 @@ func (p *Pinger) Run() {
 			Data: []byte("hello filternet"), // get the start ts in here, as sbasso suggested
 		}
 		icmpBytes, _ := (&icmp.Message{Type: ipv4.ICMPTypeEcho, Code: 0, Body: &requestPing}).Marshal(nil)
-		socket.SetReadDeadline(time.Now().Add(time.Second * 10))
+		socket.SetReadDeadline(time.Now().Add(time.Second * timeoutSeconds))
 
 		_, err = socket.Write(icmpBytes)
 		if err != nil {
