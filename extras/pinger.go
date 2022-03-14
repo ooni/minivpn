@@ -1,20 +1,21 @@
 /*
  * Copyright (C) 2022 Ain Ghazal. All Rights Reversed.
  */
+
 package extras
 
 import (
-	"bytes"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"math"
-	"math/rand"
+	"net"
 	"os"
 	"sync"
 	"time"
 
-	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 
 	"github.com/ainghazal/minivpn/vpn"
 )
@@ -52,8 +53,7 @@ type st struct {
 
 // Pinger holds all the needed info to ping a target.
 type Pinger struct {
-	raw *vpn.RawDialer
-	//conn  net.PacketConn // not needed
+	raw   *vpn.RawDialer
 	stats chan st
 	st    []st
 	// stats mutex
@@ -100,52 +100,23 @@ func (p *Pinger) printStats() {
 }
 
 func (p *Pinger) Run() {
-	p.raw.Dial()
-	d := vpn.NewDialer(p.raw)
-	/* TODO
-	   By using this Dial method, we lose access to TTL in the received packet.
-	   I can either revert back to using the raw dialer (and reserve gvisor for TCP socks, http streams etc),
-	   or try forking wireguard-go tun implementation. I believe this
-	   discarded return parameter has the acces to the ttl via a
-	   PacketConn:
-
-	   https://git.zx2c4.com/wireguard-go/tree/tun/netstack/tun.go?id=ae6bc4dd64e1#n480
-	*/
-	socket, err := d.Dial("ping4", p.host)
+	pc, err := p.raw.Dial()
 	if err != nil {
 		log.Panic(err)
 	}
 
 	for i := 0; i < p.Count; i++ {
+		src := pc.LocalAddr().String()
+		srcIP := net.ParseIP(src)
+		dstIP := net.ParseIP(p.host)
 		start := time.Now()
-		requestPing := icmp.Echo{
-			Seq:  rand.Intn(1 << 16),
-			Data: []byte("hello filternet"), // get the start ts in here, as sbasso suggested
-		}
-		icmpBytes, _ := (&icmp.Message{Type: ipv4.ICMPTypeEcho, Code: 0, Body: &requestPing}).Marshal(nil)
-		socket.SetReadDeadline(time.Now().Add(time.Second * timeoutSeconds))
+		ipck := newIcmpData(&srcIP, &dstIP, 8, p.ttl, i, p.ID)
+		pc.WriteTo(ipck, nil)
 
-		_, err = socket.Write(icmpBytes)
-		if err != nil {
-			log.Panic(err)
-		}
-
-		n, err := socket.Read(icmpBytes[:])
-		if err != nil {
-			log.Panic(err)
-		}
-		replyPacket, err := icmp.ParseMessage(1, icmpBytes[:n])
-		if err != nil {
-			log.Panic(err)
-		}
-		replyPing, ok := replyPacket.Body.(*icmp.Echo)
-		if !ok {
-			log.Panicf("invalid reply type: %v", replyPacket)
-		}
-		if !bytes.Equal(replyPing.Data, requestPing.Data) || replyPing.Seq != requestPing.Seq {
-			log.Panicf("invalid ping reply: %v", replyPing)
-		}
-		log.Printf("Ping RTT: %v", time.Since(start))
+		buf := make([]byte, 2000)
+		pc.ReadFrom(buf)
+		end := time.Now()
+		p.parseEchoReply(buf, pc.LocalAddr().String(), start, end)
 		time.Sleep(1 * time.Second)
 
 	}
@@ -155,4 +126,75 @@ func (p *Pinger) Run() {
 func (p *Pinger) Stop() {
 	fmt.Println("should print stats now...")
 	// p.printStats()
+}
+
+func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int) (data []byte) {
+	ip := &layers.IPv4{}
+	ip.Version = 4
+	ip.Protocol = layers.IPProtocolICMPv4
+	ip.SrcIP = *src
+	ip.DstIP = *dest
+
+	ip.Length = 20
+	ip.TTL = uint8(ttl)
+
+	icmp := &layers.ICMPv4{}
+	icmp.TypeCode = layers.ICMPv4TypeCode(uint16(typeCode) << 8)
+	icmp.Id = uint16(id)
+	icmp.Seq = uint16(seq)
+	icmp.Checksum = 0
+
+	opts := gopacket.SerializeOptions{}
+	opts.ComputeChecksums = true
+	opts.FixLengths = true
+
+	now := time.Now().UnixNano()
+	var payload = make([]byte, 8)
+	binary.LittleEndian.PutUint64(payload, uint64(now))
+
+	buf := gopacket.NewSerializeBuffer()
+	gopacket.SerializeLayers(buf, opts, ip, icmp, gopacket.Payload(payload))
+
+	return buf.Bytes()
+}
+
+func (p *Pinger) parseEchoReply(d []byte, dst string, start, end time.Time) {
+	ip := layers.IPv4{}
+	udp := layers.UDP{}
+	icmp := layers.ICMPv4{}
+	payload := gopacket.Payload{}
+	decoded := []gopacket.LayerType{}
+	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeIPv4, &ip, &icmp, &udp, &payload)
+
+	err := parser.DecodeLayers(d, &decoded)
+	if err != nil {
+		log.Println("error decoding:", err)
+		return
+	}
+
+	for _, layerType := range decoded {
+		switch layerType {
+		case layers.LayerTypeIPv4:
+			if ip.DstIP.String() != dst {
+				log.Println("warn: icmp response with wrong dst")
+				return
+			}
+			if ip.SrcIP.String() != p.host {
+				log.Println("warn: icmp response with wrong src")
+				return
+			}
+		//case layers.LayerTypeUDP:
+		case layers.LayerTypeICMPv4:
+			if icmp.Id != uint16(p.ID) {
+				log.Println("warn: icmp response with wrong ID")
+				return
+			}
+			// XXX what's the payload here??
+			// log.Println(icmp.Payload)
+		}
+	}
+	du := end.Sub(start)
+	rtt := float32(du/time.Microsecond) / 1000
+	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
+	p.stats <- st{rtt, ip.TTL}
 }
