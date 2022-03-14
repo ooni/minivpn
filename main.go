@@ -4,14 +4,25 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ainghazal/minivpn/vpn"
 	"github.com/pborman/getopt/v2"
+
+	"github.com/ainghazal/minivpn/extras"
+	"github.com/ainghazal/minivpn/vpn"
 )
 
 func printUsage() {
 	fmt.Println("valid commands: ping, proxy")
 	getopt.Usage()
 	os.Exit(0)
+}
+
+// RunPinger takes an Option object, gets a Dialer, and runs a Pinger against
+// the passed target, for count packets.
+func RunPinger(o *vpn.Options, target string, count uint32) {
+	raw := vpn.NewRawDialer(o)
+	pinger := extras.NewPinger(raw, target, int(count))
+	pinger.Run()
+	pinger.Stop()
 }
 
 func main() {

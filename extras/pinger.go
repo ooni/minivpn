@@ -6,12 +6,10 @@ package extras
 
 import (
 	"encoding/binary"
-	"fmt"
 	"log"
 	"math"
 	"net"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/google/gopacket"
@@ -32,7 +30,6 @@ func NewPinger(raw *vpn.RawDialer, host string, count int) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
 	ts := make(map[int]int64)
-	stats := make(chan st, int(count))
 	return &Pinger{
 		raw:      raw,
 		host:     host,
@@ -41,7 +38,6 @@ func NewPinger(raw *vpn.RawDialer, host string, count int) *Pinger {
 		Interval: 1,
 		ID:       id,
 		ttl:      64,
-		stats:    stats,
 	}
 }
 
@@ -51,15 +47,22 @@ type st struct {
 	ttl uint8
 }
 
+func (s st) RTT() float32 {
+	return s.rtt
+}
+
+func (s st) TTL() uint8 {
+	return s.ttl
+}
+
 // Pinger holds all the needed info to ping a target.
 type Pinger struct {
-	raw   *vpn.RawDialer
-	stats chan st
-	st    []st
+	raw *vpn.RawDialer
+	st  []st
 	// stats mutex
-	mu sync.Mutex
+	// mu sync.Mutex
 	// send payload mutex
-	pmu sync.Mutex
+	// pmu sync.Mutex
 
 	host string
 
@@ -99,10 +102,10 @@ func (p *Pinger) printStats() {
 	log.Printf("rtt min/avg/max/stdev = %.3f, %.3f, %.3f, %.3f ms", min, avg, max, sd)
 }
 
-func (p *Pinger) Run() {
+func (p *Pinger) Run() error {
 	pc, err := p.raw.Dial()
 	if err != nil {
-		log.Panic(err)
+		return err
 	}
 
 	for i := 0; i < p.Count; i++ {
@@ -112,20 +115,27 @@ func (p *Pinger) Run() {
 		start := time.Now()
 		ipck := newIcmpData(&srcIP, &dstIP, 8, p.ttl, i, p.ID)
 		pc.WriteTo(ipck, nil)
+		p.packetsSent++
 
-		buf := make([]byte, 2000)
+		// TODO add timeout to this read
+		buf := make([]byte, 1500)
 		pc.ReadFrom(buf)
+		p.packetsRecv++
 		end := time.Now()
 		p.parseEchoReply(buf, pc.LocalAddr().String(), start, end)
 		time.Sleep(1 * time.Second)
-
 	}
+	return nil
 }
 
 // Stop prints ping statistics before quitting.
 func (p *Pinger) Stop() {
-	fmt.Println("should print stats now...")
-	// p.printStats()
+	p.printStats()
+}
+
+// Starts return the measured stats.
+func (p *Pinger) Stats() []st {
+	return p.st
 }
 
 func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int) (data []byte) {
@@ -196,5 +206,5 @@ func (p *Pinger) parseEchoReply(d []byte, dst string, start, end time.Time) {
 	du := end.Sub(start)
 	rtt := float32(du/time.Microsecond) / 1000
 	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
-	p.stats <- st{rtt, ip.TTL}
+	p.st = append(p.st, st{rtt, ip.TTL})
 }
