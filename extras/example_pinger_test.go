@@ -1,4 +1,4 @@
-package main
+package extras
 
 import (
 	"os"
@@ -18,6 +18,6 @@ func ExampleRunPinger() {
 		os.Exit(1)
 	}
 	raw := vpn.NewRawDialer(opts)
-	pinger := NewPinger(raw, target, uint32(count))
+	pinger := NewPinger(raw, target, count)
 	pinger.Run()
 }
