@@ -113,11 +113,11 @@ func (d Dialer) DialContext(ctx context.Context, network, address string) (net.C
 }
 
 func (d Dialer) createNetTUN() (*netstack.Net, error) {
-	raw, err := d.raw.Dial()
+	pc, err := d.raw.Dial()
 	if err != nil {
 		return nil, err
 	}
-	localIP := raw.LocalAddr().String()
+	localIP := pc.LocalAddr().String()
 
 	// create a virtual device in userspace, courtesy of wireguard-go
 	tun, tnet, err := netstack.CreateNetTUN(
@@ -131,7 +131,7 @@ func (d Dialer) createNetTUN() (*netstack.Net, error) {
 	}
 
 	// connect the virtual device to our openvpn tunnel
-	dev := &device{tun, raw}
+	dev := &device{tun, pc}
 	dev.Up()
 
 	return tnet, nil
@@ -142,7 +142,7 @@ func (d Dialer) createNetTUN() (*netstack.Net, error) {
 // the raw PacketConn that writes and reads to sockets provided by the kernel.
 type device struct {
 	tun tun.Device
-	raw net.PacketConn
+	pc  net.PacketConn
 }
 
 // Up spawns two goroutines that communicate the two halves of a device.
@@ -155,13 +155,13 @@ func (d *device) Up() {
 				log.Println("tun read error:", err)
 				break
 			}
-			d.raw.WriteTo(b[0:n], nil)
+			d.pc.WriteTo(b[0:n], nil)
 		}
 	}()
 	go func() {
 		b := make([]byte, 4096)
 		for {
-			n, _, err := d.raw.ReadFrom(b)
+			n, _, err := d.pc.ReadFrom(b)
 			if err != nil {
 				log.Println("raw read error:", err)
 				break
@@ -175,6 +175,7 @@ func (d *device) Up() {
 type RawDialer struct {
 	Options *Options
 	MTU     int
+	c       *Client
 }
 
 // NewRawDialer returns a RawDialer configured with the given Options.
@@ -184,18 +185,20 @@ func NewRawDialer(opts *Options) *RawDialer {
 
 // Dial returns a PacketConn that writes to and reads from the VPN tunnel.
 func (d *RawDialer) Dial() (net.PacketConn, error) {
-	// TODO catch error here
-	c := NewClientFromSettings(d.Options)
-	// TODO unwrap these errors and classify them in connection stages
-	err := c.Run()
-	if err != nil {
-		return nil, err
+	if d.c == nil {
+		// TODO catch error here
+		c := NewClientFromSettings(d.Options)
+		d.c = c
+		// TODO unwrap these errors and classify them in connection stages
+		err := d.c.Run()
+		if err != nil {
+			return nil, err
+		}
+		d.MTU = d.c.TunMTU()
+		done := make(chan bool) // TODO use a context instead
+		c.WaitUntil(done)
 	}
-	d.MTU = c.TunMTU()
-	dc := c.DataChannel()
-	done := make(chan bool) // TODO use a context instead
-	c.WaitUntil(done)
-	return packetConn{cl: c, dc: dc}, nil
+	return packetConn{cl: d.c, dc: d.c.DataChannel()}, nil
 }
 
 // packetConn is a packet-oriented network connection using an OpenVPN tunnel. It
