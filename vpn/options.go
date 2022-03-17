@@ -36,17 +36,18 @@ var supportedTLSCipher = []string{
 // Options make all the relevant configuration options accessible to the
 // different modules that need it.
 type Options struct {
-	Remote   string
-	Port     string
-	Proto    string
-	Username string
-	Password string
-	Ca       string
-	Cert     string
-	Key      string
-	Compress string
-	Cipher   string
-	Auth     string
+	Remote    string
+	Port      string
+	Proto     string
+	Username  string
+	Password  string
+	Ca        string
+	Cert      string
+	Key       string
+	Compress  string
+	Cipher    string
+	Auth      string
+	TLSMaxVer string
 }
 
 func getHashLength(s string) int {
@@ -193,13 +194,25 @@ func parseCompLZO(p []string, o *Options) error {
 	return nil
 }
 
+func parseTLSVerMax(p []string, o *Options) error {
+	if len(p) == 0 {
+		o.TLSMaxVer = "1.3"
+		return nil
+	}
+	if p[0] == "1.2" {
+		o.TLSMaxVer = "1.2"
+	}
+	return nil
+}
+
 var pMap = map[string]interface{}{
-	"remote":         parseRemote,
-	"cipher":         parseCipher,
-	"auth":           parseAuth,
-	"auth-user-pass": parseAuthUser,
-	"compress":       parseCompress,
-	"comp-lzo":       parseCompLZO,
+	"remote":          parseRemote,
+	"cipher":          parseCipher,
+	"auth":            parseAuth,
+	"auth-user-pass":  parseAuthUser,
+	"compress":        parseCompress,
+	"comp-lzo":        parseCompLZO,
+	"tls-version-max": parseTLSVerMax,
 }
 
 var pMapDir = map[string]interface{}{
@@ -210,7 +223,7 @@ var pMapDir = map[string]interface{}{
 
 func parseOption(o *Options, dir, key string, p []string) error {
 	switch key {
-	case "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo":
+	case "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo", "tls-version-max":
 		fn := pMap[key].(func([]string, *Options) error)
 		if e := fn(p, o); e != nil {
 			return e

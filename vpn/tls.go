@@ -8,30 +8,23 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
-	"os"
 	"time"
 )
 
 // initTLS is part of the control channel. It initializes the TLS options with
-// certificate, key and ca comings in the control.Auth struct, and it performs
+// certificate, key and ca from control.Opts, and it performs
 // a handshake wrapped as payloads in the control channel.
 func (c *control) initTLS() error {
-	max := tls.VersionTLS12
-	if os.Getenv("TLSv13") == "1" {
-		max = tls.VersionTLS13
+	max := tls.VersionTLS13
+
+	if c.Opts.TLSMaxVer == "1.2" {
+		max = tls.VersionTLS12
 	}
+
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS12,
-		// I need to specify this for my test endpoint, for some reason doesn't know how to negotiate tls max.
-		MaxVersion: uint16(max),
-		//TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
-		//CipherSuites: []uint16{
-		//	tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		//},
-		//tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-		//DHE-RSA-AES128-SHA
-		//},
+		MaxVersion:         uint16(max),
 	}
 
 	// we assume a non-empty cert means we've got also a valid ca and key,
