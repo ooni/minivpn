@@ -22,3 +22,13 @@ proxy:
 
 backup-data:
 	@tar cvzf ../data-vpn-`date +'%F'`.tar.gz
+
+netns-shell:
+	sudo ip netns exec protected sudo -u `whoami` -i
+
+integration-server:
+	cd tests/integration && ./run-server.sh
+
+integration-tests:
+	mkdir -p data/tests
+	curl http://172.17.0.2:8080/ > data/tests/config
