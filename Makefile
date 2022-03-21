@@ -24,6 +24,7 @@ integration-server:
 
 test-local:
 	# run the integration-server first
+	rm -rf data/tests
 	mkdir -p data/tests && curl http://localhost:8080/ > data/tests/config
 	cd data/tests && ../../tests/integration/extract.sh config
 	./minivpn -c data/tests/config -t ${LOCAL_TARGET} -n ${COUNT} ping
