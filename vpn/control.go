@@ -51,7 +51,7 @@ func (c *control) initSession() error {
 		return err
 	}
 	c.SessionID = b
-	log.Printf("Local session id: %x\n", string(c.SessionID))
+	log.Printf("Local session ID: %x\n", string(c.SessionID))
 	go c.processIncoming()
 	return nil
 }
@@ -75,12 +75,12 @@ func (c *control) readHardReset(d []byte) int {
 	}
 	if len(c.RemoteID) != 0 {
 		if !areBytesEqual(c.RemoteID[:], d[1:9]) {
-			log.Printf("Offending session id: %08x\n", d[1:9])
-			log.Fatal("Invalid remote session id!")
+			log.Printf("Offending session ID: %08x\n", d[1:9])
+			log.Fatal("Invalid remote session ID")
 		}
 	} else {
 		c.RemoteID = d[1:9]
-		log.Printf("Learned remote session id: %x\n", c.RemoteID)
+		log.Printf("Learned remote session ID: %x\n", c.RemoteID)
 	}
 	return 0
 }
@@ -111,12 +111,12 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 	}
 	if len(c.RemoteID) != 0 {
 		if !areBytesEqual(c.RemoteID[:], d[1:9]) {
-			log.Printf("Offending session id: %08x\n", d[1:9])
+			log.Printf("Offending session ID: %08x\n", d[1:9])
 			log.Fatal("Invalid remote session ID!")
 		}
 	} else {
 		c.RemoteID = d[1:9]
-		log.Printf("Learned Remote Session ID: %x\n", c.RemoteID)
+		log.Printf("Learned Remote session ID: %x\n", c.RemoteID)
 	}
 	ackLen := int(d[9])
 	offset := 10

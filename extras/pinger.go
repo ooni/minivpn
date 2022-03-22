@@ -78,6 +78,9 @@ type Pinger struct {
 }
 
 func (p *Pinger) printStats() {
+	if p.packetsSent == 0 {
+		return
+	}
 	log.Println("--- " + p.host + " ping statistics ---")
 	loss := (p.packetsRecv / p.packetsSent) / 100
 	var r []float32

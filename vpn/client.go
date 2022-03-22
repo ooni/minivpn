@@ -93,7 +93,10 @@ func (c *Client) Dial() error {
 func (c *Client) Reset() error {
 	c.ctrl.sendHardReset()
 	id := c.ctrl.readHardReset(c.recv(0))
-	c.sendAck(uint32(id))
+	err := c.sendAck(uint32(id))
+	if err != nil {
+		return err
+	}
 	// should we block/wait until we see the response?
 	go c.handleIncoming()
 	return nil
@@ -168,10 +171,11 @@ func (c *Client) onKeyExchanged() {
 	c.initSt = stKeyExchanged
 }
 
-func (c *Client) sendAck(ackPid uint32) {
+func (c *Client) sendAck(ackPid uint32) error {
 	// log.Printf("Client: ACK'ing packet %08x...", ackPid)
 	if len(c.ctrl.RemoteID) == 0 {
-		log.Fatal("Remote session should not be null!")
+		log.Println("Error: ack id cannot be zero")
+		return fmt.Errorf(ErrBadInit)
 	}
 	p := make([]byte, 1)
 	p[0] = 0x28 // P_ACK_V1 0x05 (5b) + 0x0 (3b)
@@ -182,6 +186,7 @@ func (c *Client) sendAck(ackPid uint32) {
 	p = append(p, ack...)
 	p = append(p, c.ctrl.RemoteID...)
 	c.con.Write(p)
+	return nil
 }
 
 func (c *Client) handleIncoming() {

@@ -7,6 +7,8 @@ var (
 	ErrBadKeypair = "bad keypair conf"
 	// ErrBadHandshake is returned when the OpenVPN handshake failed.
 	ErrBadHandshake = "handshake failure"
-	// ErrDialError
+	// ErrDialError is a generic error while dialing
 	ErrDialError = "dial error"
+	// ErrBadInit is a generic error during initialization
+	ErrBadInit = "initialization error"
 )

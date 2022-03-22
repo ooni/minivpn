@@ -10,16 +10,25 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/ory/dockertest/v3"
 	dc "github.com/ory/dockertest/v3/docker"
+
+	"github.com/ainghazal/minivpn/extras"
+	"github.com/ainghazal/minivpn/vpn"
 )
 
 const (
 	parseConfig = "extract.sh"
 	dockerImage = "ainghazal/openvpn"
 	dockerTag   = "latest"
+)
+
+var (
+	target = "172.17.0.1"
+	count  = 3
 )
 
 func copyFile(src, dst string) error {
@@ -29,7 +38,7 @@ func copyFile(src, dst string) error {
 		return nil
 	}
 
-	dstFile := dst + "/" + src
+	dstFile := filepath.Join(dst, src)
 	err = ioutil.WriteFile(dstFile, input, 0744)
 	if err != nil {
 		fmt.Println("Error creating", dstFile)
@@ -51,7 +60,8 @@ func launchDocker(cipher, auth string) ([]byte, *dockertest.Pool, *dockertest.Re
 			"1194/udp": []dc.PortBinding{{HostPort: "1194"}},
 			"8080/tcp": []dc.PortBinding{{HostPort: "8080"}},
 		},
-		Env: []string{"OPENVPN_CIPHER=" + cipher, "OPENVPN_AUTH=" + auth},
+		Env:    []string{"OPENVPN_CIPHER=" + cipher, "OPENVPN_AUTH=" + auth},
+		CapAdd: []string{"NET_ADMIN"},
 	}
 	resource, err := pool.RunWithOptions(options)
 	if err != nil {
@@ -81,8 +91,16 @@ func launchDocker(cipher, auth string) ([]byte, *dockertest.Pool, *dockertest.Re
 	return config, pool, resource, nil
 }
 
+func stopContainer(p *dockertest.Pool, res *dockertest.Resource) {
+	fmt.Println("Stopping container")
+	if err := p.Purge(res); err != nil {
+		log.Printf("Could not purge resource: %s\n", err)
+	}
+}
+
 func TestClientAES256GCM(t *testing.T) {
 	tmp := t.TempDir()
+
 	copyFile(parseConfig, tmp)
 	os.Chdir(tmp)
 	err := os.Chmod(parseConfig, 0700)
@@ -91,9 +109,12 @@ func TestClientAES256GCM(t *testing.T) {
 	}
 
 	config, pool, resource, err := launchDocker("AES-256-GCM", "SHA256")
+
 	if err != nil {
 		log.Fatal(err)
 	}
+	// when all test done, time to kill and remove the container
+	defer stopContainer(pool, resource)
 
 	cfgFile, err := ioutil.TempFile(tmp, "minivpn-e2e-")
 	defer cfgFile.Close()
@@ -121,12 +142,22 @@ func TestClientAES256GCM(t *testing.T) {
 	fmt.Println("Remote:", c[len(c)-1])
 	// can assert that this is a remote line
 
-	// ... actual test ...
-
-	// all done, time to kill and remove the container
-	if err = pool.Purge(resource); err != nil {
-		log.Fatalf("Could not purge resource: %s", err)
+	// actual test begins
+	o, err := vpn.ParseConfigFile(filepath.Join(tmp, "config"))
+	if err != nil {
+		log.Fatalf("Could not parse file: %s", err)
 	}
+	log.Println(os.Getwd())
+	log.Println(o)
+	raw := vpn.NewRawDialer(o)
+	pinger := extras.NewPinger(raw, target, count)
+	err = pinger.Run()
+	defer pinger.Stop()
+	if err != nil {
+		log.Fatalf("VPN Error: %s", err)
+	}
+	// let's assert something wise about the pings
+	// can we parse the logs? get initialization etc
 }
 
 func readLines(f string) ([]string, error) {
