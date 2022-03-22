@@ -7,6 +7,8 @@
 FILE=$1
 tail=0
 
+echo "FILE>>>>" $FILE
+
 # first lets extract the inline blocks
 # ca block
 tag=ca
