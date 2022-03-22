@@ -99,6 +99,9 @@ func stopContainer(p *dockertest.Pool, res *dockertest.Resource) {
 }
 
 func TestClientAES256GCM(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
 	tmp := t.TempDir()
 
 	copyFile(parseConfig, tmp)
