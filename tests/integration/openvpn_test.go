@@ -150,8 +150,6 @@ func TestClientAES256GCM(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Could not parse file: %s", err)
 	}
-	log.Println(os.Getwd())
-	log.Println(o)
 	raw := vpn.NewRawDialer(o)
 	pinger := extras.NewPinger(raw, target, count)
 	err = pinger.Run()

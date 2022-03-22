@@ -16,6 +16,15 @@ bootstrap:
 	@./scripts/bootstrap-provider ${PROVIDER}
 
 test:
+	GOFLAGS='-count=1' go test -v ./...
+
+test-coverage:
+	go test -coverprofile -v ./...
+
+test-short:
+	go test -short -v ./...
+
+test-ping:
 	./minivpn -c data/${PROVIDER}/config -t ${TARGET} -n ${COUNT} ping
 
 integration-server:
