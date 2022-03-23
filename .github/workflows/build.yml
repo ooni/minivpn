@@ -7,9 +7,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Setup Go
+    - name: setup go
       uses: actions/setup-go@v2
       with:
         go-version: '1.17'
-    - name: Run tests
-      run: go test -cover ./...
+    - name: Run short tests
+      run: go test --short -cover ./vpn
+
+  integration:
+    runs-on: ubuntu-latest
+      #services:
+      #  openvpn:
+      #    image: ainghazal/openvpn:latest
+      #    ports:
+      #      - 1094:1094/udp
+      #      - 8080:8080
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: setup go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.17'
+      - name: run all tests
+        run: go test -v ./...
