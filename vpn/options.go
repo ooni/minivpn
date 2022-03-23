@@ -182,8 +182,9 @@ func parseCompress(p []string, o *Options) error {
 	}
 	if p[0] == "stub" {
 		o.Compress = "stub"
+		return nil
 	}
-	return nil
+	return fmt.Errorf("compress: only empty/stub options supported")
 }
 
 func parseCompLZO(p []string, o *Options) error {
@@ -264,7 +265,6 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 		if e != nil {
 			return nil, e
 		}
-
 	}
 	return s, nil
 }

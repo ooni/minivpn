@@ -19,7 +19,7 @@ test:
 	GOFLAGS='-count=1' go test -v ./...
 
 test-coverage:
-	go test -coverprofile -v ./...
+	go test -coverprofile=coverage.out ./vpn
 
 test-short:
 	go test -short -v ./...
@@ -38,6 +38,10 @@ test-local:
 	cd data/tests && ../../tests/integration/extract.sh config
 	./minivpn -c data/tests/config -t ${LOCAL_TARGET} -n ${COUNT} ping
 
+coverage:
+	go test -coverprofile=coverage.out ./vpn
+	go tool cover -html=coverage.out
+
 proxy:
 	./minivpn -c data/${PROVIDER}/config proxy
 
@@ -49,3 +53,5 @@ netns-shell:
 	# see https://github.com/slingamn/namespaced-openvpn
 	sudo ip netns exec protected sudo -u `whoami` -i
 
+clean:
+	@rm -f coverage.out

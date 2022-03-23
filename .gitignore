@@ -6,3 +6,4 @@ get
 *.pem
 *.ovpn
 data/*
+coverage.out
