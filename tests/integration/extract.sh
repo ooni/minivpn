@@ -39,7 +39,6 @@ tag=tls-auth
 f=ta.pem
 sed -n "/<$tag>/,/<\/$tag>/p" $FILE > $f
 n=$(wc -l $f | cut -f 1 -d ' ')
-echo "lines:::" $n
 tail=$(($tail+n))
 cat $f | tail -n $(($n-4)) | head -n $(($n-5)) | tee $f
 

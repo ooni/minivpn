@@ -28,6 +28,72 @@ GPLv3
 * tls-auth: `TODO`.
 * tls-crypt & [tls-crypt-v2](https://raw.githubusercontent.com/OpenVPN/openvpn/master/doc/tls-crypt-v2.txt): `TODO`.
 
+## Tests
+
+You can run a `connect+ping` test against a given provider (but be aware that
+there's very limited support for ciphersuites and compression). Place a config
+file in `data/provider/config`. The [bootstrap script](https://github.com/ainghazal/minivpn/blob/main/scripts/bootstrap-provider)
+can be useful.
+
+Then you can run:
+
+```
+make test-ping
+```
+
+### Unit tests
+
+You can run the short tests:
+
+```
+go test -v --short ./...
+```
+
+### Integration tests
+
+You will need `docker` installed to run the integration tests. They use a [fork
+of docker-openvpn](https://github.com/ainghazal/docker-openvpn) that allows us
+to configure some parameters at runtime (cipher and auth, for the time being). 
+
+```
+cd tests/integration && go test -v .
+```
+
+The `dockertest` package will take care of everything: it starts a container
+that runs `openvpn`, binds it to port 1194, and exposes the config file for the
+test client on `localhost:8080`.
+
+However, for debugging sometimes is useful to run the container on one shell:
+
+```
+make integration-server
+```
+
+Now you can download the config file:
+
+```
+curl localhost:8080/ > config
+```
+
+That config file is valid to use it with the `openvpn` client. Pro tip: launch
+it in a [separated namespace](https://github.com/slingamn/namespaced-openvpn)
+so not to mess with your global routes. `make netns-shell` will drop you in
+a shell in the new namespace.
+
+To be able to use that config file with the `minivpn` client, you need to
+[extract](https://github.com/ainghazal/minivpn/blob/main/tests/integration/extract.sh)
+the different key blocks first. 
+
+You can download the config file, split it and run integration tests with:
+
+```
+make test-local
+```
+
+
+
+
+
 ## Pointers
 
 * [Security Overview](https://community.openvpn.net/openvpn/wiki/SecurityOverview) in the OpenVPN wiki.

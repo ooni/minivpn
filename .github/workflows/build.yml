@@ -16,13 +16,6 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
-      #services:
-      #  openvpn:
-      #    image: ainghazal/openvpn:latest
-      #    ports:
-      #      - 1094:1094/udp
-      #      - 8080:8080
-
     steps:
       - uses: actions/checkout@v2
       - name: setup go
