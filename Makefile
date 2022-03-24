@@ -31,12 +31,16 @@ integration-server:
 	# this needs the container from https://github.com/ainghazal/docker-openvpn
 	cd tests/integration && ./run-server.sh
 
-test-local:
-	# run the integration-server first
+test-fetch-config:
 	rm -rf data/tests
 	mkdir -p data/tests && curl http://localhost:8080/ > data/tests/config
 	cd data/tests && ../../tests/integration/extract.sh config
+
+test-ping-local:
+	# run the integration-server first
 	./minivpn -c data/tests/config -t ${LOCAL_TARGET} -n ${COUNT} ping
+
+test-local: test-fetch-config test-ping-local
 
 coverage:
 	go test -coverprofile=coverage.out ./vpn
