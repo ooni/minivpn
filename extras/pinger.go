@@ -112,6 +112,7 @@ func (p *Pinger) Run() error {
 	}
 
 	for i := 0; i < p.Count; i++ {
+		// TODO go back to different send/receive routines, here the send/receive delays are interfering.
 		src := pc.LocalAddr().String()
 		srcIP := net.ParseIP(src)
 		dstIP := net.ParseIP(p.host)
@@ -124,6 +125,12 @@ func (p *Pinger) Run() error {
 		buf := make([]byte, 1500)
 		pc.ReadFrom(buf)
 		p.packetsRecv++
+
+		// TODO this is the naive way of doing timestamps, equivalent to "ping -U",
+		// but I expect it to be unstable under certain circumstances (high CPU load, GC pauses etc).
+		// It'd be a better idea to try to use kernel capabilities if available (need to research what's possible in osx/windows, possibly have a fallback to the naive way).
+		// in case we do see that load produces instability.
+		// https://coroot.com/blog/how-to-ping
 		end := time.Now()
 		p.parseEchoReply(buf, pc.LocalAddr().String(), start, end)
 		time.Sleep(1 * time.Second)
@@ -202,8 +209,6 @@ func (p *Pinger) parseEchoReply(d []byte, dst string, start, end time.Time) {
 				log.Println("warn: icmp response with wrong ID")
 				return
 			}
-			// XXX what's the payload here??
-			// log.Println(icmp.Payload)
 		}
 	}
 	du := end.Sub(start)
