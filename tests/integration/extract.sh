@@ -7,8 +7,6 @@
 FILE=$1
 tail=0
 
-echo "FILE>>>>" $FILE
-
 # first lets extract the inline blocks
 # ca block
 tag=ca
@@ -16,7 +14,7 @@ f=ca.crt
 sed -n "/<$tag>/,/<\/$tag>/p" $FILE > $f
 n=$(wc -l $f | cut -f 1 -d ' ')
 tail=$(($tail+n))
-cat $f | tail -n $(($n-1)) | head -n $(($n-2)) | tee $f
+cat $f | tail -n $(($n-1)) | head -n $(($n-2)) | tee $f >/dev/null
 
 # key block
 tag=key
@@ -24,7 +22,7 @@ f=key.pem
 sed -n "/<$tag>/,/<\/$tag>/p" $FILE > $f
 n=$(wc -l $f | cut -f 1 -d ' ')
 tail=$(($tail+n))
-cat $f | tail -n $(($n-1)) | head -n $(($n-2)) | tee $f
+cat $f | tail -n $(($n-1)) | head -n $(($n-2)) | tee $f >/dev/null
 
 # cert block
 tag=cert
@@ -32,7 +30,7 @@ f=cert.pem
 sed -n "/<$tag>/,/<\/$tag>/p" $FILE > $f
 n=$(wc -l $f | cut -f 1 -d ' ')
 tail=$(($tail+n))
-cat $f | tail -n $(($n-1)) | head -n $(($n-2)) | tee $f
+cat $f | tail -n $(($n-1)) | head -n $(($n-2)) | tee $f >/dev/null
 
 # tls-auth (ignored)
 tag=tls-auth
@@ -40,11 +38,16 @@ f=ta.pem
 sed -n "/<$tag>/,/<\/$tag>/p" $FILE > $f
 n=$(wc -l $f | cut -f 1 -d ' ')
 tail=$(($tail+n))
-cat $f | tail -n $(($n-4)) | head -n $(($n-5)) | tee $f
+cat $f | tail -n $(($n-4)) | head -n $(($n-5)) | tee $f >/dev/null
 
 all=$(wc -l $FILE | cut -f -1 -d ' ')
 cp $FILE config.bk
+
+echo "------------------------"
+echo "Config file:"
+echo "------------------------"
 head -n $(($all-$tail)) $FILE | tee config
+echo "------------------------"
 
 # now enable the paths for ca, cert and key
 sed -i "s/;ca ca.crt/ca ca.crt/g" config

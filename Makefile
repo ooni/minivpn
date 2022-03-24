@@ -42,6 +42,19 @@ test-ping-local:
 
 test-local: test-fetch-config test-ping-local
 
+qa:
+	@# all the steps at once
+	cd tests/integration && ./run-server.sh &
+	sleep 5 # 5secs should be enough, increase this if not.
+	@rm -rf data/tests
+	@mkdir -p data/tests && curl 172.17.0.2:8080/ > data/tests/config
+	@cd data/tests && ../../tests/integration/extract.sh config
+	./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
+	@docker stop ovpn1
+
+filternet-qa:
+	cd tests/qa && ./run-filternet.sh
+
 coverage:
 	go test -coverprofile=coverage.out ./vpn
 	go tool cover -html=coverage.out

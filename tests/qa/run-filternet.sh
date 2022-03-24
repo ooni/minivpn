@@ -11,5 +11,4 @@ echo "Using drop rule:" $DROP_RULE
 sudo ${FILTERNET} \
     --firewall-rule "${DROP_RULE}" \
     --user $USER \
-    --workdir ../.. \
-    ./minivpn -c data/tests/config -t ${TARGET} -n 3 ping
+    --workdir ../.. make qa
