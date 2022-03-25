@@ -7,15 +7,33 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
+	"time"
+)
+
+var (
+	handshakeTimeout    = 30
+	handshakeTimeoutEnv = "HANDSHAKE_TIMEOUT"
 )
 
 // NewClientFromSettings returns a Client configured with the given Options.
 func NewClientFromSettings(o *Options) *Client {
 	o.Proto = "udp"
+	t := handshakeTimeout
+	tenv := os.Getenv(handshakeTimeoutEnv)
+	if tenv != "" {
+		ti, err := strconv.Atoi(tenv)
+		if err == nil {
+			t = ti
+		} else {
+			log.Println("Cannot set timeot from env:", os.Getenv(handshakeTimeoutEnv))
+		}
+	}
 	return &Client{
-		Opts: o,
+		Opts:             o,
+		HandshakeTimeout: t,
 	}
 }
 
@@ -25,17 +43,18 @@ func NewClientFromSettings(o *Options) *Client {
 // of the protocol steps (i.e., you want to be sure that you are only calling
 // the handshake, etc.)
 type Client struct {
-	Opts         *Options
-	localKeySrc  *keySource
-	remoteKeySrc *keySource
-	ctx          context.Context
-	cancel       context.CancelFunc
-	initSt       int
-	tunnelIP     string
-	tunMTU       int
-	con          net.Conn
-	ctrl         *control
-	data         *data
+	Opts             *Options
+	HandshakeTimeout int
+	localKeySrc      *keySource
+	remoteKeySrc     *keySource
+	ctx              context.Context
+	cancel           context.CancelFunc
+	initSt           int
+	tunnelIP         string
+	tunMTU           int
+	con              net.Conn
+	ctrl             *control
+	data             *data
 }
 
 // Run starts the OpenVPN tunnel. It calls all the protocol steps serially.
@@ -91,13 +110,25 @@ func (c *Client) Dial() error {
 // Reset sends a hard-reset packet to the server, and waits for the server
 // confirmation. It is the third step in an OpenVPN connection (out of five).
 func (c *Client) Reset() error {
-	c.ctrl.sendHardReset()
-	id := c.ctrl.readHardReset(c.recv(0))
-	err := c.sendAck(uint32(id))
+	log.Printf("Setting timeout to %ds.\n", c.HandshakeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(c.HandshakeTimeout))
+	defer cancel()
+
+	c.ctrl.sendHardReset(ctx)
+	r, err := c.recv(ctx, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
-	// should we block/wait until we see the response?
+	id, err := c.ctrl.readHardReset(ctx, r)
+	if err != nil {
+		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
+	}
+	// this id is always going to be 0, is the first packet we ack
+	err = c.sendAck(uint32(id))
+	if err != nil {
+		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
+	}
+	// TODO pass ctx, but watchout for cancel
 	go c.handleIncoming()
 	return nil
 }
@@ -190,7 +221,10 @@ func (c *Client) sendAck(ackPid uint32) error {
 }
 
 func (c *Client) handleIncoming() {
-	data := c.recv(4096)
+	data, err := c.recv(context.Background(), 4096)
+	if err != nil {
+		return
+	}
 	op := data[0] >> 3
 	if op == byte(pACKV1) {
 		log.Println("DEBUG Received ACK in main loop")
@@ -297,13 +331,27 @@ func (c *Client) Stop() {
 	c.cancel()
 }
 
-func (c *Client) recv(size int) []byte {
+func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
 	if size == 0 {
 		size = 8192
 	}
 	var recvData = make([]byte, size)
-	var numBytes, _ = c.con.Read(recvData)
-	return recvData[:numBytes]
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Timeout")
+			return recvData, fmt.Errorf("timeout")
+		default:
+			if c.HandshakeTimeout != 0 {
+				c.con.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
+			}
+			numBytes, err := c.con.Read(recvData)
+			if err != nil {
+				return recvData, err
+			}
+			return recvData[:numBytes], nil
+		}
+	}
 }
 
 // DataChannel returns the internal data channel.

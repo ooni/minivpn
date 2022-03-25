@@ -1,7 +1,9 @@
 package vpn
 
 import (
+	"context"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -62,27 +64,42 @@ func (c *control) addDataQueue(queue chan []byte) {
 	c.dataQueue = queue
 }
 
-func (c *control) sendHardReset() {
-	c.sendControl(pControlHardResetClientV2, 0, []byte(""))
+func (c *control) sendHardReset(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			c.sendControl(pControlHardResetClientV2, 0, []byte(""))
+			return
+		}
+	}
 }
 
-func (c *control) readHardReset(d []byte) int {
-	if len(d) == 0 {
-		return 0
-	}
-	if d[0] != 0x40 {
-		log.Fatal("Not a hard reset response packet")
-	}
-	if len(c.RemoteID) != 0 {
-		if !areBytesEqual(c.RemoteID[:], d[1:9]) {
-			log.Printf("Offending session ID: %08x\n", d[1:9])
-			log.Fatal("Invalid remote session ID")
+func (c *control) readHardReset(ctx context.Context, d []byte) (int, error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("timeout")
+		default:
+			if len(d) == 0 {
+				return 0, nil
+			}
+			if d[0] != 0x40 {
+				return 0, fmt.Errorf("not a hard reset response packet")
+			}
+			if len(c.RemoteID) != 0 {
+				if !areBytesEqual(c.RemoteID[:], d[1:9]) {
+					log.Printf("Offending session ID: %08x\n", d[1:9])
+					return 0, fmt.Errorf("invalid remote session ID")
+				}
+			} else {
+				c.RemoteID = d[1:9]
+				log.Printf("Learned remote session ID: %x\n", c.RemoteID)
+			}
+			return 0, nil
 		}
-	} else {
-		c.RemoteID = d[1:9]
-		log.Printf("Learned remote session ID: %x\n", c.RemoteID)
 	}
-	return 0
 }
 
 func (c *control) sendControlV1(data []byte) (n int, err error) {
