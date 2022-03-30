@@ -86,8 +86,9 @@ func (c *Client) Init() error {
 	ctx, cancel := context.WithCancel(ctx)
 	c.ctx = ctx
 	c.cancel = cancel
-	c.localKeySrc = newKeySource()
-	return nil
+	ks, err := newKeySource()
+	c.localKeySrc = ks
+	return err
 }
 
 // Dial opens an UDP socket against the remote, and creates an internal

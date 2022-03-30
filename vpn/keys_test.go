@@ -19,7 +19,7 @@ func Test_newKeySource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := newKeySource(); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := newKeySource(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("newKeySource() = %v, want %v", got, tt.want)
 			}
 		})

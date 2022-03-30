@@ -1,6 +1,13 @@
 package vpn
 
-var randomFn = genRandomBytes
+import (
+	"fmt"
+)
+
+var (
+	randomFn       = genRandomBytes
+	errRandomBytes = "Error generating random bytes"
+)
 
 // random data to generate keys
 type keySource struct {
@@ -14,22 +21,22 @@ func (k *keySource) Bytes() []byte {
 	return append(r, k.r2...)
 }
 
-func newKeySource() *keySource {
+func newKeySource() (*keySource, error) {
 	r1, err := randomFn(32)
 	if err != nil {
-		panic("Error generating random bytes")
+		return nil, fmt.Errorf("%s: %w", errRandomBytes, err)
 	}
 	r2, err := randomFn(32)
 	if err != nil {
-		panic("Error generating random bytes")
+		return nil, fmt.Errorf("%s: %w", errRandomBytes, err)
 	}
 	preMaster, err := randomFn(48)
 	if err != nil {
-		panic("Error generating random bytes")
+		return nil, fmt.Errorf("%s: %w", errRandomBytes, err)
 	}
 	return &keySource{
 		r1:        r1,
 		r2:        r2,
 		preMaster: preMaster,
-	}
+	}, nil
 }
