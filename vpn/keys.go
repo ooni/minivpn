@@ -1,5 +1,7 @@
 package vpn
 
+var randomFn = genRandomBytes
+
 // random data to generate keys
 type keySource struct {
 	r1        []byte
@@ -13,15 +15,15 @@ func (k *keySource) Bytes() []byte {
 }
 
 func newKeySource() *keySource {
-	r1, err := genRandomBytes(32)
+	r1, err := randomFn(32)
 	if err != nil {
 		panic("Error generating random bytes")
 	}
-	r2, err := genRandomBytes(32)
+	r2, err := randomFn(32)
 	if err != nil {
 		panic("Error generating random bytes")
 	}
-	preMaster, err := genRandomBytes(48)
+	preMaster, err := randomFn(48)
 	if err != nil {
 		panic("Error generating random bytes")
 	}
