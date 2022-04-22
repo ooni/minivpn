@@ -88,6 +88,14 @@ func (cw controlWrapper) dataProcessLoop() {
 }
 
 func (cw controlWrapper) processControlData(d []byte) {
+
+	// Normally we'd want to un-serialize the data according to the
+	// TCP framing, but since we're reading data coming from a discrete
+	// TLS record we can just ignore the size header.
+	if isTCP(cw.control.Opts.Proto) {
+		d = d[2:]
+	}
+
 	op := d[0] >> 3
 	if op == byte(pACKV1) {
 		// might want to do something with this ACK

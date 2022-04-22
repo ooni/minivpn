@@ -20,6 +20,7 @@ IPS = {
 def getConfig(p):
     ip = IPS.get(p)
     return f"""remote {ip} 1194
+proto udp
 cipher AES-256-GCM
 auth SHA512
 ca ca.crt

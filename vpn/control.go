@@ -119,6 +119,9 @@ func (c *control) sendControl(opcode int, ack int, payload []byte) (n int, err e
 	if len(payload) != 0 {
 		p = append(p, payload...)
 	}
+	if isTCP(c.Opts.Proto) {
+		p = toSizeFrame(p)
+	}
 	return c.conn.Write(p)
 }
 
@@ -217,19 +220,11 @@ func (c *control) sendAck(pid uint32) {
 	binary.BigEndian.PutUint32(ack, pid)
 	p = append(p, ack...)
 	p = append(p, c.RemoteID...)
+	if isTCP(c.Opts.Proto) {
+		p = toSizeFrame(p)
+	}
 	c.conn.Write(p)
 	c.lastAck = int(pid)
-}
-
-func (c *control) recv() {
-	var recv = make([]byte, 4096)
-	var numBytes, _ = c.conn.Read(recv)
-	data := recv[:numBytes]
-	op := data[0] >> 3
-
-	if op == byte(pACKV1) {
-		log.Println("Received ACK")
-	}
 }
 
 func (c *control) handleIn(data []byte) {

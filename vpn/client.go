@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+const (
+	UDPBufferSize = 8192
+)
+
 var (
 	handshakeTimeout    = 30
 	handshakeTimeoutEnv = "HANDSHAKE_TIMEOUT"
@@ -20,7 +24,6 @@ var (
 
 // NewClientFromSettings returns a Client configured with the given Options.
 func NewClientFromSettings(o *Options) *Client {
-	o.Proto = "udp"
 	t := handshakeTimeout
 	tenv := os.Getenv(handshakeTimeoutEnv)
 	if tenv != "" {
@@ -91,12 +94,17 @@ func (c *Client) Init() error {
 	return err
 }
 
-// Dial opens an UDP socket against the remote, and creates an internal
+// Dial opens a TCP/UDP socket against the remote, and creates an internal
 // data channel. It is the second step in an OpenVPN connection (out of five).
+// (In UDP mode no network connection is done at this step).
 func (c *Client) Dial() error {
-	log.Printf("Connecting to %s:%s with proto UDP\n", c.Opts.Remote, c.Opts.Port)
+	proto := "udp"
+	if c.Opts.Proto == TCPMode {
+		proto = "tcp"
+	}
+	log.Printf("Connecting to %s:%s with proto %s\n", c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
 	// TODO pass context?
-	conn, err := net.Dial(c.Opts.Proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+	conn, err := net.Dial(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrDialError, err)
 	}
@@ -120,11 +128,13 @@ func (c *Client) Reset() error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
+
 	id, err := c.ctrl.readHardReset(ctx, r)
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
 	// this id is always going to be 0, is the first packet we ack
+	log.Println("DEBUG: send ack")
 	err = c.sendAck(uint32(id))
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
@@ -217,6 +227,9 @@ func (c *Client) sendAck(ackPid uint32) error {
 	binary.BigEndian.PutUint32(ack, ackPid)
 	p = append(p, ack...)
 	p = append(p, c.ctrl.RemoteID...)
+	if c.Opts.Proto == TCPMode {
+		p = toSizeFrame(p)
+	}
 	c.con.Write(p)
 	return nil
 }
@@ -224,8 +237,13 @@ func (c *Client) sendAck(ackPid uint32) error {
 func (c *Client) handleIncoming() {
 	data, err := c.recv(context.Background(), 4096)
 	if err != nil {
+		log.Println("DEBUG: handleIncoming error:", err.Error())
 		return
 	}
+	if len(data) == 0 {
+		return
+	}
+
 	op := data[0] >> 3
 	if op == byte(pACKV1) {
 		log.Println("DEBUG Received ACK in main loop")
@@ -333,8 +351,10 @@ func (c *Client) Stop() {
 }
 
 func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
-	if size == 0 {
-		size = 8192
+	if !isTCP(c.Opts.Proto) {
+		if size == 0 {
+			size = UDPBufferSize
+		}
 	}
 	var recvData = make([]byte, size)
 	for {
@@ -346,11 +366,23 @@ func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
 			if c.HandshakeTimeout != 0 {
 				c.con.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
 			}
-			numBytes, err := c.con.Read(recvData)
-			if err != nil {
-				return recvData, err
+			if isTCP(c.Opts.Proto) {
+				bl := make([]byte, 2)
+				_, err := c.con.Read(bl)
+				if err != nil {
+					log.Println("ERROR:", err)
+				}
+				l := int(binary.BigEndian.Uint16(bl))
+				rcv := make([]byte, l)
+				n, _ := c.con.Read(rcv)
+				return rcv[:n], nil
+			} else {
+				n, err := c.con.Read(recvData)
+				if err != nil {
+					log.Println("DEBUG: reading data:", err)
+				}
+				return recvData[:n], nil
 			}
-			return recvData[:numBytes], nil
 		}
 	}
 }

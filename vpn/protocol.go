@@ -1,25 +1,36 @@
 package vpn
 
-var (
-	stNothing            = 0
-	stControlChannelOpen = 1
-	stControlMessageSent = 2
-	stKeyExchanged       = 3
-	stPullRequestSent    = 4
-	stOptionsPushed      = 5
-	stInitialized        = 6
-	stDataReady          = 7
-
-	pControlHardResetClientV1 = 1
-	pControlHardResetServerV1 = 2
-	pControlSoftResetV1       = 3
-	pControlV1                = 4
-	pACKV1                    = 5
-	pDataV1                   = 6
-	pDataV2                   = 9
-	pControlHardResetClientV2 = 7
-	pControlHardResetServerV2 = 8
+const (
+	stNothing = iota
+	stControlChannelOpen
+	stControlMessageSent
+	stKeyExchanged
+	stPullRequestSent
+	stOptionsPushed
+	stInitialized
+	stDataReady
 )
+
+const (
+	pControlHardResetClientV1 = iota + 1
+	pControlHardResetServerV1
+	pControlSoftResetV1
+	pControlV1
+	pACKV1
+	pDataV1
+	pControlHardResetClientV2
+	pControlHardResetServerV2
+	pDataV2
+)
+
+const (
+	UDPMode = iota
+	TCPMode
+)
+
+func isTCP(mode int) bool {
+	return mode == TCPMode
+}
 
 func isControlOpcode(b byte) bool {
 	switch b {

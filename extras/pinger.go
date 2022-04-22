@@ -108,7 +108,7 @@ func (p *Pinger) printStats() {
 func (p *Pinger) Run() error {
 	pc, err := p.raw.Dial()
 	if err != nil {
-		log.Println("Error while dialing a VPN connection")
+		log.Println("Error while dialing a VPN connection:", err.Error())
 		return err
 	}
 

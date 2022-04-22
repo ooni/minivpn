@@ -38,7 +38,7 @@ var supportedTLSCipher = []string{
 type Options struct {
 	Remote    string
 	Port      string
-	Proto     string
+	Proto     int
 	Username  string
 	Password  string
 	Ca        string
@@ -62,13 +62,17 @@ func getHashLength(s string) int {
 	return 0
 }
 
-const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
+const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
 
 func getOptionsAsBytes(opts *Options) []byte {
 	keysize := strings.Split(opts.Cipher, "-")[1]
+	proto := "UDP"
+	if opts.Proto == TCPMode {
+		proto = "TCP"
+	}
 	o := fmt.Sprintf(
 		clientOptions,
-		opts.Cipher, opts.Auth, keysize)
+		proto, opts.Cipher, opts.Auth, keysize)
 	if opts.Compress == "stub" {
 		o = o + ",compress stub"
 	} else if opts.Compress == "lzo-no" {
@@ -87,6 +91,26 @@ func ParseConfigFile(filePath string) (*Options, error) {
 		return nil, err
 	}
 	return getOptionsFromLines(lines, dir)
+}
+
+func parseProto(p []string, o *Options) error {
+	if len(p) != 1 {
+		return fmt.Errorf("proto needs one arg")
+	}
+	m := p[0]
+	switch m {
+	case "udp":
+		o.Proto = UDPMode
+		break
+	case "tcp":
+		o.Proto = TCPMode
+		break
+	default:
+		log.Println("err: unsupported proto:", m)
+		return errors.New("bad mode: " + m)
+
+	}
+	return nil
 }
 
 func parseRemote(p []string, o *Options) error {
@@ -207,6 +231,7 @@ func parseTLSVerMax(p []string, o *Options) error {
 }
 
 var pMap = map[string]interface{}{
+	"proto":           parseProto,
 	"remote":          parseRemote,
 	"cipher":          parseCipher,
 	"auth":            parseAuth,
@@ -224,7 +249,7 @@ var pMapDir = map[string]interface{}{
 
 func parseOption(o *Options, dir, key string, p []string) error {
 	switch key {
-	case "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo", "tls-version-max":
+	case "proto", "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo", "tls-version-max":
 		fn := pMap[key].(func([]string, *Options) error)
 		if e := fn(p, o); e != nil {
 			return e

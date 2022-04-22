@@ -259,6 +259,9 @@ func (d *data) send(payload []byte) {
 	}
 
 	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
+	if isTCP(d.opts.Proto) {
+		buf = toSizeFrame(buf)
+	}
 	d.conn.Write(buf)
 }
 
