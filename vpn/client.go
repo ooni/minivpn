@@ -134,7 +134,6 @@ func (c *Client) Reset() error {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
 	// this id is always going to be 0, is the first packet we ack
-	log.Println("DEBUG: send ack")
 	err = c.sendAck(uint32(id))
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)

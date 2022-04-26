@@ -29,6 +29,11 @@ func (r runner) runDownload(ctx context.Context) int {
 		r.emitter.OnDownloadEvent)
 }
 
+func (r runner) runUpload(ctx context.Context) int {
+	return r.runTest(ctx, spec.TestUpload, r.client.StartUpload,
+		r.emitter.OnUploadEvent)
+}
+
 func (r runner) runTest(
 	ctx context.Context, test spec.TestKind,
 	start func(context.Context) (<-chan spec.Measurement, error),
@@ -77,7 +82,7 @@ func (r runner) doRunTest(
 
 // RunMeasurement performs a download & upload measurement against a given ndt7 server.
 // It expects a vpn Dialer and a server string (ip:port).
-func RunMeasurement(d vpn.Dialer, ndt7Server string) {
+func RunMeasurement(d vpn.Dialer, ndt7Server string, mode string) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 	var r runner
@@ -91,5 +96,10 @@ func RunMeasurement(d vpn.Dialer, ndt7Server string) {
 	r.client.Server = ndt7Server
 	r.client.Dialer = vpnDialer
 	r.emitter = emitter.NewJSON(os.Stdout)
-	r.runDownload(ctx)
+	switch mode {
+	case "download":
+		r.runDownload(ctx)
+	case "upload":
+		r.runUpload(ctx)
+	}
 }
