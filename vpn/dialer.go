@@ -181,8 +181,8 @@ type RawDialer struct {
 	Options *Options
 	MTU     int
 	c       *Client
-	// dialFn will be used by the OpenVPN client to establish the tunnel.
-	// In the Client, this defaults to net.Dial.
+	// dialFn will be used by the Client to establish the tunnel.
+	// If not initialized, it defaults to net.Dial.
 	// If a different DialFunc is passed via the higher-level Dialer, that
 	// will be used instead.
 	dialFn DialFunc
