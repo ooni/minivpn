@@ -44,6 +44,8 @@ type Dialer struct {
 	ns2 string
 	raw *RawDialer
 	net *network
+	// TODO perhaps rename to TransportDialFunc?? I'm afraid this is confusing terminology as-is.
+	DialFn DialFunc
 }
 
 // NewDialer creates a new Dialer with the default nameservers (OpenDNS).
@@ -113,6 +115,9 @@ func (d Dialer) DialContext(ctx context.Context, network, address string) (net.C
 }
 
 func (d Dialer) createNetTUN() (*netstack.Net, error) {
+	if d.DialFn != nil {
+		d.raw.dialFn = d.DialFn
+	}
 	pc, err := d.raw.Dial()
 	if err != nil {
 		return nil, err
@@ -176,6 +181,11 @@ type RawDialer struct {
 	Options *Options
 	MTU     int
 	c       *Client
+	// dialFn will be used by the OpenVPN client to establish the tunnel.
+	// In the Client, this defaults to net.Dial.
+	// If a different DialFunc is passed via the higher-level Dialer, that
+	// will be used instead.
+	dialFn DialFunc
 }
 
 // NewRawDialer returns a RawDialer configured with the given Options.
@@ -188,6 +198,9 @@ func (d *RawDialer) Dial() (net.PacketConn, error) {
 	if d.c == nil {
 		// TODO catch error here
 		c := NewClientFromSettings(d.Options)
+		if d.dialFn != nil {
+			c.DialFn = d.dialFn
+		}
 		d.c = c
 		// TODO unwrap these errors and classify them in connection stages
 		err := d.c.Run()

@@ -37,8 +37,11 @@ func NewClientFromSettings(o *Options) *Client {
 	return &Client{
 		Opts:             o,
 		HandshakeTimeout: t,
+		DialFn:           net.Dial,
 	}
 }
+
+type DialFunc func(string, string) (net.Conn, error)
 
 // Client implements the OpenVPN protocol. If you're just interested in writing
 // to and reading from the tunnel you should use the dialer methods instead.
@@ -48,6 +51,7 @@ func NewClientFromSettings(o *Options) *Client {
 type Client struct {
 	Opts             *Options
 	HandshakeTimeout int
+	DialFn           DialFunc
 	localKeySrc      *keySource
 	remoteKeySrc     *keySource
 	ctx              context.Context
@@ -104,7 +108,10 @@ func (c *Client) Dial() error {
 	}
 	log.Printf("Connecting to %s:%s with proto %s\n", c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
 	// TODO pass context?
-	conn, err := net.Dial(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+
+	//conn, err := net.Dial(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+	conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrDialError, err)
 	}
