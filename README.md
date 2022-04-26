@@ -21,7 +21,7 @@ GPLv3
 ## OpenVPN Compatibility
 
 * Mode: Only `tls-client`.
-* Protocol: Only `UDPv4`.
+* Protocol: `UDPv4`, `TCPv4`.
 * Ciphers: `AES-128-CBC`, `AES-256-CBC`, `AES-128-GCM`, `AES-256-GCM`.
 * HMAC: `SHA1`, `SHA256`, `SHA512`.
 * Compression: `none`, `compress stub`, `comp-lzo no`.
@@ -90,8 +90,10 @@ You can download the config file, split it and run integration tests with:
 make test-local
 ```
 
+## Limitations
 
-
+Many, but re-keying is maybe one of the first expected to limit the usefulness
+in the current state. Porting over the replay protections would also be nice.
 
 
 ## Pointers
