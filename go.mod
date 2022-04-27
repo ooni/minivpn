@@ -2,7 +2,8 @@ module github.com/ainghazal/minivpn
 
 go 1.17
 
-replace "gitlab.com/yawning/obfs4.git" => ../../ooni/obfs4
+// pinning for backwards-incompatible change
+replace gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d => gitlab.com/yawning/obfs4.git v0.0.0-20210511220700-e330d1b7024b
 
 require (
 	git.torproject.org/pluggable-transports/goptlib.git v1.2.0
