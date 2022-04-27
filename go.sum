@@ -701,6 +701,8 @@ github.com/yvasiyarov/newrelic_platform_go v0.0.0-20140908184405-b21fdbd4370f/go
 gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec/go.mod h1:BZ1RAoRPbCxum9Grlv5aeksu2H8BiKehBYooU2LFiOQ=
 gitlab.com/yawning/edwards25519-extra.git v0.0.0-20211229043746-2f91fcc9fbdb h1:qRSZHsODmAP5qDvb3YsO7Qnf3TRiVbGxNG/WYnlM4/o=
 gitlab.com/yawning/edwards25519-extra.git v0.0.0-20211229043746-2f91fcc9fbdb/go.mod h1:gvdJuZuO/tPZyhEV8K3Hmoxv/DWud5L4qEQxfYjEUTo=
+gitlab.com/yawning/obfs4.git v0.0.0-20210511220700-e330d1b7024b h1:w/f20IHUkUYEp+xYgpKz4Bs78zms0DbjPZCep5lc0xA=
+gitlab.com/yawning/obfs4.git v0.0.0-20210511220700-e330d1b7024b/go.mod h1:OM1ngEp5brdANPox+rqk2AGTLQvzobyB5Dwm3vu3CgM=
 gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d h1:tJ8F7ABaQ3p3wjxwXiWSktVDgjZEXkvaRawd2rIq5ws=
 gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d/go.mod h1:9GcM8QNU9/wXtEEH2q8bVOnPI7FtIF6VVLzZ1l6Hgf8=
 gitlab.com/yawning/utls.git v0.0.12-1/go.mod h1:3ONKiSFR9Im/c3t5RKmMJTVdmZN496FNyk3mjrY1dyo=

@@ -18,17 +18,22 @@ func main() {
 	if provider == "" {
 		log.Fatal("Export the PROVIDER variable")
 	}
-	node, err := obfs4.NewNode()
-	if err != nil {
-		log.Fatal(err)
-	}
-	obfs4.Obfs4ClientInit(node)
-	dialFn := obfs4.Dialer(node.Addr)
-
 	opts, err := vpn.ParseConfigFile("data/" + provider + "/config")
 	if err != nil {
 		panic(err)
 	}
+	if opts.ProxyOBFS4 == "" {
+		log.Fatal("ERROR: missing proto-obfs4 entry in config")
+	}
+
+	node, err := obfs4.NewNodeFromURI(opts.ProxyOBFS4)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	obfs4.Obfs4ClientInit(node)
+	dialFn := obfs4.Dialer(node.Addr)
+
 	dialer := vpn.NewDialerFromOptions(opts)
 	dialer.DialFn = vpn.DialFunc(dialFn)
 

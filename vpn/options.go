@@ -1,5 +1,10 @@
 package vpn
 
+// Parse VPN options.
+
+// Mostly, this file conforms to the format in the reference implementation.
+// However, there are some additions that are specific. To avoid feature creep and fat dependencies, the main `vpn` module only supports mainline capabilities. It is still useful to carry all options in a single type, so it's up to the user of this library to do something useful with such options. The `extra` package provides some of these features, like obfuscation support.
+
 import (
 	"bufio"
 	"errors"
@@ -48,6 +53,8 @@ type Options struct {
 	Cipher    string
 	Auth      string
 	TLSMaxVer string
+	// below are options that do not conform to the OpenVPN configuration format.
+	ProxyOBFS4 string
 }
 
 func getHashLength(s string) int {
@@ -230,6 +237,14 @@ func parseTLSVerMax(p []string, o *Options) error {
 	return nil
 }
 
+func parseProxyOBFS4(p []string, o *Options) error {
+	if len(p) != 1 {
+		return fmt.Errorf("proto-obfs4: need a properly configured proxy")
+	}
+	o.ProxyOBFS4 = p[0]
+	return nil
+}
+
 var pMap = map[string]interface{}{
 	"proto":           parseProto,
 	"remote":          parseRemote,
@@ -239,6 +254,7 @@ var pMap = map[string]interface{}{
 	"compress":        parseCompress,
 	"comp-lzo":        parseCompLZO,
 	"tls-version-max": parseTLSVerMax,
+	"proxy-obfs4":     parseProxyOBFS4,
 }
 
 var pMapDir = map[string]interface{}{
@@ -249,7 +265,7 @@ var pMapDir = map[string]interface{}{
 
 func parseOption(o *Options, dir, key string, p []string) error {
 	switch key {
-	case "proto", "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo", "tls-version-max":
+	case "proto", "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo", "tls-version-max", "proxy-obfs4":
 		fn := pMap[key].(func([]string, *Options) error)
 		if e := fn(p, o); e != nil {
 			return e

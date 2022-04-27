@@ -14,6 +14,7 @@ properties that you need from software that can protect your privacy. If you
 arrived here looking for such a thing, please use
 [misteriumnetwork/go-openvpn](https://github.com/mysteriumnetwork/go-openvpn) instead.
 
+
 ## License
 
 GPLv3
@@ -27,6 +28,16 @@ GPLv3
 * Compression: `none`, `compress stub`, `comp-lzo no`.
 * tls-auth: `TODO`.
 * tls-crypt & [tls-crypt-v2](https://raw.githubusercontent.com/OpenVPN/openvpn/master/doc/tls-crypt-v2.txt): `TODO`.
+
+## Additional features
+
+### Obfuscation
+
+`obfs4` is supported. Add an additional entry in the config file, in this format:
+
+```
+proxy-obfs4 obfs4://RHOST:RPORT?cert=BASE64ENCODED_CERT&iat-mode=0
+```
 
 ## Tests
 
