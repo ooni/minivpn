@@ -22,9 +22,9 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// the server certificate given to the client is in the following format:
+// The server certificate given to the client is in the following format:
 // obfs4://server_ip:443?cert=4UbQjIfjJEQHPOs8vs5sagrSXx1gfrDCGdVh2hpIPSKH0nklv1e4f29r7jb91VIrq4q5Jw&iat-mode=0'
-// watch out: need to urlencode "+" chars etc
+// be sure to urlencode the certificate you obtain from obfs4proxy or other software.
 
 type obfs4Context struct {
 	cf    base.ClientFactory
@@ -33,9 +33,8 @@ type obfs4Context struct {
 
 var obfs4Map = make(map[string]obfs4Context)
 
-// Obfs4Init initializes the obfs4 client
+// Obfs4ClientInit initializes the obfs4 client
 func Obfs4ClientInit(node Node) error {
-	log.Println("Initializing obfs4 client")
 	if _, ok := obfs4Map[node.Addr]; ok {
 		return fmt.Errorf("obfs4 context already initialized")
 	}
@@ -54,7 +53,7 @@ func Obfs4ClientInit(node Node) error {
 	// nice to support other obfs4-based transporters as gost is doing.
 	cf, err := t.ClientFactory(stateDir)
 	if err != nil {
-		log.Println("error on clientFactory")
+		log.Println("obfs4: error on clientFactory")
 		return err
 	}
 
@@ -65,7 +64,6 @@ func Obfs4ClientInit(node Node) error {
 	}
 
 	obfs4Map[node.Addr] = obfs4Context{cf: cf, cargs: cargs}
-	log.Println("init OK")
 	return nil
 }
 

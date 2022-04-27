@@ -71,6 +71,7 @@ func (a *aesCipher) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 		plaintext := make([]byte, len(ciphertext))
 		mode.CryptBlocks(plaintext, ciphertext)
 		plaintext = unpadText(plaintext)
+
 		padLen := len(ciphertext) - len(plaintext)
 		if padLen > block.BlockSize() || padLen > len(plaintext) {
 			log.Fatal("Padding error")
@@ -82,8 +83,14 @@ func (a *aesCipher) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 			return nil, err
 		}
 		plaintext, err := aesGCM.Open(nil, iv, ciphertext, ad)
+
 		if err != nil {
-			log.Println("decryption failed!")
+			log.Println("gdm decryption failed:", err.Error())
+			log.Println("dump begins----")
+			log.Printf("%x\n", ciphertext)
+			log.Println("len:", len(ciphertext))
+			log.Printf("ad: %x\n", ad)
+			log.Println("dump ends------")
 			return nil, err
 		}
 		return plaintext, nil

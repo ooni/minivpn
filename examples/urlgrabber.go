@@ -22,7 +22,11 @@ import (
 )
 
 func main() {
-	opts, err := vpn.ParseConfigFile("data/calyx/config")
+	provider := os.Getenv("PROVIDER")
+	if provider == "" {
+		log.Fatal("Export the PROVIDER variable")
+	}
+	opts, err := vpn.ParseConfigFile("data/" + provider + "/config")
 	if err != nil {
 		panic(err)
 	}

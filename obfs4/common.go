@@ -24,14 +24,9 @@ func NewNode() (Node, error) {
 	if err != nil {
 		return Node{}, err
 	}
-	/* DEBUG ----------------------------------------- */
-	log.Println("host:", u.Hostname())
-	log.Println("port:", u.Port())
-	log.Println("proto:", u.Scheme)
-	q, err := url.ParseQuery(u.RawQuery)
-	log.Println("cert:", url.QueryEscape(q["cert"][0]))
-	log.Println("iat-mode:", q["iat-mode"][0])
-	/* ----------------------------------------------- */
+	log.Printf("Using %s proxy at %s:%s", u.Scheme, u.Hostname(), u.Port())
+	// q, err := url.ParseQuery(u.RawQuery)
+	// log.Println("cert:", url.QueryEscape(q["cert"][0]))
 
 	if u.Scheme != "obfs4" {
 		return Node{}, fmt.Errorf("expected obfs4:// uri")

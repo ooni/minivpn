@@ -108,8 +108,6 @@ func (c *Client) Dial() error {
 	}
 	log.Printf("Connecting to %s:%s with proto %s\n", c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
 	// TODO pass context?
-
-	//conn, err := net.Dial(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 	conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 
 	if err != nil {

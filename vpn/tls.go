@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
+	"os"
+	"sync"
 	"time"
 )
 
@@ -46,10 +49,10 @@ func (c *control) initTLS() error {
 
 	bufReader := bytes.NewBuffer(nil)
 	ackq := make(chan []byte, 50)
-	udp := controlWrapper{control: c, bufReader: bufReader, ackQueue: ackq}
-	go udp.dataProcessLoop()
+	cw := controlWrapper{control: c, bufReader: bufReader, ackQueue: ackq}
+	go cw.dataProcessLoop()
 
-	tlsConn := tls.Client(udp, tlsConf)
+	tlsConn := tls.Client(cw, tlsConf)
 	if err := tlsConn.Handshake(); err != nil {
 		return fmt.Errorf("%s %w", ErrBadHandshake, err)
 	}
@@ -65,6 +68,7 @@ type controlWrapper struct {
 	control   *control
 	bufReader *bytes.Buffer
 	ackQueue  chan []byte
+	rbmu      sync.Mutex
 }
 
 func (cw controlWrapper) Write(b []byte) (n int, err error) {
@@ -88,14 +92,27 @@ func (cw controlWrapper) dataProcessLoop() {
 }
 
 func (cw controlWrapper) processControlData(d []byte) {
-
-	// Normally we'd want to un-serialize the data according to the
-	// TCP framing, but since we're reading data coming from a discrete
-	// TLS record we can just ignore the size header.
+	cw.rbmu.Lock()
+	defer cw.rbmu.Unlock()
 	if isTCP(cw.control.Opts.Proto) {
+		// TCP size framing
+		l := int(binary.BigEndian.Uint16(d[:2]))
 		d = d[2:]
+		if len(d) != l {
+			// TODO get a more elegant verbose flag
+			// BUG: OpenVPN packets received over a TCP stream sometimes contain more data than announced in the size header.
+			// (see controlWrapper.Read method below)
+			// this is probably related to being sloppy on Reads, but for now is "cheap" to just discard
+			// the reads that do not match the size header.
+			// i've tried buffered reads, but it stalls.
+			// what does the reference implementation do?
+			if os.Getenv("DEBUG") == "1" {
+				log.Printf("WARN packet len mismatch: expected %d, got %d\n", l, len(d))
+			}
+			// dropping it is a waste, but most viable solution I've found so far
+			return
+		}
 	}
-
 	op := d[0] >> 3
 	if op == byte(pACKV1) {
 		// might want to do something with this ACK
@@ -120,27 +137,26 @@ func (cw controlWrapper) processControlData(d []byte) {
 }
 
 func (cw controlWrapper) Read(b []byte) (int, error) {
+	cw.rbmu.Lock()
 	if len(b) == 0 {
 		return 0, nil
 	}
-	// TODO I have "avoided" the sleep by stuffing it as a select timeout
-	// but I still don't understand why the results are so unstable
-	// without it...
-	// time.Sleep(50 * time.Millisecond)
 	select {
 	case p := <-cw.control.tlsIn:
 		cw.bufReader.Write(p)
+		cw.rbmu.Unlock()
 		return cw.bufReader.Read(b)
 	case <-time.After(10 * time.Millisecond):
 		break
 	}
 	go func() {
-		// use a semaphore?
-		// at times we're exhausting this poor conn guy...
+		defer cw.rbmu.Unlock()
+		// FIXME this works nicely for udp, but breaks for tcp
+		// I've tried with a bufio.Reader and peeking the size header, but to no avail.
 		buf := make([]byte, 4096)
-		numBytes, _ := cw.control.conn.Read(buf)
-		if numBytes != 0 {
-			cw.ackQueue <- buf[:numBytes]
+		n, _ := cw.control.conn.Read(buf)
+		if n != 0 {
+			cw.ackQueue <- buf[:n]
 		}
 	}()
 	return 0, nil

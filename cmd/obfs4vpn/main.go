@@ -23,7 +23,6 @@ func main() {
 		log.Fatal(err)
 	}
 	obfs4.Obfs4ClientInit(node)
-	log.Println("node addr:", node.Addr)
 	dialFn := obfs4.Dialer(node.Addr)
 
 	opts, err := vpn.ParseConfigFile("data/" + provider + "/config")

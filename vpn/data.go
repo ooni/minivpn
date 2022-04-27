@@ -208,13 +208,18 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
 	//            [4-byte
 	//            IV head]
-	if len(dat) == 0 {
+	if len(dat) == 0 || len(dat) < 40 {
+		log.Println("WARN decryptAEAD: bad length")
+		return []byte{}
+	}
+	// BUG: we should not attempt to decrypt payloads until we have initialized the key material
+	if len(d.hmacKeyRemote) == 0 {
+		log.Println("WARN decryptAEAD: not ready yet")
 		return []byte{}
 	}
 	packetID := dat[:4]
-	// weird sorcery:
 	// for some reason that I don't understand, this is not properly parsed
-	// as bytes... the tag gets mangled. but it's good if I convert it to hex and back...
+	// as bytes... the tag gets mangled. but it's good if I convert it to hex and back (which sorcery is this?)
 	recvHex := hex.EncodeToString(dat[:])
 	tagH := recvHex[8:40]
 	ctH := recvHex[40:]
@@ -266,13 +271,18 @@ func (d *data) send(payload []byte) {
 }
 
 func (d *data) handleIn(packet []byte) {
+	if len(packet) == 0 {
+		log.Println("ERROR handleIn: empty packet")
+		return
+	}
 	if packet[0] != 0x30 {
-		log.Fatal("Wrong data header!")
+		log.Println("ERROR handleIn: wrong data header")
+		return
 	}
 	data := packet[1:]
 	plaintext := d.decrypt(data)
 	if len(plaintext) == 0 {
-		log.Println("could not decrypt, skipped")
+		log.Println("WARN handleIn: could not decrypt, skipped")
 		return
 	}
 
