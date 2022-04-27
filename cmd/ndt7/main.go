@@ -4,6 +4,7 @@ package main
 // a download/upload measurement.
 
 import (
+	"log"
 	"os"
 
 	"github.com/ainghazal/minivpn/extras"
@@ -11,10 +12,16 @@ import (
 )
 
 func main() {
-	// TODO fail if no server provided
 	ndt7Server := os.Getenv("SERVER")
+	if ndt7Server == "" {
+		log.Fatal("Set SERVER variable")
+	}
+	provider := os.Getenv("PROVIDER")
+	if provider == "" {
+		log.Fatal("Set PROVIDER variable")
+	}
 
-	opts, err := vpn.ParseConfigFile("data/calyx/config")
+	opts, err := vpn.ParseConfigFile("data/" + provider + "/config")
 	if err != nil {
 		panic(err)
 	}
