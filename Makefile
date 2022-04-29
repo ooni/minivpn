@@ -13,6 +13,9 @@ build-race:
 build-ping:
 	@go build -v ./cmd/ping
 
+build-ndt7:
+	@go build -o ndt7 ./cmd/ndt7
+
 bootstrap:
 	@./scripts/bootstrap-provider ${PROVIDER}
 

@@ -16,6 +16,7 @@ package extras
 import (
 	"context"
 	"crypto/tls"
+	"log"
 	"os"
 	"time"
 
@@ -95,14 +96,20 @@ func (r runner) doRunTest(
 
 // RunMeasurement performs a download & upload measurement against a given ndt7 server.
 // It expects a vpn Dialer and a server string (ip:port).
-func RunMeasurement(d vpn.Dialer, ndt7Server string, mode string) {
+// If the direct parameter is set to true, the vpn Dialer will not be used and
+// a direct connection will be used instead.
+func RunMeasurement(d vpn.Dialer, ndt7Server string, mode string, direct bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 	var r runner
 
 	vpnDialer := websocket.Dialer{
-		NetDialContext:  d.DialContext,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	if direct == false {
+		vpnDialer.NetDialContext = d.DialContext
+	} else {
+		log.Println("using a direct connection to ndt7 server")
 	}
 
 	r.client = ndt7.NewClient(clientName, clientVersion)

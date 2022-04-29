@@ -1,0 +1,2 @@
+#!/bin/sh
+tail -f "$1" | jq

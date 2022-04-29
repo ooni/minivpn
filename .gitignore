@@ -1,11 +1,12 @@
 minivpn
 obfs4vpn
 ping
-get
+geturl
 ndt7
 *.swp
 *.swo
 *.pem
 *.ovpn
 data/*
+measurements/*
 coverage.out
