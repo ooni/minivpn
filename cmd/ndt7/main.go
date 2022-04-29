@@ -73,8 +73,8 @@ func main() {
 		direct = true
 	}
 
-	//extras.RunMeasurement(dialer, ndt7Server, "download", direct)
-	extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
+	extras.RunMeasurement(dialer, ndt7Server, "download", direct)
+	//extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
 
 	/*
 		for i := 1; i <= *optCnt; i++ {

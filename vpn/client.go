@@ -205,7 +205,7 @@ func (c *Client) initDataChannel() {
 	c.data.initSession(c.ctrl)
 	c.data.setup()
 	log.Println("Initialization complete")
-	c.ctrl.Initialized = true
+	initialized = true
 	c.initSt = stInitialized
 }
 

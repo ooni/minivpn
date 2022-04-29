@@ -2,15 +2,13 @@ package vpn
 
 import (
 	"bytes"
-	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
-	"os"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -20,7 +18,8 @@ const (
 	readTimeoutSeconds = 10
 )
 
-var sem = semaphore.NewWeighted(int64(10))
+// one reader should be all we need
+var sem = semaphore.NewWeighted(int64(1))
 
 // initTLS is part of the control channel. It initializes the TLS options with
 // certificate, key and ca from control.Opts, and it performs
@@ -83,7 +82,6 @@ type controlWrapper struct {
 	control   *control
 	bufReader *bytes.Buffer
 	ackQueue  chan []byte
-	rbmu      sync.Mutex
 }
 
 // read packets as they're available in the ackQueue and try to process them.
@@ -131,13 +129,20 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 		// we queue the read, it will be processed by the data/control channels.
 		// we don't want to acknowledge that we did read anything (i'm
 		// not fully clear about why, but empirically it does stall if
-		// we do. I suspect this might lie behind some of the
-		// bigger inefficiencies that plague this implementation).
-		ctx := context.Background() // ??
-		if err := sem.Acquire(ctx, 1); err != nil {
-			break
+		// we do.
+		if isTCP(cw.control.Opts.Proto) {
+			ok := sem.TryAcquire(1)
+			if !ok {
+				return 0, nil
+			}
+			if initialized {
+				go cw.doReadTCP2(0)
+			} else {
+				go cw.doReadTCP(4098)
+			}
+		} else {
+			go cw.doReadUDP(4096)
 		}
-		go cw.doRead(4096)
 		break
 	}
 	// read? what read you say?
@@ -145,43 +150,72 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 
 }
 
-// TODO reset readline every time that we read?
-func (cw controlWrapper) doRead(size int) (int, error) {
+func (cw controlWrapper) doReadUDP(size int) {
+	buf := make([]byte, size)
+	n, _ := cw.control.conn.Read(buf)
+	if n != 0 {
+		cw.ackQueue <- buf[:n]
+	}
+}
+
+/*
+var debugCtr = 0
+
+func decrCtr() {
+	debugCtr -= 1
+}
+*/
+
+func (cw controlWrapper) doReadTCP(size int) (int, error) {
+	//debugCtr += 1
+	//defer decrCtr()
 	defer sem.Release(1)
-	cw.rbmu.Lock()
-	defer cw.rbmu.Unlock()
 
 	buf := make([]byte, size)
-	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
+	// cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
+
+	// aha! this is the bug I think. there are several readers blocked on
+	// read *before* initialization.
+	//localCtr := debugCtr
+	//log.Println("--> read?", size, "init:", initialized, localCtr)
+
 	n, err := cw.control.conn.Read(buf)
 	if err != nil {
 		log.Println("read error:", err.Error())
 		goto end
 	}
-	log.Println("--> got", n)
+	//log.Println("--> got", n, "(init:", initialized, ")", localCtr)
 	if n != 0 {
 		b := buf[:n]
-		// expected lengtht
-		e := lenFromHeader(b)
-		if n-2 > e {
+		// expected len
+		e := sizeFromHeader(b)
+		cur := n - 2
+		if cur > e {
 			// if we get more, discard
-			b = b[:e+2]
+			tmp := b
+			b = tmp[:e+2]
+			r := tmp[e+2:]
 			log.Println("more! now:", len(b), e+2)
-		} else if n-2 < e {
+			log.Println("remaining:", len(r))
+			log.Println("new?", sizeFromHeader(r))
+
+		} else if cur < e {
 			// if we got less, we will not leave this place without
 			// waiting for what is ours.
-			for {
-				if n-2 == e {
-					break
+			for i := 0; i < 10; i++ {
+				missing := e - cur
+				if missing > 0 {
+					//log.Println("need more:", missing)
+					m := make([]byte, e-n)
+					cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(5) * time.Second))
+
+					nn, err := cw.control.conn.Read(m)
+					if err != nil {
+						goto end
+					}
+					b = append(b, m...)
+					n = n + nn
 				}
-				m := make([]byte, e-n)
-				cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds/2) * time.Second))
-				nn, err := cw.control.conn.Read(m)
-				if err != nil {
-					goto end
-				}
-				b = append(b, m...)
-				n = n + nn
 			}
 		}
 		// all good, process this
@@ -192,17 +226,49 @@ end:
 	return 0, nil
 }
 
+// TODO cleanup and merge with the function above
+func (cw controlWrapper) doReadTCP2(size int) (int, error) {
+	defer sem.Release(1)
+
+	bl := make([]byte, 2)
+	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
+	n, err := cw.control.conn.Read(bl)
+	if err != nil {
+		log.Println("read error:", err.Error())
+		return 2, err
+	}
+	//fmt.Println(hex.Dump(bl))
+	e := int(binary.BigEndian.Uint16(bl))
+
+	b := make([]byte, e)
+	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
+
+	n, err = cw.control.conn.Read(b)
+	if err != nil {
+		log.Println("read error:", err.Error())
+		return n, err
+	}
+	//log.Println("--> got", n)
+	//log.Println("--> exp", e)
+	cur := n
+	if cur == e {
+		cw.ackQueue <- append(bl, b...)
+		return n + 2, nil
+	}
+
+	return 0, nil
+}
+
 func (cw controlWrapper) processControlData(d []byte) {
 	if len(d) == 0 {
 		return
 	}
 	if isTCP(cw.control.Opts.Proto) {
 		// TCP size framing check
-		l := lenFromHeader(d)
+		l := sizeFromHeader(d)
 		d = d[2:]
 		if len(d) != l {
-			// TODO get a more elegant verbose flag
-			if os.Getenv("DEBUG") == "1" {
+			if isDebug() {
 				log.Printf("WARN packet len mismatch: expected %d, got %d\n", l, len(d))
 			}
 			log.Println("dropping", len(d))

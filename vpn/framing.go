@@ -13,7 +13,7 @@ func toSizeFrame(b []byte) []byte {
 	return append(l, b...)
 }
 
-func lenFromHeader(b []byte) int {
+func sizeFromHeader(b []byte) int {
 	if len(b) <= 2 {
 		return len(b)
 	}
