@@ -2,10 +2,9 @@ package vpn
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,7 +12,15 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 )
+
+const (
+	readTimeoutSeconds = 10
+)
+
+var sem = semaphore.NewWeighted(int64(10))
 
 // initTLS is part of the control channel. It initializes the TLS options with
 // certificate, key and ca from control.Opts, and it performs
@@ -113,7 +120,6 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 
 	// first we try to read data from incoming tls records
 	// if nothing there, we do a read in the background
-
 	select {
 	case p := <-cw.control.tlsIn:
 		cw.bufReader.Write(p)
@@ -127,6 +133,10 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 		// not fully clear about why, but empirically it does stall if
 		// we do. I suspect this might lie behind some of the
 		// bigger inefficiencies that plague this implementation).
+		ctx := context.Background() // ??
+		if err := sem.Acquire(ctx, 1); err != nil {
+			break
+		}
 		go cw.doRead(4096)
 		break
 	}
@@ -137,14 +147,16 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 
 // TODO reset readline every time that we read?
 func (cw controlWrapper) doRead(size int) (int, error) {
+	defer sem.Release(1)
 	cw.rbmu.Lock()
 	defer cw.rbmu.Unlock()
 
 	buf := make([]byte, size)
+	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
 	n, err := cw.control.conn.Read(buf)
 	if err != nil {
 		log.Println("read error:", err.Error())
-		return 0, err
+		goto end
 	}
 	log.Println("--> got", n)
 	if n != 0 {
@@ -163,7 +175,11 @@ func (cw controlWrapper) doRead(size int) (int, error) {
 					break
 				}
 				m := make([]byte, e-n)
-				nn, _ := cw.control.conn.Read(m)
+				cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds/2) * time.Second))
+				nn, err := cw.control.conn.Read(m)
+				if err != nil {
+					goto end
+				}
 				b = append(b, m...)
 				n = n + nn
 			}
@@ -172,6 +188,7 @@ func (cw controlWrapper) doRead(size int) (int, error) {
 		cw.ackQueue <- b
 		return n, nil
 	}
+end:
 	return 0, nil
 }
 
@@ -180,21 +197,13 @@ func (cw controlWrapper) processControlData(d []byte) {
 		return
 	}
 	if isTCP(cw.control.Opts.Proto) {
-		// TCP size framing
-		bl := d[:2]
-		l := int(binary.BigEndian.Uint16(bl))
+		// TCP size framing check
+		l := lenFromHeader(d)
 		d = d[2:]
 		if len(d) != l {
 			// TODO get a more elegant verbose flag
-			// BUG: OpenVPN packets received over a TCP stream sometimes contain more data than announced in the size header.
-			// (see controlWrapper.Read method below)
-			// this is probably related to being sloppy on Reads, but for now is "cheap" to just discard
-			// the reads that do not match the size header.
-			// i've tried buffered reads, but it stalls.
-			// what does the reference implementation do?
 			if os.Getenv("DEBUG") == "1" {
 				log.Printf("WARN packet len mismatch: expected %d, got %d\n", l, len(d))
-				fmt.Println(hex.Dump(bl))
 			}
 			log.Println("dropping", len(d))
 			return
@@ -203,7 +212,6 @@ func (cw controlWrapper) processControlData(d []byte) {
 	if len(d) == 0 {
 		return
 	}
-	//log.Println(">> process...")
 	op := d[0] >> 3
 	if op == byte(pACKV1) {
 		// might want to do something with this ACK
