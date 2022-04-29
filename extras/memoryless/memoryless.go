@@ -1,5 +1,5 @@
 // Package memoryless helps repeated calls to a function be distributed across
-// time in a memoryless fashion.package memoryless
+// time in a memoryless fashion.
 // Vendored from https://github.com/m-lab/go/blob/master/memoryless/memoryless.go
 
 // SPDX-License-Identifier: Apache-2.0

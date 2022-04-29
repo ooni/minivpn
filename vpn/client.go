@@ -59,7 +59,7 @@ type Client struct {
 	initSt           int
 	tunnelIP         string
 	tunMTU           int
-	con              net.Conn
+	conn             net.Conn
 	ctrl             *control
 	data             *data
 }
@@ -113,7 +113,7 @@ func (c *Client) Dial() error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrDialError, err)
 	}
-	c.con = conn
+	c.conn = conn
 	c.ctrl = newControl(conn, c.localKeySrc, c.Opts)
 	c.ctrl.initSession()
 	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Opts)
@@ -205,6 +205,7 @@ func (c *Client) initDataChannel() {
 	c.data.initSession(c.ctrl)
 	c.data.setup()
 	log.Println("Initialization complete")
+	c.ctrl.Initialized = true
 	c.initSt = stInitialized
 }
 
@@ -234,7 +235,7 @@ func (c *Client) sendAck(ackPid uint32) error {
 	if c.Opts.Proto == TCPMode {
 		p = toSizeFrame(p)
 	}
-	c.con.Write(p)
+	c.conn.Write(p)
 	return nil
 }
 
@@ -307,9 +308,13 @@ func (c *Client) TunMTU() int {
 }
 
 func (c *Client) handleTLSIncoming() {
+	log.Println("handle tls incoming...")
 	var recv = make([]byte, 4096)
 	var n, _ = c.ctrl.tls.Read(recv)
 	data := recv[:n]
+
+	log.Println("handle TLS:", n)
+
 	if areBytesEqual(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
 		remoteKey := c.ctrl.readControlMessage(data)
 		c.onRemoteOpts()
@@ -355,37 +360,40 @@ func (c *Client) Stop() {
 }
 
 func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
+	log.Println(">>> RECV", size)
 	if !isTCP(c.Opts.Proto) {
 		if size == 0 {
 			size = UDPBufferSize
 		}
 	}
-	var recvData = make([]byte, size)
+	r := make([]byte, size)
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("Timeout")
-			return recvData, fmt.Errorf("timeout")
+			return r, fmt.Errorf("timeout")
 		default:
 			if c.HandshakeTimeout != 0 {
-				c.con.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
+				c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
 			}
 			if isTCP(c.Opts.Proto) {
+				log.Println("==> rcv 2")
 				bl := make([]byte, 2)
-				_, err := c.con.Read(bl)
+				_, err := c.conn.Read(bl)
 				if err != nil {
 					log.Println("ERROR:", err)
 				}
 				l := int(binary.BigEndian.Uint16(bl))
 				rcv := make([]byte, l)
-				n, _ := c.con.Read(rcv)
+				log.Println("==> rcv", l)
+				n, _ := c.conn.Read(rcv)
 				return rcv[:n], nil
 			} else {
-				n, err := c.con.Read(recvData)
+				n, err := c.conn.Read(r)
 				if err != nil {
 					log.Println("DEBUG: reading data:", err)
 				}
-				return recvData[:n], nil
+				return r[:n], nil
 			}
 		}
 	}

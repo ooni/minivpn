@@ -12,3 +12,10 @@ func toSizeFrame(b []byte) []byte {
 	binary.BigEndian.PutUint16(l, uint16(len(b)))
 	return append(l, b...)
 }
+
+func lenFromHeader(b []byte) int {
+	if len(b) <= 2 {
+		return len(b)
+	}
+	return int(binary.BigEndian.Uint16(b[:2]))
+}

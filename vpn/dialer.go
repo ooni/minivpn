@@ -153,7 +153,7 @@ type device struct {
 // Up spawns two goroutines that communicate the two halves of a device.
 func (d *device) Up() {
 	go func() {
-		b := make([]byte, 4096)
+		b := make([]byte, 40960)
 		for {
 			n, err := d.tun.Read(b, 0) // zero offset
 			if err != nil {
@@ -164,7 +164,7 @@ func (d *device) Up() {
 		}
 	}()
 	go func() {
-		b := make([]byte, 4096)
+		b := make([]byte, 40960)
 		for {
 			n, _, err := d.pc.ReadFrom(b)
 			if err != nil {

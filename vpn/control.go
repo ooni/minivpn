@@ -22,19 +22,20 @@ func newControl(c net.Conn, k *keySource, o *Options) *control {
 }
 
 type control struct {
-	Opts       *Options
-	RemoteID   []byte
-	SessionID  []byte
-	localPID   uint32
-	tls        net.Conn
-	conn       net.Conn
-	keySrc     *keySource
-	queue      chan []byte
-	dataQueue  chan []byte
-	tlsIn      chan []byte
-	remoteOpts string
-	lastAck    int
-	ackmu      sync.Mutex
+	Opts        *Options
+	RemoteID    []byte
+	SessionID   []byte
+	Initialized bool
+	localPID    uint32
+	tls         net.Conn
+	conn        net.Conn
+	keySrc      *keySource
+	queue       chan []byte
+	dataQueue   chan []byte
+	tlsIn       chan []byte
+	remoteOpts  string
+	lastAck     int
+	ackmu       sync.Mutex
 }
 
 func (c *control) processIncoming() {
@@ -228,6 +229,8 @@ func (c *control) sendAck(pid uint32) {
 }
 
 func (c *control) handleIn(data []byte) {
+	log.Println("handle in: ", len(data))
+
 	op := data[0] >> 3
 	if op == byte(pControlV1) {
 		pid, _, payload := c.readControl(data)
