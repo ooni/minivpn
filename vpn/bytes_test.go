@@ -16,25 +16,33 @@ func Test_genRandomBytes(t *testing.T) {
 	}
 }
 
-func Test_encodeBytes(t *testing.T) {
+func Test_encodeOptionString(t *testing.T) {
+
+	veryLargeStr := string(make([]byte, 1<<16))
+
 	type args struct {
-		b []byte
+		s string
 	}
-	// TODO(bassosimone,ainghazal): add here code that ensures that the function
-	// we're testing fails when passed more than 1<<16 bytes.
+
 	tests := []struct {
-		name string
-		args args
-		want []byte
+		name    string
+		args    args
+		want    []byte
+		wantErr bool
 	}{
-		{"goodEncode", args{[]byte("test")}, []byte{0, 5, 116, 101, 115, 116, 0}},
-		{"null", args{[]byte("")}, []byte{0, 1, 0}},
-		{"zero", args{[]byte{0}}, []byte{0, 2, 0, 0}},
+		{"goodEncode", args{"test"}, []byte{0, 5, 116, 101, 115, 116, 0}, false},
+		{"empty", args{""}, []byte{0, 1, 0}, false},
+		{"large", args{veryLargeStr}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := encodeBytes(tt.args.b); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("encodeBytes() = %v, want %v", got, tt.want)
+			got, err := encodeOptionString(tt.args.s)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("encodeOptionString() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("encodeOptionString() = %v, want %v", got, tt.want)
 			}
 		})
 	}

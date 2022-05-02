@@ -159,13 +159,30 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 }
 
 // sends a control channel packet, not a P_CONTROL
+// TODO(ainghazal): return error too
 func (c *control) sendControlMessage() {
+	o, err := encodeOptionString(c.Opts.String())
+	if err != nil {
+		log.Println("encoding error:", err)
+		return
+	}
+	u, err := encodeOptionString(string(c.Opts.Username))
+	if err != nil {
+		log.Println("encoding error:", err)
+		return
+	}
+	p, err := encodeOptionString(string(c.Opts.Password))
+	if err != nil {
+		log.Println("encoding error:", err)
+		return
+	}
+
 	d := []byte{0x00, 0x00, 0x00, 0x00}
 	d = append(d, 0x02) // key method (2)
 	d = append(d, c.keySrc.Bytes()...)
-	d = append(d, encodeOptionString(c.Opts.String())...)
-	d = append(d, encodeOptionString(string(c.Opts.Username))...)
-	d = append(d, encodeOptionString(string(c.Opts.Password))...)
+	d = append(d, o...)
+	d = append(d, u...)
+	d = append(d, p...)
 	c.tls.Write(d)
 }
 

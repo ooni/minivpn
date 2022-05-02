@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	errBadOptLen = errors.New("bad option lenght")
+	errBadOptLen = errors.New("bad option length")
 )
 
 // genRandomBytes returns an array of bytes with the given size using
@@ -27,15 +27,15 @@ func genRandomBytes(size int) ([]byte, error) {
 // According to the OpenVPN protocol, they are represented as a two-byte word,
 // plus the byte representation of the string, null-terminated.
 // https://openvpn.net/community-resources/openvpn-protocol/
-func encodeOptionString(s string) []byte {
-	if len(s)-1 > 1<<16 {
-		panic("string too large")
+func encodeOptionString(s string) ([]byte, error) {
+	if len(s) > 1<<16-1 {
+		return nil, fmt.Errorf("%w:%s", errBadOptLen, "string too large")
 	}
 	data := make([]byte, 2)
-	binary.BigEndian.PutUint16(data, uint16(len(s)+1))
+	binary.BigEndian.PutUint16(data, uint16(len(s))+1)
 	data = append(data, []byte(s)...)
 	data = append(data, 0x00)
-	return data
+	return data, nil
 }
 
 // decodeOptionString returns the string-value for the null-terminated string
