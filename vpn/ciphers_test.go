@@ -1,39 +1,37 @@
 package vpn
 
 import (
-	//	"hash"
 	"reflect"
 	"testing"
 )
 
-func TestAESCipher(t *testing.T) {
-	_, err := newCipher("aes", 128, "cbc")
+func TestDataCipherAES(t *testing.T) {
+	_, err := newDataCipher("aes", 128, "cbc")
 	if err != nil {
 		t.Errorf("Cannot instantiate aes-128-cbc")
 	}
-
 }
 
 func TestBadCipher(t *testing.T) {
-	_, err := newCipher("bad", 128, "cbc")
+	_, err := newDataCipher("bad", 128, "cbc")
 	if err == nil {
 		t.Errorf("Should fail with bad cipher")
 	}
 }
 
 func TestBadMode(t *testing.T) {
-	_, err := newCipher("aes", 128, "bad")
+	_, err := newDataCipher("aes", 128, "bad")
 	if err == nil {
 		t.Errorf("Should fail with bad mode")
 	}
 }
 
 func TestBadKeySize(t *testing.T) {
-	_, err := newCipher("aes", 1024, "cbc")
+	_, err := newDataCipher("aes", 1024, "cbc")
 	if err == nil {
 		t.Errorf("Should fail with bad key size")
 	}
-	_, err = newCipher("aes", 8, "cbc")
+	_, err = newDataCipher("aes", 8, "cbc")
 	if err == nil {
 		t.Errorf("Should fail with bad key size")
 	}
@@ -80,7 +78,7 @@ func Test_newCipherFromCipherSuite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newCipherFromCipherSuite(tt.args.c)
+			got, err := newDataCipherFromCipherSuite(tt.args.c)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("newCipherFromCipherSuite() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -94,9 +92,9 @@ func Test_newCipherFromCipherSuite(t *testing.T) {
 
 func Test_newCipher(t *testing.T) {
 	type args struct {
-		name string
+		name cipherName
 		bits int
-		mode string
+		mode cipherMode
 	}
 	tests := []struct {
 		name    string
@@ -104,12 +102,12 @@ func Test_newCipher(t *testing.T) {
 		want    dataCipher
 		wantErr bool
 	}{
-		{"aesOK", args{"aes", 256, "cbc"}, &aesCipher{256, "cbc"}, false},
+		{"aesOK", args{"aes", 256, "cbc"}, &dataCipherAES{256, "cbc"}, false},
 		{"badCipher", args{"blowfish", 256, "cbc"}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newCipher(tt.args.name, tt.args.bits, tt.args.mode)
+			got, err := newDataCipher(tt.args.name, tt.args.bits, tt.args.mode)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("newCipher() error = %v, wantErr %v", err, tt.wantErr)
 				return
