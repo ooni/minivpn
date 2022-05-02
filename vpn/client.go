@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
@@ -323,7 +324,7 @@ func (c *Client) handleTLSIncoming() {
 
 	// log.Println("handle TLS:", n)
 
-	if areBytesEqual(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
+	if bytes.Equal(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
 		remoteKey := c.ctrl.readControlMessage(data)
 		c.onRemoteOpts()
 		// XXX update only one pointer
@@ -332,12 +333,12 @@ func (c *Client) handleTLSIncoming() {
 		c.onKeyExchanged()
 	} else {
 		rpl := []byte("PUSH_REPLY")
-		if areBytesEqual(data[:len(rpl)], rpl) {
+		if bytes.Equal(data[:len(rpl)], rpl) {
 			c.onPush(data)
 			return
 		}
 		badauth := []byte("AUTH_FAILED")
-		if areBytesEqual(data[:len(badauth)], badauth) {
+		if bytes.Equal(data[:len(badauth)], badauth) {
 			log.Println(string(data))
 			log.Fatal("Aborting")
 			return
@@ -355,10 +356,8 @@ func (c *Client) Write(b []byte) {
 // this channel.
 func (c *Client) WaitUntil(done chan bool) {
 	go func() {
-		select {
-		case <-done:
-			c.Stop()
-		}
+		<-done
+		c.Stop()
 	}()
 }
 

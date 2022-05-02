@@ -5,10 +5,23 @@ import (
 	"testing"
 )
 
+func Test_genRandomBytes(t *testing.T) {
+	const smallBuffer = 128
+	data, err := genRandomBytes(smallBuffer)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if len(data) != smallBuffer {
+		t.Fatal("unexpected returned buffer length")
+	}
+}
+
 func Test_encodeBytes(t *testing.T) {
 	type args struct {
 		b []byte
 	}
+	// TODO(bassosimone,ainghazal): add here code that ensures that the function
+	// we're testing fails when passed more than 1<<16 bytes.
 	tests := []struct {
 		name string
 		args args

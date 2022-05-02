@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -13,7 +14,7 @@ func TestPrf(t *testing.T) {
 	cseed := []byte("aaa")
 	sseed := []byte("bbb")
 	out := prf(secret, label, cseed, sseed, []byte{}, []byte{}, 16)
-	if !areBytesEqual(out, expected) {
+	if !bytes.Equal(out, expected) {
 		t.Errorf("Bad output in prf call: %v", out)
 	}
 }

@@ -83,11 +83,8 @@ type controlWrapper struct {
 // if they're not consecutive, the processControlData function will insert them at the other
 // side of the queue again
 func (cw controlWrapper) runDataProcessLoop() {
-	for {
-		select {
-		case data := <-cw.ackQueue:
-			go cw.processControlData(data)
-		}
+	for data := range cw.ackQueue {
+		go cw.processControlData(data)
 	}
 }
 
@@ -227,7 +224,7 @@ func (cw controlWrapper) doReadTCP2(size int) (int, error) {
 
 	bl := make([]byte, 2)
 	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
-	n, err := cw.control.conn.Read(bl)
+	_, err := cw.control.conn.Read(bl)
 	if err != nil {
 		log.Println("read error:", err.Error())
 		return 2, err
@@ -238,7 +235,7 @@ func (cw controlWrapper) doReadTCP2(size int) (int, error) {
 	b := make([]byte, e)
 	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
 
-	n, err = cw.control.conn.Read(b)
+	n, err := cw.control.conn.Read(b)
 	if err != nil {
 		log.Println("read error:", err.Error())
 		return n, err

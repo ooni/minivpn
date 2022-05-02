@@ -1,5 +1,9 @@
 package vpn
 
+//
+// Code to perform encryption and decryption
+//
+
 import (
 	"bytes"
 	"crypto/aes"
@@ -7,83 +11,142 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"errors"
 	"fmt"
 	"hash"
 	"log"
 )
 
-// TODO see if it's feasible to replace in part with some stdlib interfaces
-// because this might be redundant
+// TODO(ainghazal,bassosimone): see if it's feasible to use stdlib
+// functionality rather than using the code below.
 
-var (
-	cbcMode  = "cbc"
-	gcmMode  = "gcm"
-	aesLabel = "aes"
+type (
+	// cipherMode describes a cipher mode (e.g., GCM).
+	cipherMode string
+
+	// cipherName is a cipher name (e.g., AES).
+	cipherName string
 )
 
+const (
+	// cipherModeCBC is the CBC cipher mode.
+	cipherModeCBC = cipherMode("cbc")
+
+	// cipherModeGCM is the GCM cipher mode.
+	cipherModeGCM = cipherMode("gcm")
+
+	// cipherNameAES is an AES-based cipher.
+	cipherNameAES = cipherName("aes")
+)
+
+var (
+	// errInvalidKeySize means that the key size is invalid.
+	errInvalidKeySize = errors.New("invalid key size")
+
+	// errPadding indicates that a padding error has occurred.
+	errPadding = errors.New("padding error")
+
+	// errUnsupportedCipher indicates we don't support the desired cipher.
+	errUnsupportedCipher = errors.New("unsupported cipher")
+
+	// errUnsupportedMode indicates that the mode is not uspported.
+	errUnsupportedMode = errors.New("unsupported mode")
+)
+
+// dataCipher encrypts and decrypts OpenVPN data.
 type dataCipher interface {
+	// keySizeBytes returns the key size (in bytes).
 	keySizeBytes() int
+
+	// isAEAD returns whether this cipher has AEAD properties.
 	isAEAD() bool
+
+	// blockSize returns the expected block size.
 	blockSize() int
+
+	// encrypt encripts a plaintext.
+	//
+	// Arguments:
+	//
+	// - key is the key, whose size must be consistent with the cipher;
+	//
+	// - iv is the initialization vector;
+	//
+	// - plaintext is the plaintext to encrypt;
+	//
+	// - ad contains the additional data (optional and only used for AEAD ciphers).
+	//
+	// Returns the ciphertext on success and an error on failure.
 	encrypt(key, iv, plaintext, ad []byte) ([]byte, error)
+
+	// decrypt is the opposite operation of encrypt. It takes in input the
+	// ciphertext and returns the plaintext of an error.
 	decrypt(key, iv, ciphertext, ad []byte) ([]byte, error)
 }
 
-type aesCipher struct {
-	keySizeBits int
-	mode        string
+// dataCipherAES implements dataCipher for AES.
+type dataCipherAES struct {
+	// ksb is the key size in bytes
+	ksb int
+
+	// mode is the cipher mode
+	mode cipherMode
 }
 
-func (a *aesCipher) keySizeBytes() int {
-	return a.keySizeBits / 8
+var _ dataCipher = &dataCipherAES{} // Ensure we implement dataCipher
+
+// keySizeBytes implements dataCipher.keySizeBytes
+func (a *dataCipherAES) keySizeBytes() int {
+	return a.ksb
 }
 
-func (a *aesCipher) isAEAD() bool {
-	if a.mode == cbcMode {
-		return false
-	}
-	return true
+// isAEAD implements dataCipher.isAEAD
+func (a *dataCipherAES) isAEAD() bool {
+	return a.mode != cipherModeCBC
 }
 
-func (a *aesCipher) blockSize() int {
-	if a.mode == cbcMode || a.mode == gcmMode {
+// blockSize implements dataCipher.BlockSize
+func (a *dataCipherAES) blockSize() int {
+	switch a.mode {
+	case cipherModeCBC, cipherModeGCM:
 		return 16
+	default:
+		return 0
 	}
-	return 0
 }
 
-// decrypt tries to decrypt the ciphertext. ad is optional, and only used in AEAD modes.
-func (a *aesCipher) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
-	k := key[:a.keySizeBytes()] // use stdlib
+// decrypt implements dataCipher.decrypt
+func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
+	if len(key) != a.keySizeBytes() {
+		return nil, errInvalidKeySize
+	}
 
-	var block cipher.Block
-	block, err := aes.NewCipher(k)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
 
-	var mode cipher.BlockMode
-
 	switch a.mode {
-	case cbcMode:
+	case cipherModeCBC:
 		i := iv[:block.BlockSize()]
-		mode = cipher.NewCBCDecrypter(block, i)
+		mode := cipher.NewCBCDecrypter(block, i)
 		plaintext := make([]byte, len(ciphertext))
 		mode.CryptBlocks(plaintext, ciphertext)
-		plaintext = unpadText(plaintext)
-
+		plaintext = cipherUnpadTextPKCS7(plaintext)
 		padLen := len(ciphertext) - len(plaintext)
 		if padLen > block.BlockSize() || padLen > len(plaintext) {
-			log.Fatal("Padding error")
+			// TODO(bassosimone, ainghazal): discuss the cases in which
+			// this set of conditions actually occurs.
+			return nil, errPadding
 		}
 		return plaintext, nil
-	case gcmMode:
+
+	case cipherModeGCM:
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
 		}
 		plaintext, err := aesGCM.Open(nil, iv, ciphertext, ad)
-
 		if err != nil {
 			log.Println("gdm decryption failed:", err.Error())
 			log.Println("dump begins----")
@@ -94,93 +157,92 @@ func (a *aesCipher) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
 			return nil, err
 		}
 		return plaintext, nil
-	default:
-		log.Fatal("only CBC or GCM modes allowed")
-	}
 
-	return nil, nil
+	default:
+		return nil, errUnsupportedMode
+	}
 }
 
-// encrypt encrypts the plaintext. ad is optional, and only used in AEAD modes
-func (a *aesCipher) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
-	k := key[:a.keySizeBytes()] // get from stdlib
-	i := iv[:a.blockSize()]
+// encrypt implements dataCipher.encrypt
+func (a *dataCipherAES) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
+	if len(key) != a.keySizeBytes() {
+		return nil, errInvalidKeySize
+	}
 
-	var block cipher.Block
-	block, err := aes.NewCipher(k)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-
-	var ciphertext []byte
-	var mode cipher.BlockMode
-
 	switch a.mode {
-	case cbcMode:
-		mode = cipher.NewCBCEncrypter(block, i)
-		ciphertext = make([]byte, len(plaintext))
+	case cipherModeCBC:
+		mode := cipher.NewCBCEncrypter(block, iv) // Note: panics if len(block) != len(iv)
+		ciphertext := make([]byte, len(plaintext))
 		mode.CryptBlocks(ciphertext, plaintext)
-	case gcmMode:
+		return ciphertext, nil
+
+	case cipherModeGCM:
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
 		}
-		// in GCM mode, the iv consist of the 32-bit packet counter
+		// In GCM mode, the IV consists of the 32-bit packet counter
 		// followed by data from the HMAC key. The HMAC key can be used
-		// as iv, since in GCM mode the HMAC key is not used for the
+		// as IV, since in GCM mode the HMAC key is not used for the
 		// HMAC. The packet counter may not roll over within a single
 		// TLS session. This results in a unique IV for each packet, as
 		// required by GCM.
-		ciphertext = aesGCM.Seal(nil, iv, plaintext, ad)
+		ciphertext := aesGCM.Seal(nil, iv, plaintext, ad)
+		return ciphertext, nil
+
 	default:
-		log.Fatal("only CBC or GCM  modes allowed")
+		return nil, errUnsupportedMode
 	}
-	return ciphertext, nil
 }
 
-func newCipherFromCipherSuite(c string) (dataCipher, error) {
+// newDataCipherFromCipherSuite constructs a new dataCipher from the cipher suite string.
+func newDataCipherFromCipherSuite(c string) (dataCipher, error) {
 	switch c {
 	case "AES-128-CBC":
-		return newCipher(aesLabel, 128, cbcMode)
+		return newDataCipher(cipherNameAES, 128, cipherModeCBC)
 	case "AES-192-CBC":
-		return newCipher(aesLabel, 192, cbcMode)
+		return newDataCipher(cipherNameAES, 192, cipherModeCBC)
 	case "AES-256-CBC":
-		return newCipher(aesLabel, 256, cbcMode)
+		return newDataCipher(cipherNameAES, 256, cipherModeCBC)
 	case "AES-128-GCM":
-		return newCipher(aesLabel, 128, gcmMode)
+		return newDataCipher(cipherNameAES, 128, cipherModeGCM)
 	case "AES-256-GCM":
-		return newCipher(aesLabel, 256, gcmMode)
+		return newDataCipher(cipherNameAES, 256, cipherModeGCM)
 	default:
-		break
+		return nil, errUnsupportedCipher
 	}
-	return nil, fmt.Errorf("unsupported cipher")
 }
 
-func newCipher(name string, bits int, mode string) (dataCipher, error) {
+// newDataCipher constructs a new dataCipher from the given name, bits, and mode.
+func newDataCipher(name cipherName, bits int, mode cipherMode) (dataCipher, error) {
 	if bits%8 != 0 || bits > 512 || bits < 64 {
-		return nil, fmt.Errorf("invalid key size: %d", bits)
+		return nil, fmt.Errorf("%w: %d", errInvalidKeySize, bits)
 	}
 	switch name {
-	case aesLabel:
-		break
+	case cipherNameAES:
 	default:
-		return nil, fmt.Errorf("unsupported cipher: %s", name)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedCipher, name)
 	}
 	switch mode {
-	case cbcMode:
-		break
-	case gcmMode:
-		break
+	case cipherModeCBC, cipherModeGCM:
 	default:
-		return nil, fmt.Errorf("unsupported mode: %s", mode)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedMode, mode)
 	}
-	return &aesCipher{bits, mode}, nil
+	dcp := &dataCipherAES{
+		ksb:  bits / 8,
+		mode: mode,
+	}
+	return dcp, nil
 }
 
-// getHMAC accepts a label coming from an OpenVPN auth label, and returns two
+// newHMACFactory accepts a label coming from an OpenVPN auth label, and returns two
 // values: a function that will return a Hash implementation, and a boolean
 // indicating if the operation was successful.
-func getHMAC(name string) (func() hash.Hash, bool) {
+func newHMACFactory(name string) (func() hash.Hash, bool) {
 	switch name {
 	case "sha1":
 		return sha1.New, true
@@ -193,14 +255,24 @@ func getHMAC(name string) (func() hash.Hash, bool) {
 	}
 }
 
-// unpadText does pkcs7 unpadding of a byte array.
-func unpadText(buf []byte) []byte {
+// TODO(bassosimone, ainghazal): we should make the two following
+// functions more robust to errors.
+
+// cipherUnpadTextPKCS7 does PKCS#7 unpadding of a byte array.
+func cipherUnpadTextPKCS7(buf []byte) []byte {
+	// TODO(bassosimone, ainghazal): explain how this function will
+	// behave in case there's no padding? Should we pass to the function
+	// the expected block size and use that to determine whether there
+	// is any padding to be removed from the function?
 	padding := int(buf[len(buf)-1])
 	return buf[:len(buf)-padding]
 }
 
-// padText does pkcs7 padding of a byte array.
-func padText(buf []byte, bs int) []byte {
+// cipherPadTextPKCS7 does PKCS#7 padding of a byte array.
+func cipherPadTextPKCS7(buf []byte, bs int) []byte {
+	// TODO(bassosimone, ainghazal): what happens if we need to add
+	// no padding? Should we have a special case to handle that in
+	// order to make the code more clear and explicit.
 	padding := bs - len(buf)%bs
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
 	return append(buf, padtext...)

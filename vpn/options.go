@@ -3,7 +3,12 @@ package vpn
 // Parse VPN options.
 
 // Mostly, this file conforms to the format in the reference implementation.
-// However, there are some additions that are specific. To avoid feature creep and fat dependencies, the main `vpn` module only supports mainline capabilities. It is still useful to carry all options in a single type, so it's up to the user of this library to do something useful with such options. The `extra` package provides some of these features, like obfuscation support.
+// However, there are some additions that are specific. To avoid feature creep
+// and fat dependencies, the main `vpn` module only supports mainline
+// capabilities. It is still useful to carry all options in a single type,
+// so it's up to the user of this library to do something useful with
+// such options. The `extra` package provides some of these features, like
+// obfuscation support.
 
 import (
 	"bufio"
@@ -30,6 +35,7 @@ var supportedAuth = []string{
 	"SHA512",
 }
 
+/*
 // TODO this should inform the selection of ciphers in initTLS
 var supportedTLSCipher = []string{
 	// DHE-RSA-AES128-SHA -> riseup legacy; this is problematic because go
@@ -37,6 +43,7 @@ var supportedTLSCipher = []string{
 	// TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
 	// TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
 }
+*/
 
 // Options make all the relevant configuration options accessible to the
 // different modules that need it.
@@ -108,10 +115,8 @@ func parseProto(p []string, o *Options) error {
 	switch m {
 	case "udp":
 		o.Proto = UDPMode
-		break
 	case "tcp":
 		o.Proto = TCPMode
-		break
 	default:
 		log.Println("err: unsupported proto:", m)
 		return errors.New("bad mode: " + m)

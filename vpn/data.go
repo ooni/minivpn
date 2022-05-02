@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"encoding/binary"
 	"encoding/hex"
@@ -56,12 +57,8 @@ func (d *data) dataChan() chan []byte {
 }
 
 func (d *data) processIncoming() {
-	for {
-		select {
-		case data := <-d.queue:
-			d.handleIn(data)
-		}
-
+	for data := range d.queue {
+		d.handleIn(data)
 	}
 }
 
@@ -102,13 +99,13 @@ func (d *data) setup() {
 // TODO bubble errors up
 func (d *data) loadCipherFromOptions() {
 	log.Println("Setting cipher:", d.opts.Cipher)
-	c, err := newCipherFromCipherSuite(d.opts.Cipher)
+	c, err := newDataCipherFromCipherSuite(d.opts.Cipher)
 	if err != nil {
 		log.Fatal("bad cipher")
 	}
 	d.c = c
 	log.Println("Setting auth:", d.opts.Auth)
-	h, ok := getHMAC(strings.ToLower(d.opts.Auth))
+	h, ok := newHMACFactory(strings.ToLower(d.opts.Auth))
 	if !ok {
 		log.Println("error: no such mac")
 		return
@@ -125,10 +122,10 @@ func (d *data) encrypt(plaintext []byte) []byte {
 		// the last one, after padding
 		lp := len(plaintext)
 		end := plaintext[lp-1]
-		padded = padText(plaintext[:lp-1], bs)
+		padded = cipherPadTextPKCS7(plaintext[:lp-1], bs)
 		padded[len(padded)-1] = end
 	} else {
-		padded = padText(plaintext, bs)
+		padded = cipherPadTextPKCS7(plaintext, bs)
 	}
 
 	if d.c.isAEAD() {
@@ -243,7 +240,7 @@ func (d *data) send(payload []byte) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.localPacketID++
-	plaintext := []byte("")
+	var plaintext []byte
 	if !d.c.isAEAD() {
 		log.Println("non aead: adding packetid prefix")
 		packetID := make([]byte, 4)
@@ -260,8 +257,6 @@ func (d *data) send(payload []byte) {
 	} else if d.opts.Compress == "lzo-no" {
 		// this is the case for the old "comp-lzo no"
 		plaintext = append([]byte{0xfa}, plaintext...) // no compression
-	} else {
-		// just nothing
 	}
 
 	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
@@ -345,7 +340,7 @@ func (d *data) handleIn(packet []byte) {
 		log.Printf("WARN no compression supported: %x %d\n", compression, compression)
 	}
 
-	if areBytesEqual(payload, getPingData()) {
+	if bytes.Equal(payload, getPingData()) {
 		log.Println("openvpn-ping, sending reply")
 		d.send(getPingData())
 		return

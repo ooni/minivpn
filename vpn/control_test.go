@@ -14,13 +14,13 @@ func Test_newControl(t *testing.T) {
 
 	ctrl := newControl(c, ks, o)
 	if ctrl == nil {
-		t.Errorf("ctrl should not be nil")
+		t.Fatalf("ctrl should not be nil")
 	}
 	err := ctrl.initSession()
 	if err != nil {
-		t.Errorf("initSession should not fail")
+		t.Fatalf("initSession should not fail")
 	}
 	if len(ctrl.SessionID) == 0 {
-		t.Errorf("Local session should be initialized")
+		t.Fatalf("Local session should be initialized")
 	}
 }

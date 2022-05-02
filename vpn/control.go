@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -39,12 +40,8 @@ type control struct {
 }
 
 func (c *control) processIncoming() {
-	for {
-		select {
-		case data := <-c.queue:
-			c.handleIn(data)
-		}
-
+	for data := range c.queue {
+		c.handleIn(data)
 	}
 }
 
@@ -90,7 +87,7 @@ func (c *control) readHardReset(ctx context.Context, d []byte) (int, error) {
 				return 0, fmt.Errorf("not a hard reset response packet")
 			}
 			if len(c.RemoteID) != 0 {
-				if !areBytesEqual(c.RemoteID[:], d[1:9]) {
+				if !bytes.Equal(c.RemoteID[:], d[1:9]) {
 					log.Printf("Offending session ID: %08x\n", d[1:9])
 					return 0, fmt.Errorf("invalid remote session ID")
 				}
@@ -131,7 +128,7 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 		log.Println("OPCODE mismatch:", d[0])
 	}
 	if len(c.RemoteID) != 0 {
-		if !areBytesEqual(c.RemoteID[:], d[1:9]) {
+		if !bytes.Equal(c.RemoteID[:], d[1:9]) {
 			log.Printf("Offending session ID: %08x\n", d[1:9])
 			log.Fatal("Invalid remote session ID!")
 		}
@@ -149,7 +146,7 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 	if ackLen != 0 {
 		ackSession := d[offset : offset+8]
 		offset = offset + 8
-		if !areBytesEqual(ackSession, c.SessionID) {
+		if !bytes.Equal(ackSession, c.SessionID) {
 			log.Printf("Invalid local session ID in ACK: expected %08x, got %08x\n", c.SessionID, ackSession)
 			log.Fatal("Error in ACK")
 		}
@@ -178,7 +175,7 @@ func (c *control) readControlMessage(d []byte) *keySource {
 		log.Println("len(data):", len(d))
 		log.Fatal("Control message too short!")
 	}
-	if !areBytesEqual(d[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
+	if !bytes.Equal(d[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
 		log.Println(d[:4])
 		log.Fatal("Invalid control message header")
 	}
