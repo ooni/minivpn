@@ -1,5 +1,9 @@
 package vpn
 
+//
+// Client initialization and public methods
+//
+
 import (
 	"bytes"
 	"context"
@@ -105,9 +109,9 @@ func (c *Client) Init() error {
 // data channel. It is the second step in an OpenVPN connection (out of five).
 // (In UDP mode no network connection is done at this step).
 func (c *Client) Dial() error {
-	proto := "udp"
-	if c.Opts.Proto == TCPMode {
-		proto = "tcp"
+	proto := protoUDP.String()
+	if isTCP(c.Opts.Proto) {
+		proto = protoTCP.String()
 	}
 	log.Printf("Connecting to %s:%s with proto %s\n", c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
 	// TODO pass context?
@@ -235,7 +239,7 @@ func (c *Client) sendAck(ackPid uint32) error {
 	binary.BigEndian.PutUint32(ack, ackPid)
 	p = append(p, ack...)
 	p = append(p, c.ctrl.RemoteID...)
-	if c.Opts.Proto == TCPMode {
+	if isTCP(c.Opts.Proto) {
 		p = toSizeFrame(p)
 	}
 	c.conn.Write(p)
@@ -323,12 +327,10 @@ func (c *Client) handleTLSIncoming() {
 	}
 	data := r[:n]
 
-	// log.Println("handle TLS:", n)
-
 	if bytes.Equal(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
 		remoteKey := c.ctrl.readControlMessage(data)
 		c.onRemoteOpts()
-		// XXX update only one pointer
+		// TODO(ainghazal): update only in one place
 		c.remoteKeySrc = remoteKey
 		c.data.remoteKeySource = remoteKey
 		c.onKeyExchanged()
@@ -363,6 +365,7 @@ func (c *Client) WaitUntil(done chan bool) {
 }
 
 // Stop closes the tunnel connection.
+// TODO(ainghazal): WIP ---
 func (c *Client) Stop() {
 	if c.ctrl.closed {
 		return
@@ -428,7 +431,6 @@ func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
 }
 
 // DataChannel returns the internal data channel.
-// There's probably no need to export this.
 func (c *Client) DataChannel() chan []byte {
 	return c.data.dataChan()
 }

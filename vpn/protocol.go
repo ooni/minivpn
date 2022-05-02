@@ -1,5 +1,9 @@
 package vpn
 
+//
+// Protocol-related constants and convenience functions.
+//
+
 const (
 	stNothing = iota
 	stControlChannelOpen

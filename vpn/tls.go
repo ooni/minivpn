@@ -1,5 +1,9 @@
 package vpn
 
+//
+// TLS initialization and read/write wrappers
+//
+
 import (
 	"bytes"
 	"crypto/tls"
@@ -20,7 +24,7 @@ const (
 // certificate, key and ca from control.Opts, and it performs
 // a handshake wrapped as payloads in the control channel.
 
-// TODO add checks for valid certificates etc on config time.
+// TODO(ainghazal): add checks for valid certificates etc on config time.
 
 func (c *control) initTLS() error {
 	max := tls.VersionTLS13
@@ -127,11 +131,7 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 			if !ok {
 				return 0, nil
 			}
-			if initialized {
-				go cw.doReadTCP2(0)
-			} else {
-				go cw.doReadTCP(4098)
-			}
+			go cw.doReadTCP(0)
 		} else {
 			go cw.doReadUDP(4096)
 		}
@@ -150,76 +150,7 @@ func (cw controlWrapper) doReadUDP(size int) {
 	}
 }
 
-/*
-var debugCtr = 0
-
-func decrCtr() {
-	debugCtr -= 1
-}
-*/
-
 func (cw controlWrapper) doReadTCP(size int) (int, error) {
-	//debugCtr += 1
-	//defer decrCtr()
-	defer rcvSem.Release(1)
-
-	buf := make([]byte, size)
-	// cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
-
-	// aha! this is the bug I think. there are several readers blocked on
-	// read *before* initialization.
-	//localCtr := debugCtr
-	//log.Println("--> read?", size, "init:", initialized, localCtr)
-
-	n, err := cw.control.conn.Read(buf)
-	if err != nil {
-		log.Println("read error:", err.Error())
-		goto end
-	}
-	//log.Println("--> got", n, "(init:", initialized, ")", localCtr)
-	if n != 0 {
-		b := buf[:n]
-		// expected len
-		e := sizeFromHeader(b)
-		cur := n - 2
-		if cur > e {
-			// if we get more, discard
-			tmp := b
-			b = tmp[:e+2]
-			r := tmp[e+2:]
-			log.Println("more! now:", len(b), e+2)
-			log.Println("remaining:", len(r))
-			log.Println("new?", sizeFromHeader(r))
-
-		} else if cur < e {
-			// if we got less, we will not leave this place without
-			// waiting for what is ours.
-			for i := 0; i < 20; i++ {
-				missing := e - cur
-				if missing > 0 {
-					//log.Println("need more:", missing)
-					m := make([]byte, e-n)
-					cw.control.conn.SetReadDeadline(time.Now().Add(readTimeoutSeconds * time.Second))
-
-					nn, err := cw.control.conn.Read(m)
-					if err != nil {
-						goto end
-					}
-					b = append(b, m...)
-					n = n + nn
-				}
-			}
-		}
-		// all good, process this
-		cw.ackQueue <- b
-		return n, nil
-	}
-end:
-	return 0, nil
-}
-
-// TODO cleanup and merge with the function above
-func (cw controlWrapper) doReadTCP2(size int) (int, error) {
 	defer rcvSem.Release(1)
 
 	bl := make([]byte, 2)
@@ -229,7 +160,6 @@ func (cw controlWrapper) doReadTCP2(size int) (int, error) {
 		log.Println("read error:", err.Error())
 		return 2, err
 	}
-	//fmt.Println(hex.Dump(bl))
 	e := int(binary.BigEndian.Uint16(bl))
 
 	b := make([]byte, e)

@@ -64,6 +64,7 @@ func Test_unpadTextPKCS7(t *testing.T) {
 		{"one-two", args{[]byte{9, 1}, 2}, []byte{9}, false},
 		{"two-four", args{[]byte{1, 3, 2, 2}, 4}, []byte{1, 3}, false},
 		{"three-four", args{[]byte{1, 3, 5, 1}, 4}, []byte{1, 3, 5}, false},
+		{"zero-ended", args{[]byte{1, 1, 1, 0}, 4}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1,12 +1,17 @@
 package vpn
 
+//
+// Key Sources
+//
+
 import (
+	"errors"
 	"fmt"
 )
 
 var (
 	randomFn       = genRandomBytes
-	errRandomBytes = "Error generating random bytes"
+	errRandomBytes = errors.New("Error generating random bytes")
 )
 
 // random data to generate keys
@@ -24,15 +29,15 @@ func (k *keySource) Bytes() []byte {
 func newKeySource() (*keySource, error) {
 	r1, err := randomFn(32)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errRandomBytes, err)
+		return nil, fmt.Errorf("%w: %s", errRandomBytes, err.Error())
 	}
 	r2, err := randomFn(32)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errRandomBytes, err)
+		return nil, fmt.Errorf("%w: %s", errRandomBytes, err.Error())
 	}
 	preMaster, err := randomFn(48)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errRandomBytes, err)
+		return nil, fmt.Errorf("%w: %s", errRandomBytes, err.Error())
 	}
 	return &keySource{
 		r1:        r1,

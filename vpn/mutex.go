@@ -1,5 +1,9 @@
 package vpn
 
+//
+// Global mutexes
+//
+
 import (
 	"golang.org/x/sync/semaphore"
 )

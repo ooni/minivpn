@@ -1,5 +1,10 @@
 package vpn
 
+//
+// Deals with OpenVPN framing in TCP mode.
+//
+// TODO(ainghazal, bassosimone): move to bytes.go?
+
 import (
 	"encoding/binary"
 )
@@ -13,8 +18,12 @@ func toSizeFrame(b []byte) []byte {
 	return append(l, b...)
 }
 
+// sizeFromHeader reads the size header and returns the encoded buffer length
 func sizeFromHeader(b []byte) int {
 	if len(b) <= 2 {
+		// TODO(ainghazal): what's the right thing to return here?
+		// this was probably just a quick addition while debugging, but
+		// very likely not correct.
 		return len(b)
 	}
 	return int(binary.BigEndian.Uint16(b[:2]))

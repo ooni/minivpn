@@ -57,12 +57,16 @@ func unpadTextPKCS7(b []byte, bs int) ([]byte, error) {
 		// than 256.
 		return nil, errPadding
 	}
-	//  the deciphering algorithm can always treat the last byte as a pad
-	//  byte, but the zero value is forbidden.
+	// trivial case
 	if len(b) == 0 {
 		return nil, errPadding
 	}
 	p := int(b[len(b)-1])
+	//  the deciphering algorithm can always treat the last byte as a pad
+	//  byte, but the zero value is forbidden.
+	if p == 0 {
+		return nil, errPadding
+	}
 	if p > bs {
 		// malformed input
 		return nil, fmt.Errorf("%w: got bad padding len: %v", errPadding, p)

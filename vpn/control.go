@@ -1,5 +1,9 @@
 package vpn
 
+//
+// OpenVPN control channel
+//
+
 import (
 	"bytes"
 	"context"

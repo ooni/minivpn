@@ -1,5 +1,9 @@
 package vpn
 
+//
+// OpenVPN data channel
+//
+
 import (
 	"bytes"
 	"crypto/hmac"
@@ -67,6 +71,7 @@ func (d *data) initSession(c *control) {
 	d.sessionID = c.SessionID
 	d.conn = c.conn
 	d.loadCipherFromOptions()
+	// TODO(ainghazal): accept a cancellable context to stop the loop?
 	go d.processIncoming()
 }
 
