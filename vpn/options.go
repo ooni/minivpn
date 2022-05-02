@@ -64,6 +64,26 @@ type Options struct {
 	ProxyOBFS4 string
 }
 
+const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
+
+func (o *Options) String() string {
+	keysize := strings.Split(o.Cipher, "-")[1]
+	proto := "UDP"
+	if o.Proto == TCPMode {
+		proto = "TCP"
+	}
+	s := fmt.Sprintf(
+		clientOptions,
+		proto, o.Cipher, o.Auth, keysize)
+	if o.Compress == "stub" {
+		s = s + ",compress stub"
+	} else if o.Compress == "lzo-no" {
+		s = s + ",lzo-comp no"
+	}
+	log.Println("Local opts: ", s)
+	return s
+}
+
 func getHashLength(s string) int {
 	switch s {
 	case "sha1":
@@ -74,26 +94,6 @@ func getHashLength(s string) int {
 		return 64
 	}
 	return 0
-}
-
-const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
-
-func optionsString(opts *Options) string {
-	keysize := strings.Split(opts.Cipher, "-")[1]
-	proto := "UDP"
-	if opts.Proto == TCPMode {
-		proto = "TCP"
-	}
-	s := fmt.Sprintf(
-		clientOptions,
-		proto, opts.Cipher, opts.Auth, keysize)
-	if opts.Compress == "stub" {
-		s = s + ",compress stub"
-	} else if opts.Compress == "lzo-no" {
-		s = s + ",lzo-comp no"
-	}
-	log.Println("Local opts: ", s)
-	return s
 }
 
 // ParseConfigFile expects a path to a valid config file and returns an Option

@@ -163,7 +163,7 @@ func (c *control) sendControlMessage() {
 	d := []byte{0x00, 0x00, 0x00, 0x00}
 	d = append(d, 0x02) // key method (2)
 	d = append(d, c.keySrc.Bytes()...)
-	d = append(d, encodeOptionString(optionsString(c.Opts))...)
+	d = append(d, encodeOptionString(c.Opts.String())...)
 	d = append(d, encodeOptionString(string(c.Opts.Username))...)
 	d = append(d, encodeOptionString(string(c.Opts.Password))...)
 	c.tls.Write(d)
