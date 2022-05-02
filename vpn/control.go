@@ -163,9 +163,9 @@ func (c *control) sendControlMessage() {
 	d := []byte{0x00, 0x00, 0x00, 0x00}
 	d = append(d, 0x02) // key method (2)
 	d = append(d, c.keySrc.Bytes()...)
-	d = append(d, encodeBytes(getOptionsAsBytes(c.Opts))...)
-	d = append(d, encodeBytes([]byte(c.Opts.Username))...)
-	d = append(d, encodeBytes([]byte(c.Opts.Password))...)
+	d = append(d, encodeOptionString(optionsString(c.Opts))...)
+	d = append(d, encodeOptionString(string(c.Opts.Username))...)
+	d = append(d, encodeOptionString(string(c.Opts.Password))...)
 	c.tls.Write(d)
 }
 
@@ -189,11 +189,15 @@ func (c *control) readControlMessage(d []byte) *keySource {
 	offset += 32
 	random2 := d[offset : offset+32]
 	offset += 32
-	optLen := binary.BigEndian.Uint16(d[offset:offset+2]) - 1
-	remoteOpts := string(d[offset : offset+int(optLen)])
 
-	log.Println("Remote opts:", remoteOpts)
-	c.remoteOpts = remoteOpts
+	r, err := decodeOptionString(d[offset:])
+	if err != nil {
+		// TODO(ainghazal): do we depend on this? I think no
+		log.Println("WARN server sent bad options string")
+	}
+
+	log.Println("Remote opts:", r)
+	c.remoteOpts = r
 
 	remoteKey := &keySource{r1: random1, r2: random2}
 	return remoteKey

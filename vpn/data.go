@@ -113,7 +113,7 @@ func (d *data) loadCipherFromOptions() {
 	d.hmac = h
 }
 
-func (d *data) encrypt(plaintext []byte) []byte {
+func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 	bs := d.c.blockSize()
 	var padded []byte
 
@@ -136,7 +136,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 		ct, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, packetID)
 		if err != nil {
 			log.Println("error:", err)
-			return []byte("")
+			return []byte{}, err
 		}
 
 		// openvpn uses tag | payload
@@ -145,15 +145,19 @@ func (d *data) encrypt(plaintext []byte) []byte {
 
 		p := append(packetID, tag...)
 		p = append(p, payload...)
-		return p
+		return p, nil
 	}
 
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
 	iv, err := genRandomBytes(bs)
-	checkError(err)
+	if err != nil {
+		return []byte{}, err
+	}
 	ciphertext, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, []byte(""))
-	checkError(err)
+	if err != nil {
+		return []byte{}, err
+	}
 
 	hashLength := getHashLength(strings.ToLower(d.opts.Auth))
 	key := d.hmacKeyLocal[:hashLength]
@@ -163,7 +167,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 
 	payload := append(calcMAC, iv...)
 	payload = append(payload, ciphertext...)
-	return payload
+	return payload, nil
 }
 
 func (d *data) decrypt(encrypted []byte) []byte {
@@ -236,13 +240,12 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 }
 
 func (d *data) send(payload []byte) {
-	// TODO use a channel here instead?
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.localPacketID++
 	var plaintext []byte
 	if !d.c.isAEAD() {
-		log.Println("non aead: adding packetid prefix")
+		// log.Println("non aead: adding packetid prefix")
 		packetID := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetID, d.localPacketID)
 		plaintext = packetID[:]
@@ -259,7 +262,14 @@ func (d *data) send(payload []byte) {
 		plaintext = append([]byte{0xfa}, plaintext...) // no compression
 	}
 
-	buf := append([]byte{0x30}, d.encrypt(plaintext)...)
+	e, err := d.encrypt(plaintext)
+	if err != nil {
+		// TODO define encryptErr
+		log.Println("encryption error: %w", err)
+		return
+	}
+
+	buf := append([]byte{0x30}, e...)
 	if isTCP(d.opts.Proto) {
 		buf = toSizeFrame(buf)
 	}

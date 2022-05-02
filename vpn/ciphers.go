@@ -115,19 +115,24 @@ func (a *dataCipherAES) blockSize() int {
 	}
 }
 
-// decrypt implements dataCipher.decrypt
+// decrypt implements dataCipher.decrypt.
+// Since key comes from a prf derivation, we only take as many bytes as we need to match
+// our key size.
 func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
-	if len(key) != a.keySizeBytes() {
+	if len(key) < a.keySizeBytes() {
 		return nil, errInvalidKeySize
 	}
-
-	block, err := aes.NewCipher(key)
+	k := key[:a.keySizeBytes()]
+	block, err := aes.NewCipher(k)
 	if err != nil {
 		return nil, err
 	}
 
 	switch a.mode {
 	case cipherModeCBC:
+		// TODO(ainghazal): this slice doesn't make sense, it should be
+		// the responsibility of the caller to get it right. just check
+		// the len and raise error if not.
 		i := iv[:block.BlockSize()]
 		mode := cipher.NewCBCDecrypter(block, i)
 		plaintext := make([]byte, len(ciphertext))
@@ -164,12 +169,14 @@ func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) 
 }
 
 // encrypt implements dataCipher.encrypt
+// Since key comes from a prf derivation, we only take as many bytes as we need to match
+// our key size.
 func (a *dataCipherAES) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
-	if len(key) != a.keySizeBytes() {
+	if len(key) < a.keySizeBytes() {
 		return nil, errInvalidKeySize
 	}
-
-	block, err := aes.NewCipher(key)
+	k := key[:a.keySizeBytes()]
+	block, err := aes.NewCipher(k)
 	if err != nil {
 		return nil, err
 	}

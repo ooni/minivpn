@@ -78,22 +78,22 @@ func getHashLength(s string) int {
 
 const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
 
-func getOptionsAsBytes(opts *Options) []byte {
+func optionsString(opts *Options) string {
 	keysize := strings.Split(opts.Cipher, "-")[1]
 	proto := "UDP"
 	if opts.Proto == TCPMode {
 		proto = "TCP"
 	}
-	o := fmt.Sprintf(
+	s := fmt.Sprintf(
 		clientOptions,
 		proto, opts.Cipher, opts.Auth, keysize)
 	if opts.Compress == "stub" {
-		o = o + ",compress stub"
+		s = s + ",compress stub"
 	} else if opts.Compress == "lzo-no" {
-		o = o + ",lzo-comp no"
+		s = s + ",lzo-comp no"
 	}
-	log.Println("Local opts: ", o)
-	return []byte(o)
+	log.Println("Local opts: ", s)
+	return s
 }
 
 // ParseConfigFile expects a path to a valid config file and returns an Option

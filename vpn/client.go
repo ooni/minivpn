@@ -272,6 +272,7 @@ func (c *Client) onRemoteOpts() {
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
 		k, v := vals[0], vals[1:]
+		// TODO(ainghazal): use a type definition
 		if k == "tun-mtu" {
 			mtu, err := strconv.Atoi(v[0])
 			if err != nil {
@@ -430,10 +431,4 @@ func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
 // There's probably no need to export this.
 func (c *Client) DataChannel() chan []byte {
 	return c.data.dataChan()
-}
-
-func checkError(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
 }

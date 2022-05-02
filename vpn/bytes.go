@@ -7,6 +7,12 @@ package vpn
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
+	"fmt"
+)
+
+var (
+	errBadOptLen = errors.New("bad option lenght")
 )
 
 // genRandomBytes returns an array of bytes with the given size using
@@ -17,23 +23,27 @@ func genRandomBytes(size int) ([]byte, error) {
 	return b, err
 }
 
-func encodeBytes(b []byte) []byte {
-	// TODO(bassosimone,ainghazal): this function should either return
-	// an error, or panic, if given more than 1<<16 bytes.
-	//
-	// TODO(bassosimone,ainghazal): I would expected this function to have
-	// a slightly more descriptive name. What is the name of the encoding
-	// we're actually using here?
-	//
-	// TODO(bassosimone,ainghazal): I am surprised the function that deals
-	// with decoding is not implemented here. I would have expected the
-	// function to encode and the function to decode to be side by side.
-	//
-	// TODO(bassosimone,ainghazal): document this function once we have
-	// figure out what the proper name for it should actually be.
+// encodeOptionString is used to encode the options string, username and password.
+// According to the OpenVPN protocol, they are represented as a two-byte word,
+// plus the byte representation of the string, null-terminated.
+// https://openvpn.net/community-resources/openvpn-protocol/
+func encodeOptionString(s string) []byte {
+	if len(s)-1 > 1<<16 {
+		panic("string too large")
+	}
 	data := make([]byte, 2)
-	binary.BigEndian.PutUint16(data, uint16(len(b)+1))
-	data = append(data, b...)
+	binary.BigEndian.PutUint16(data, uint16(len(s)+1))
+	data = append(data, []byte(s)...)
 	data = append(data, 0x00)
 	return data
+}
+
+// decodeOptionString returns the string-value for the null-terminated string
+// returned by the server when sending the remote options to us.
+func decodeOptionString(b []byte) (string, error) {
+	l := int(binary.BigEndian.Uint16(b[:2])) - 1
+	if len(b) < l+2 {
+		return "", fmt.Errorf("%w: got %d, expected %d", errBadOptLen, len(b), l+2)
+	}
+	return string(b[2:l]), nil
 }
