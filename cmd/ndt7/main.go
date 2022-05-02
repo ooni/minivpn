@@ -8,11 +8,11 @@ import (
 	"os"
 	"time"
 
-	//"github.com/pborman/getopt/v2"
+	"github.com/pborman/getopt/v2"
 
 	"github.com/ainghazal/minivpn/extras"
 	"github.com/ainghazal/minivpn/extras/memoryless"
-	//"github.com/ainghazal/minivpn/obfs4"
+	"github.com/ainghazal/minivpn/obfs4"
 	"github.com/ainghazal/minivpn/vpn"
 )
 
@@ -31,11 +31,9 @@ func main() {
 		log.Fatal("Set PROVIDER variable")
 	}
 
-	/*
-		optExp := getopt.StringLong("type", 'e', "all", "Type of experiment (download, upload, [all])")
-		optCnt := getopt.IntLong("count", 'c', 1, "Repetitions count (default: 1)")
-		getopt.Parse()
-	*/
+	optExp := getopt.StringLong("type", 'e', "all", "Type of experiment (download, upload, [all])")
+	optCnt := getopt.IntLong("count", 'c', 1, "Repetitions count (default: 1)")
+	getopt.Parse()
 
 	opts, err := vpn.ParseConfigFile("data/" + provider + "/config")
 	if err != nil {
@@ -65,52 +63,46 @@ func main() {
 		log.Fatal("error:", err.Error())
 	}
 
-	dialer := vpn.NewDialerFromOptions(opts)
-
 	direct := false
 	base := os.Getenv("BASE")
 	if base == "1" {
 		direct = true
 	}
 
-	extras.RunMeasurement(dialer, ndt7Server, "download", direct)
-	//extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
+	for i := 1; i <= *optCnt; i++ {
+		log.Println()
+		log.Println("Run:", i)
+		log.Println()
 
-	/*
-		for i := 1; i <= *optCnt; i++ {
-			log.Println()
-			log.Println("Run:", i)
-			log.Println()
+		dialer := vpn.NewDialerFromOptions(opts)
 
-			dialer := vpn.NewDialerFromOptions(opts)
+		wait(c) // is the pasta ready?
 
-			if opts.ProxyOBFS4 != "" {
-				log.Println("Using obfs4 proxy")
-				node, err := obfs4.NewNodeFromURI(opts.ProxyOBFS4)
-				if err != nil {
-					log.Fatal(err)
-				}
-				obfs4.Obfs4ClientInit(node)
-				dialFn := obfs4.Dialer(node.Addr)
-				dialer.DialFn = vpn.DialFunc(dialFn)
+		if opts.ProxyOBFS4 != "" {
+			if direct {
+				log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")
 			}
-			if *optExp == "all" || *optExp == "download" {
-				extras.RunMeasurement(dialer, ndt7Server, "download")
+			log.Println("Using obfs4 proxy")
+			node, err := obfs4.NewNodeFromURI(opts.ProxyOBFS4)
+			if err != nil {
+				log.Fatal(err)
 			}
-
-			wait(c) // is the pasta ready?
-
-			if *optExp == "all" || *optExp == "upload" {
-				extras.RunMeasurement(dialer, ndt7Server, "upload")
-			}
-			if i != *optCnt {
-				// we don't need to wait on the last run
-				wait(c)
-			}
+			obfs4.Obfs4ClientInit(node)
+			dialFn := obfs4.Dialer(node.Addr)
+			dialer.DialFn = vpn.DialFunc(dialFn)
 		}
-	*/
-	// BUG I get a timeout when I try to run the two experiments reusing the same client. Is this the correct way of doing this?
-	// {"Key":"error","Value":{"Test":"download","Failure":"dial: i/o timeout"}}
-	// on the server side:
-	// 2022/04/26 16:12:23 close.go:31: runMeasurement: ignoring conn.Close result (tls: failed to send closeNotify alert (but connection was closed anyway): write tcp [NDT7_SERVER_IP]:4443->[GW_IP]:36165: write: broken pipe)
+		if *optExp == "all" || *optExp == "download" {
+			extras.RunMeasurement(dialer, ndt7Server, "download", direct)
+		}
+
+		wait(c) // is the pasta ready?
+
+		if *optExp == "all" || *optExp == "upload" {
+			extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
+		}
+		if i != *optCnt {
+			// we don't need to wait on the last run
+			wait(c)
+		}
+	}
 }
