@@ -20,6 +20,28 @@ import (
 	"strings"
 )
 
+type (
+	// proto is the main vpn mode (e.g., TCP or UDP).
+	proto string
+)
+
+func (p proto) String() string {
+	return string(p)
+}
+
+const (
+	// protoTCP is used for vpn in TCP mode.
+	protoTCP = proto("tcp")
+
+	// protoUDP is used for vpn in UDP mode.
+	protoUDP = proto("udp")
+)
+
+var (
+	// errBadCfg is the generic error returned for invalid config files
+	errBadCfg = errors.New("bad config")
+)
+
 var supportedCiphers = []string{
 	"AES-128-CBC",
 	"AES-192-CBC",
@@ -36,10 +58,12 @@ var supportedAuth = []string{
 }
 
 /*
-// TODO this should inform the selection of ciphers in initTLS
+// TODO(ainghazal): this could inform the selection of ciphers in initTLS
+// but some of these particular ciphermodes are problematic because stdlib in go
+// does not implement finite DH. adding them is gonna be hacky
+
 var supportedTLSCipher = []string{
-	// DHE-RSA-AES128-SHA -> riseup legacy; this is problematic because go
-	// tls doesn't implement finite DH.
+	// DHE-RSA-AES128-SHA -> riseup legacy; unsupported!
 	// TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
 	// TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
 }
@@ -68,9 +92,9 @@ const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cip
 
 func (o *Options) String() string {
 	keysize := strings.Split(o.Cipher, "-")[1]
-	proto := "UDP"
+	proto := strings.ToUpper(protoUDP.String())
 	if o.Proto == TCPMode {
-		proto = "TCP"
+		proto = strings.ToUpper(protoTCP.String())
 	}
 	s := fmt.Sprintf(
 		clientOptions,
@@ -109,17 +133,16 @@ func ParseConfigFile(filePath string) (*Options, error) {
 
 func parseProto(p []string, o *Options) error {
 	if len(p) != 1 {
-		return fmt.Errorf("proto needs one arg")
+		return fmt.Errorf("%w: %s", errBadCfg, "proto needs one arg")
 	}
 	m := p[0]
 	switch m {
-	case "udp":
+	case protoUDP.String():
 		o.Proto = UDPMode
-	case "tcp":
+	case protoTCP.String():
 		o.Proto = TCPMode
 	default:
-		log.Println("err: unsupported proto:", m)
-		return errors.New("bad mode: " + m)
+		return fmt.Errorf("%w: bad proto: %s", errBadCfg, m)
 
 	}
 	return nil
@@ -127,7 +150,7 @@ func parseProto(p []string, o *Options) error {
 
 func parseRemote(p []string, o *Options) error {
 	if len(p) != 2 {
-		return fmt.Errorf("remote needs two args")
+		return fmt.Errorf("%w:%s", errBadCfg, "remote needs two args")
 	}
 	o.Remote, o.Port = p[0], p[1]
 	return nil
@@ -135,11 +158,11 @@ func parseRemote(p []string, o *Options) error {
 
 func parseCipher(p []string, o *Options) error {
 	if len(p) != 1 {
-		return fmt.Errorf("cipher expects one arg")
+		return fmt.Errorf("%w:%s", errBadCfg, "cipher expects one arg")
 	}
 	cipher := p[0]
 	if !hasElement(cipher, supportedCiphers) {
-		return fmt.Errorf("unsupported cipher: %s", cipher)
+		return fmt.Errorf("%w: unsupported cipher: %s", errBadCfg, cipher)
 	}
 	o.Cipher = cipher
 	return nil
@@ -147,11 +170,11 @@ func parseCipher(p []string, o *Options) error {
 
 func parseAuth(p []string, o *Options) error {
 	if len(p) != 1 {
-		return fmt.Errorf("invalid auth entry")
+		return fmt.Errorf("%w:%s", errBadCfg, "invalid auth entry")
 	}
 	auth := p[0]
 	if !hasElement(auth, supportedAuth) {
-		return fmt.Errorf("unsupported auth: %s", auth)
+		return fmt.Errorf("%w: unsupported auth: %s", errBadCfg, auth)
 	}
 	o.Auth = auth
 	return nil
@@ -159,7 +182,7 @@ func parseAuth(p []string, o *Options) error {
 
 func parseAuthUser(p []string, o *Options) error {
 	if len(p) != 1 || !existsFile(p[0]) {
-		return fmt.Errorf("auth-user-pass expects a valid file")
+		return fmt.Errorf("%w:%s", errBadCfg, "auth-user-pass expects a valid file")
 	}
 	creds, err := getCredentialsFromFile(p[0])
 	if err != nil {
@@ -170,7 +193,7 @@ func parseAuthUser(p []string, o *Options) error {
 }
 
 func parseCA(p []string, o *Options, d string) error {
-	e := fmt.Errorf("ca expects a valid file")
+	e := fmt.Errorf("%w:%s", errBadCfg, "ca expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
@@ -183,7 +206,7 @@ func parseCA(p []string, o *Options, d string) error {
 }
 
 func parseCert(p []string, o *Options, d string) error {
-	e := fmt.Errorf("cert expects a valid file")
+	e := fmt.Errorf("%w:%s", errBadCfg, "cert expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
@@ -196,7 +219,7 @@ func parseCert(p []string, o *Options, d string) error {
 }
 
 func parseKey(p []string, o *Options, d string) error {
-	e := fmt.Errorf("key expects a valid file")
+	e := fmt.Errorf("%w:%s", errBadCfg, "key expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
@@ -210,7 +233,7 @@ func parseKey(p []string, o *Options, d string) error {
 
 func parseCompress(p []string, o *Options) error {
 	if len(p) > 1 {
-		return fmt.Errorf("compress: only empty/stub options supported")
+		return fmt.Errorf("%w:%s", errBadCfg, "compress: only empty/stub options supported")
 	}
 	if len(p) == 0 {
 		o.Compress = "empty"
@@ -220,12 +243,12 @@ func parseCompress(p []string, o *Options) error {
 		o.Compress = "stub"
 		return nil
 	}
-	return fmt.Errorf("compress: only empty/stub options supported")
+	return fmt.Errorf("%w:%s", errBadCfg, "compress: only empty/stub options supported")
 }
 
 func parseCompLZO(p []string, o *Options) error {
 	if p[0] != "no" {
-		return fmt.Errorf("comp-lzo: compression not supported, sorry")
+		return fmt.Errorf("%w:%s", errBadCfg, "comp-lzo: compression not supported")
 	}
 	o.Compress = "lzo-no"
 	return nil
@@ -244,7 +267,7 @@ func parseTLSVerMax(p []string, o *Options) error {
 
 func parseProxyOBFS4(p []string, o *Options) error {
 	if len(p) != 1 {
-		return fmt.Errorf("proto-obfs4: need a properly configured proxy")
+		return fmt.Errorf("%w:%s", errBadCfg, "proto-obfs4: need a properly configured proxy")
 	}
 	o.ProxyOBFS4 = p[0]
 	return nil
@@ -286,10 +309,13 @@ func parseOption(o *Options, dir, key string, p []string) error {
 	return nil
 }
 
+// getOptionsFromLines tries to parse all the lines coming from a config file
+// and raises validation errors if the values do not conform to the expected
+// format.
 func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 	s := &Options{}
 
-	// TODO be even more defensive
+	// TODO(ainghazal): be even more defensive
 	for _, l := range lines {
 		if strings.HasPrefix(l, "#") {
 			continue
@@ -354,13 +380,13 @@ func getCredentialsFromFile(path string) ([]string, error) {
 		return nil, err
 	}
 	if len(lines) != 2 {
-		return nil, fmt.Errorf("malformed credentials file")
+		return nil, fmt.Errorf("%w:%s", errBadCfg, "malformed credentials file")
 	}
 	if len(lines[0]) == 0 {
-		return nil, fmt.Errorf("empty username in creds file")
+		return nil, fmt.Errorf("%w:%s", errBadCfg, "empty username in creds file")
 	}
 	if len(lines[1]) == 0 {
-		return nil, fmt.Errorf("empty password in creds file")
+		return nil, fmt.Errorf("%w:%s", errBadCfg, "empty password in creds file")
 	}
 	return lines, nil
 }
