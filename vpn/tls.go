@@ -10,16 +10,11 @@ import (
 	"log"
 	"net"
 	"time"
-
-	"golang.org/x/sync/semaphore"
 )
 
 const (
 	readTimeoutSeconds = 10
 )
-
-// one reader should be all we need
-var sem = semaphore.NewWeighted(int64(1))
 
 // initTLS is part of the control channel. It initializes the TLS options with
 // certificate, key and ca from control.Opts, and it performs
@@ -131,7 +126,7 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 		// not fully clear about why, but empirically it does stall if
 		// we do.
 		if isTCP(cw.control.Opts.Proto) {
-			ok := sem.TryAcquire(1)
+			ok := rcvSem.TryAcquire(1)
 			if !ok {
 				return 0, nil
 			}
@@ -169,7 +164,7 @@ func decrCtr() {
 func (cw controlWrapper) doReadTCP(size int) (int, error) {
 	//debugCtr += 1
 	//defer decrCtr()
-	defer sem.Release(1)
+	defer rcvSem.Release(1)
 
 	buf := make([]byte, size)
 	// cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
@@ -202,12 +197,12 @@ func (cw controlWrapper) doReadTCP(size int) (int, error) {
 		} else if cur < e {
 			// if we got less, we will not leave this place without
 			// waiting for what is ours.
-			for i := 0; i < 10; i++ {
+			for i := 0; i < 20; i++ {
 				missing := e - cur
 				if missing > 0 {
 					//log.Println("need more:", missing)
 					m := make([]byte, e-n)
-					cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(5) * time.Second))
+					cw.control.conn.SetReadDeadline(time.Now().Add(readTimeoutSeconds * time.Second))
 
 					nn, err := cw.control.conn.Read(m)
 					if err != nil {
@@ -228,7 +223,7 @@ end:
 
 // TODO cleanup and merge with the function above
 func (cw controlWrapper) doReadTCP2(size int) (int, error) {
-	defer sem.Release(1)
+	defer rcvSem.Release(1)
 
 	bl := make([]byte, 2)
 	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
@@ -248,8 +243,6 @@ func (cw controlWrapper) doReadTCP2(size int) (int, error) {
 		log.Println("read error:", err.Error())
 		return n, err
 	}
-	//log.Println("--> got", n)
-	//log.Println("--> exp", e)
 	cur := n
 	if cur == e {
 		cw.ackQueue <- append(bl, b...)

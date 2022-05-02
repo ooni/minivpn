@@ -228,8 +228,7 @@ func (c *control) sendAck(pid uint32) {
 }
 
 func (c *control) handleIn(data []byte) {
-	log.Println("handle in: ", len(data))
-
+	// log.Println("handle in: ", len(data))
 	op := data[0] >> 3
 	if op == byte(pControlV1) {
 		pid, _, payload := c.readControl(data)

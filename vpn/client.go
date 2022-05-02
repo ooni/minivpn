@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -62,6 +63,7 @@ type Client struct {
 	conn             net.Conn
 	ctrl             *control
 	data             *data
+	rmu              sync.Mutex
 }
 
 // Run starts the OpenVPN tunnel. It calls all the protocol steps serially.
@@ -250,6 +252,7 @@ func (c *Client) handleIncoming() {
 	}
 
 	op := data[0] >> 3
+
 	if op == byte(pACKV1) {
 		log.Println("DEBUG Received ACK in main loop")
 	}
@@ -258,8 +261,8 @@ func (c *Client) handleIncoming() {
 	} else if isDataOpcode(op) {
 		c.data.queue <- data
 	} else {
-		log.Println("unhandled data:")
-		log.Println(hex.EncodeToString(data))
+		log.Printf("ERROR: unhandled data. (op: %d)\n", op)
+		fmt.Println(hex.Dump(data))
 	}
 }
 
@@ -308,12 +311,17 @@ func (c *Client) TunMTU() int {
 }
 
 func (c *Client) handleTLSIncoming() {
-	log.Println("handle tls incoming...")
-	var recv = make([]byte, 4096)
-	var n, _ = c.ctrl.tls.Read(recv)
-	data := recv[:n]
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	var r = make([]byte, 4096)
+	var n, err = c.ctrl.tls.Read(r)
+	if err != nil {
+		log.Println("ERROR: error reading", err.Error())
+		return
+	}
+	data := r[:n]
 
-	log.Println("handle TLS:", n)
+	// log.Println("handle TLS:", n)
 
 	if areBytesEqual(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
 		remoteKey := c.ctrl.readControlMessage(data)
@@ -360,7 +368,11 @@ func (c *Client) Stop() {
 }
 
 func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
-	log.Println(">>> RECV", size)
+	ok := rcvSem.TryAcquire(1)
+	if !ok {
+		return []byte{}, nil
+	}
+	defer rcvSem.Release(1)
 	if !isTCP(c.Opts.Proto) {
 		if size == 0 {
 			size = UDPBufferSize
@@ -377,21 +389,29 @@ func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
 				c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
 			}
 			if isTCP(c.Opts.Proto) {
-				log.Println("==> rcv 2")
+				// log.Println("==> rcv 2")
 				bl := make([]byte, 2)
+				c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
 				_, err := c.conn.Read(bl)
 				if err != nil {
-					log.Println("ERROR:", err)
+					log.Println("ERROR: reading data:", err.Error())
+					return bl, err
 				}
 				l := int(binary.BigEndian.Uint16(bl))
-				rcv := make([]byte, l)
-				log.Println("==> rcv", l)
-				n, _ := c.conn.Read(rcv)
-				return rcv[:n], nil
+				r = make([]byte, l)
+				// log.Println("==> rcv", l)
+				c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
+				n, err := c.conn.Read(r)
+				if err != nil {
+					log.Println("ERROR: reading data:", err.Error())
+					return r, err
+				}
+				return r[:n], nil
 			} else {
 				n, err := c.conn.Read(r)
 				if err != nil {
-					log.Println("DEBUG: reading data:", err)
+					log.Println("ERROR: reading data:", err.Error())
+					return r, err
 				}
 				return r[:n], nil
 			}
