@@ -114,6 +114,10 @@ func (d Dialer) DialContext(ctx context.Context, network, address string) (net.C
 	return tnet.DialContext(ctx, network, address)
 }
 
+func (d Dialer) Stop() {
+	d.raw.Stop()
+}
+
 func (d Dialer) createNetTUN() (*netstack.Net, error) {
 	if d.DialFn != nil {
 		d.raw.dialFn = d.DialFn
@@ -187,6 +191,12 @@ type RawDialer struct {
 	// will be used instead.
 	dialFn DialFunc
 }
+
+func (d *RawDialer) Stop() {
+	d.c.Stop()
+}
+
+// TODO make a shutdown method accessible in here?
 
 // NewRawDialer returns a RawDialer configured with the given Options.
 func NewRawDialer(opts *Options) *RawDialer {

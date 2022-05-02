@@ -74,9 +74,8 @@ func main() {
 		log.Println("Run:", i)
 		log.Println()
 
-		dialer := vpn.NewDialerFromOptions(opts)
-
 		wait(c) // is the pasta ready?
+		dialer := vpn.NewDialerFromOptions(opts)
 
 		if opts.ProxyOBFS4 != "" {
 			if direct {
@@ -95,7 +94,10 @@ func main() {
 			extras.RunMeasurement(dialer, ndt7Server, "download", direct)
 		}
 
+		dialer.Stop()
 		wait(c) // is the pasta ready?
+
+		dialer = vpn.NewDialerFromOptions(opts)
 
 		if *optExp == "all" || *optExp == "upload" {
 			extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
@@ -104,5 +106,6 @@ func main() {
 			// we don't need to wait on the last run
 			wait(c)
 		}
+		dialer.Stop()
 	}
 }

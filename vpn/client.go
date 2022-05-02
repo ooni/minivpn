@@ -224,7 +224,7 @@ func (c *Client) sendAck(ackPid uint32) error {
 	// log.Printf("Client: ACK'ing packet %08x...", ackPid)
 	if len(c.ctrl.RemoteID) == 0 {
 		log.Println("Error: ack id cannot be zero")
-		return fmt.Errorf(ErrBadInit)
+		return fmt.Errorf("%s:%s", ErrBadInit, "got null RemoteID")
 	}
 	p := make([]byte, 1)
 	p[0] = 0x28 // P_ACK_V1 0x05 (5b) + 0x0 (3b)
@@ -364,7 +364,15 @@ func (c *Client) WaitUntil(done chan bool) {
 
 // Stop closes the tunnel connection.
 func (c *Client) Stop() {
-	c.cancel()
+	if c.ctrl.closed {
+		return
+	}
+	rcvSem.Acquire(c.ctx, 1)
+	defer rcvSem.Release(1)
+	log.Println("Closing client conn...")
+	c.ctrl.closed = true
+	c.conn.Close()
+	// c.cancel()
 }
 
 func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {

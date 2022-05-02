@@ -34,6 +34,7 @@ type control struct {
 	tlsIn      chan []byte
 	remoteOpts string
 	lastAck    int
+	closed     bool
 	ackmu      sync.Mutex
 }
 

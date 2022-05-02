@@ -107,7 +107,7 @@ func (cw controlWrapper) Write(b []byte) (n int, err error) {
 }
 
 func (cw controlWrapper) Read(b []byte) (int, error) {
-	if len(b) == 0 {
+	if len(b) == 0 || cw.control.closed {
 		return 0, nil
 	}
 
