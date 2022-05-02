@@ -116,16 +116,23 @@ func (d *data) loadCipherFromOptions() {
 func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 	bs := d.c.blockSize()
 	var padded []byte
+	var err error
 
 	if d.opts.Compress == "stub" {
 		// for the compression stub, we need to send the first byte to
 		// the last one, after padding
 		lp := len(plaintext)
 		end := plaintext[lp-1]
-		padded = cipherPadTextPKCS7(plaintext[:lp-1], bs)
+		padded, err = padTextPKCS7(plaintext[:lp-1], bs)
+		if err != nil {
+			return nil, errPadding
+		}
 		padded[len(padded)-1] = end
 	} else {
-		padded = cipherPadTextPKCS7(plaintext, bs)
+		padded, err = padTextPKCS7(plaintext, bs)
+		if err != nil {
+			return nil, errPadding
+		}
 	}
 
 	if d.c.isAEAD() {

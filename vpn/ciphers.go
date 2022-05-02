@@ -5,7 +5,6 @@ package vpn
 //
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha1"
@@ -51,6 +50,9 @@ var (
 
 	// errUnsupportedMode indicates that the mode is not uspported.
 	errUnsupportedMode = errors.New("unsupported mode")
+
+	// errBadInput indicates invalid inputs to encrypt/decrypt functions.
+	errBadInput = errors.New("bad input")
 )
 
 // dataCipher encrypts and decrypts OpenVPN data.
@@ -122,31 +124,39 @@ func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) 
 	if len(key) < a.keySizeBytes() {
 		return nil, errInvalidKeySize
 	}
+	// they key material might be longer
 	k := key[:a.keySizeBytes()]
 	block, err := aes.NewCipher(k)
 	if err != nil {
 		return nil, err
 	}
-
 	switch a.mode {
 	case cipherModeCBC:
-		// TODO(ainghazal): this slice doesn't make sense, it should be
-		// the responsibility of the caller to get it right. just check
-		// the len and raise error if not.
-		i := iv[:block.BlockSize()]
-		mode := cipher.NewCBCDecrypter(block, i)
+		if len(iv) != block.BlockSize() {
+			return nil, fmt.Errorf("%w: wrong size for iv: %v", errBadInput, len(iv))
+		}
+		mode := cipher.NewCBCDecrypter(block, iv)
 		plaintext := make([]byte, len(ciphertext))
 		mode.CryptBlocks(plaintext, ciphertext)
-		plaintext = cipherUnpadTextPKCS7(plaintext)
+		plaintext, err := unpadTextPKCS7(plaintext, block.BlockSize())
+		if err != nil {
+			return nil, errPadding
+		}
 		padLen := len(ciphertext) - len(plaintext)
 		if padLen > block.BlockSize() || padLen > len(plaintext) {
 			// TODO(bassosimone, ainghazal): discuss the cases in which
 			// this set of conditions actually occurs.
+			// TODO(ainghazal): this assertion might actually be moved into a boundary assertion in the unpad fun.
 			return nil, errPadding
 		}
 		return plaintext, nil
 
 	case cipherModeGCM:
+		// standard nonce size is 12. more is surely ok, but let's stick to it.
+		// https://github.com/golang/go/blob/master/src/crypto/aes/aes_gcm.go#L37
+		if len(iv) != 12 {
+			return nil, fmt.Errorf("%w: wrong size for iv: %v", errBadInput, len(iv))
+		}
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
@@ -260,27 +270,4 @@ func newHMACFactory(name string) (func() hash.Hash, bool) {
 	default:
 		return nil, false
 	}
-}
-
-// TODO(bassosimone, ainghazal): we should make the two following
-// functions more robust to errors.
-
-// cipherUnpadTextPKCS7 does PKCS#7 unpadding of a byte array.
-func cipherUnpadTextPKCS7(buf []byte) []byte {
-	// TODO(bassosimone, ainghazal): explain how this function will
-	// behave in case there's no padding? Should we pass to the function
-	// the expected block size and use that to determine whether there
-	// is any padding to be removed from the function?
-	padding := int(buf[len(buf)-1])
-	return buf[:len(buf)-padding]
-}
-
-// cipherPadTextPKCS7 does PKCS#7 padding of a byte array.
-func cipherPadTextPKCS7(buf []byte, bs int) []byte {
-	// TODO(bassosimone, ainghazal): what happens if we need to add
-	// no padding? Should we have a special case to handle that in
-	// order to make the code more clear and explicit.
-	padding := bs - len(buf)%bs
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(buf, padtext...)
 }
