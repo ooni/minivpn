@@ -170,6 +170,7 @@ func (d *data) encrypt(plaintext []byte) []byte {
 }
 
 func (d *data) decrypt(encrypted []byte) []byte {
+	// TODO can use a switch on the implementation instead
 	if d.c.isAEAD() {
 		return d.decryptAEAD(encrypted)
 	}
