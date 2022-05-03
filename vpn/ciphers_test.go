@@ -102,7 +102,7 @@ func Test_newCipher(t *testing.T) {
 		want    dataCipher
 		wantErr bool
 	}{
-		{"aesOK", args{"aes", 256, "cbc"}, &dataCipherAES{256, "cbc"}, false},
+		{"aesOK", args{"aes", 256, "cbc"}, &dataCipherAES{256 / 8, "cbc"}, false},
 		{"badCipher", args{"blowfish", 256, "cbc"}, nil, true},
 	}
 	for _, tt := range tests {
