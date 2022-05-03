@@ -128,15 +128,15 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 		// the last one, after padding
 		lp := len(plaintext)
 		end := plaintext[lp-1]
-		padded, err = padTextPKCS7(plaintext[:lp-1], bs)
+		padded, err = bytesPadPKCS7(plaintext[:lp-1], bs)
 		if err != nil {
-			return nil, errPadding
+			return nil, err
 		}
 		padded[len(padded)-1] = end
 	} else {
-		padded, err = padTextPKCS7(plaintext, bs)
+		padded, err = bytesPadPKCS7(plaintext, bs)
 		if err != nil {
-			return nil, errPadding
+			return nil, err
 		}
 	}
 

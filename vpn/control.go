@@ -165,17 +165,17 @@ func (c *control) readControl(d []byte) (uint32, []uint32, []byte) {
 // sends a control channel packet, not a P_CONTROL
 // TODO(ainghazal): return error too
 func (c *control) sendControlMessage() {
-	o, err := encodeOptionString(c.Opts.String())
+	o, err := encodeOptionStringToBytes(c.Opts.String())
 	if err != nil {
 		log.Println("encoding error:", err)
 		return
 	}
-	u, err := encodeOptionString(string(c.Opts.Username))
+	u, err := encodeOptionStringToBytes(string(c.Opts.Username))
 	if err != nil {
 		log.Println("encoding error:", err)
 		return
 	}
-	p, err := encodeOptionString(string(c.Opts.Password))
+	p, err := encodeOptionStringToBytes(string(c.Opts.Password))
 	if err != nil {
 		log.Println("encoding error:", err)
 		return
@@ -211,7 +211,7 @@ func (c *control) readControlMessage(d []byte) *keySource {
 	random2 := d[offset : offset+32]
 	offset += 32
 
-	r, err := decodeOptionString(d[offset:])
+	r, err := decodeOptionStringFromBytes(d[offset:])
 	if err != nil {
 		// TODO(ainghazal): do we depend on this? I think no
 		log.Println("WARN server sent bad options string")
