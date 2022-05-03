@@ -367,15 +367,12 @@ func (c *Client) WaitUntil(done chan bool) {
 // Stop closes the tunnel connection.
 // TODO(ainghazal): WIP ---
 func (c *Client) Stop() {
-	if c.ctrl.closed {
-		return
-	}
-	rcvSem.Acquire(c.ctx, 1)
+	rcvSem.Acquire(context.Background(), 1)
 	defer rcvSem.Release(1)
 	log.Println("Closing client conn...")
-	c.ctrl.closed = true
 	c.conn.Close()
-	// c.cancel()
+	c.cancel()
+	c.ctrl.closed = true
 }
 
 func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {

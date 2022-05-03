@@ -69,43 +69,49 @@ func main() {
 		direct = true
 	}
 
+	wait(c)
 	for i := 1; i <= *optCnt; i++ {
 		log.Println()
 		log.Println("Run:", i)
 		log.Println()
-
-		wait(c) // is the pasta ready?
-		dialer := vpn.NewDialerFromOptions(opts)
-
-		if opts.ProxyOBFS4 != "" {
-			if direct {
-				log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")
-			}
-			log.Println("Using obfs4 proxy")
-			node, err := obfs4.NewNodeFromURI(opts.ProxyOBFS4)
-			if err != nil {
-				log.Fatal(err)
-			}
-			obfs4.Obfs4ClientInit(node)
-			dialFn := obfs4.Dialer(node.Addr)
-			dialer.DialFn = vpn.DialFunc(dialFn)
-		}
 		if *optExp == "all" || *optExp == "download" {
+			dialer := vpn.NewDialerFromOptions(opts)
+			if opts.ProxyOBFS4 != "" {
+				if direct {
+					log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")
+				}
+				log.Println("Using obfs4 proxy")
+				node, err := obfs4.NewNodeFromURI(opts.ProxyOBFS4)
+				if err != nil {
+					log.Fatal(err)
+				}
+				obfs4.Obfs4ClientInit(node)
+				dialFn := obfs4.Dialer(node.Addr)
+				dialer.DialFn = vpn.DialFunc(dialFn)
+			}
 			extras.RunMeasurement(dialer, ndt7Server, "download", direct)
+			wait(c) // is the pasta ready?
+			dialer.Stop()
+
 		}
-
-		dialer.Stop()
-		wait(c) // is the pasta ready?
-
-		dialer = vpn.NewDialerFromOptions(opts)
-
 		if *optExp == "all" || *optExp == "upload" {
+			dialer := vpn.NewDialerFromOptions(opts)
+			if opts.ProxyOBFS4 != "" {
+				if direct {
+					log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")
+				}
+				log.Println("Using obfs4 proxy")
+				node, err := obfs4.NewNodeFromURI(opts.ProxyOBFS4)
+				if err != nil {
+					log.Fatal(err)
+				}
+				obfs4.Obfs4ClientInit(node)
+				dialFn := obfs4.Dialer(node.Addr)
+				dialer.DialFn = vpn.DialFunc(dialFn)
+			}
 			extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
+			wait(c) // is the pasta ready?
+			dialer.Stop()
 		}
-		if i != *optCnt {
-			// we don't need to wait on the last run
-			wait(c)
-		}
-		dialer.Stop()
 	}
 }

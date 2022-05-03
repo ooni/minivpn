@@ -23,6 +23,7 @@ func newControl(c net.Conn, k *keySource, o *Options) *control {
 		queue:  q,
 		tlsIn:  tlsIn,
 		keySrc: k,
+		closed: false,
 	}
 }
 

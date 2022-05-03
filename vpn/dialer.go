@@ -115,7 +115,12 @@ func (d Dialer) DialContext(ctx context.Context, network, address string) (net.C
 }
 
 func (d Dialer) Stop() {
-	d.raw.Stop()
+	// For testing, ndt7 etc is possible that we're using a raw dialer with no
+	// tunnel, e.g., just using the net.Dial as the dial function. in that case
+	// we don't have no client to stop.
+	if d.raw.c != nil {
+		d.raw.Stop()
+	}
 }
 
 func (d Dialer) createNetTUN() (*netstack.Net, error) {
