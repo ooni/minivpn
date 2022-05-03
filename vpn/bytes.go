@@ -70,7 +70,8 @@ func decodeOptionStringFromBytes(b []byte) (string, error) {
 	}
 	length := int(binary.BigEndian.Uint16(b[:2]))
 	b = b[2:] // skip over the length
-	if len(b) != length {
+	// the server sends padding, so we cannot do a strict check
+	if len(b) < length {
 		return "", fmt.Errorf("%w: got %d, expected %d", errDecodeOption, len(b), length)
 	}
 	if len(b) <= 0 {
