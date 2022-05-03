@@ -1,6 +1,10 @@
 package vpn
 
 import (
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
+	"hash"
 	"reflect"
 	"testing"
 )
@@ -37,34 +41,7 @@ func TestBadKeySize(t *testing.T) {
 	}
 }
 
-/*
-func Test_getHMAC(t *testing.T) {
-	type args struct {
-		name string
-	}
-	tests := []struct {
-		name  string
-		args  args
-		want  func() hash.Hash
-		want1 bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := getHMAC(tt.args.name)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getHMAC() got = %v, want %v", got, tt.want)
-			}
-			if got1 != tt.want1 {
-				t.Errorf("getHMAC() got1 = %v, want %v", got1, tt.want1)
-			}
-		})
-	}
-}
-*/
-
-func Test_newCipherFromCipherSuite(t *testing.T) {
+func Test_newDataCipherFromCipherSuite(t *testing.T) {
 	type args struct {
 		c string
 	}
@@ -74,7 +51,12 @@ func Test_newCipherFromCipherSuite(t *testing.T) {
 		want    dataCipher
 		wantErr bool
 	}{
-		// TODO: Add test cases.
+		{"aes-128-cbc", args{"AES-128-CBC"}, &dataCipherAES{16, "cbc"}, false},
+		{"aes-192-cbc", args{"AES-192-CBC"}, &dataCipherAES{24, "cbc"}, false},
+		{"aes-256-cbc", args{"AES-256-CBC"}, &dataCipherAES{32, "cbc"}, false},
+		{"aes-128-gcm", args{"AES-128-GCM"}, &dataCipherAES{16, "gcm"}, false},
+		{"aes-256-gcm", args{"AES-256-GCM"}, &dataCipherAES{32, "gcm"}, false},
+		{"bad-256-gcm", args{"AES-512-GCM"}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,7 +84,7 @@ func Test_newCipher(t *testing.T) {
 		want    dataCipher
 		wantErr bool
 	}{
-		{"aesOK", args{"aes", 256, "cbc"}, &dataCipherAES{256 / 8, "cbc"}, false},
+		{"aesOK", args{"aes", 256, "cbc"}, &dataCipherAES{32, "cbc"}, false},
 		{"badCipher", args{"blowfish", 256, "cbc"}, nil, true},
 	}
 	for _, tt := range tests {
@@ -114,6 +96,49 @@ func Test_newCipher(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("newCipher() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// this particular test is basically equivalent to reimplementing the factory, but okay,
+// it's somehow useful to catch allowed values.
+func Test_newHMACFactory(t *testing.T) {
+	type args struct {
+		name string
+	}
+	tests := []struct {
+		name  string
+		args  args
+		want  func() hash.Hash
+		want1 bool
+	}{
+		{"sha1", args{"sha1"}, sha1.New, true},
+		{"sha256", args{"sha256"}, sha256.New, true},
+		{"sha512", args{"sha512"}, sha512.New, true},
+		{"shabad", args{"sha192"}, nil, false},
+	}
+
+	//str := "hello"
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1 := newHMACFactory(tt.args.name)
+			if got == nil {
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("newHMACFactory() got = %v, want %v", &got, &tt.want)
+				}
+				if got1 != tt.want1 {
+					t.Errorf("newHMACFactory() got1 = %v, want %v", got1, tt.want1)
+				}
+			} else {
+				// it is a function factory, so let's get the function to compare
+				if !reflect.DeepEqual(got(), tt.want()) {
+					t.Errorf("newHMACFactory() got = %v, want %v", &got, &tt.want)
+				}
+				if got1 != tt.want1 {
+					t.Errorf("newHMACFactory() got1 = %v, want %v", got1, tt.want1)
+				}
 			}
 		})
 	}
