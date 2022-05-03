@@ -42,9 +42,6 @@ var (
 	// errInvalidKeySize means that the key size is invalid.
 	errInvalidKeySize = errors.New("invalid key size")
 
-	// errPadding indicates that a padding error has occurred.
-	errPadding = errors.New("padding error")
-
 	// errUnsupportedCipher indicates we don't support the desired cipher.
 	errUnsupportedCipher = errors.New("unsupported cipher")
 
@@ -138,16 +135,17 @@ func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) 
 		mode := cipher.NewCBCDecrypter(block, iv)
 		plaintext := make([]byte, len(ciphertext))
 		mode.CryptBlocks(plaintext, ciphertext)
-		plaintext, err := unpadTextPKCS7(plaintext, block.BlockSize())
+		plaintext, err := bytesUnpadPKCS7(plaintext, block.BlockSize())
 		if err != nil {
-			return nil, errPadding
+			return nil, err
 		}
 		padLen := len(ciphertext) - len(plaintext)
 		if padLen > block.BlockSize() || padLen > len(plaintext) {
 			// TODO(bassosimone, ainghazal): discuss the cases in which
 			// this set of conditions actually occurs.
-			// TODO(ainghazal): this assertion might actually be moved into a boundary assertion in the unpad fun.
-			return nil, errPadding
+			// TODO(ainghazal): this assertion might actually be moved into a
+			// boundary assertion in the unpad fun.
+			return nil, errors.New("unpadding error")
 		}
 		return plaintext, nil
 
