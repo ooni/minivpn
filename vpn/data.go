@@ -9,6 +9,7 @@ import (
 	"crypto/hmac"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"hash"
 	"log"
 	"net"
@@ -223,7 +224,8 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 	//            [4-byte
 	//            IV head]
 	if len(dat) == 0 || len(dat) < 40 {
-		log.Println("WARN decryptAEAD: bad length")
+		log.Println("WARN decryptAEAD: bad length:", len(dat))
+		fmt.Println(hex.Dump(dat))
 		return []byte{}
 	}
 	// BUG: we should not attempt to decrypt payloads until we have initialized the key material
