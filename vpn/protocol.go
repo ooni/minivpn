@@ -4,6 +4,8 @@ package vpn
 // Protocol-related constants and convenience functions.
 //
 
+// TODO: merge packet.go here
+
 const (
 	stNothing = iota
 	stControlChannelOpen
@@ -17,14 +19,14 @@ const (
 
 const (
 	pControlHardResetClientV1 = iota + 1
-	pControlHardResetServerV1
-	pControlSoftResetV1
-	pControlV1
-	pACKV1
-	pDataV1
-	pControlHardResetClientV2
-	pControlHardResetServerV2
-	pDataV2
+	pControlHardResetServerV1 // 2
+	pControlSoftResetV1       // 3
+	pControlV1                // 4
+	pACKV1                    // 5
+	pDataV1                   // 6
+	pControlHardResetClientV2 // 7
+	pControlHardResetServerV2 // 8
+	pDataV2                   // 9
 )
 
 const (
@@ -34,22 +36,4 @@ const (
 
 func isTCP(mode int) bool {
 	return mode == TCPMode
-}
-
-func isControlOpcode(b byte) bool {
-	switch b {
-	case byte(pControlHardResetServerV2), byte(pControlV1):
-		return true
-	default:
-		return false
-	}
-}
-
-func isDataOpcode(b byte) bool {
-	switch b {
-	case byte(pDataV1):
-		return true
-	default:
-		return false
-	}
 }

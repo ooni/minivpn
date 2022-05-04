@@ -35,23 +35,25 @@ func newData(local, remote *keySource, o *Options) *data {
 
 type data struct {
 	/* get this from options */
-	// compr  string // TODO need to to something with this mess
-
 	opts            *Options
 	queue           chan []byte
 	dataQueue       chan []byte
 	localKeySource  *keySource
 	remoteKeySource *keySource
-	remoteID        []byte
-	sessionID       []byte
+
+	remoteID  []byte
+	sessionID []byte
+
 	cipherKeyLocal  []byte
 	cipherKeyRemote []byte
 	hmacKeyLocal    []byte
 	hmacKeyRemote   []byte
-	localPacketID   uint32
-	remotePacketID  uint32
-	conn            net.Conn
-	mu              sync.Mutex
+
+	localPacketID  uint32
+	remotePacketID uint32
+
+	conn net.Conn
+	mu   sync.Mutex
 
 	c    dataCipher
 	hmac func() hash.Hash
@@ -295,16 +297,28 @@ func (d *data) handleIn(packet []byte) {
 		log.Println("ERROR handleIn: empty packet")
 		return
 	}
+
+	// 0x30 is just pDataV1 + key_id=0
 	if packet[0] != 0x30 {
 		log.Println("ERROR handleIn: wrong data header")
 		return
 	}
+
+	// TODO so this is essentially:
+	// plaintext: decrypt(ctx, packet.payload)
+
 	data := packet[1:]
 	plaintext := d.decrypt(data)
 	if len(plaintext) == 0 {
 		log.Println("WARN handleIn: could not decrypt, skipped")
 		return
 	}
+
+	/* what follows deals with compression and de-serializes the "real"
+	   plaintext payload from the decrypted plaintext */
+
+	// ------------- begin compression routine ------------------------------
+	// pt = decompress(plaintext) ???
 
 	var compression byte
 	var payload []byte
@@ -339,30 +353,15 @@ func (d *data) handleIn(packet []byte) {
 		end := payload[len(payload)-1]
 		b := payload[:len(payload)-1]
 		payload = append([]byte{end}, b...)
-		/* I don't think I'm going to use this anytime soon, better remove
-		} else if compression == 0x45 {
-			log.Println("DEBUG (lz4)")
-			log.Println(hex.EncodeToString(payload))
-
-			end := payload[len(payload)-1]
-			b := payload[:len(payload)-1]
-			payload = append([]byte{end}, b...)
-			log.Println(hex.EncodeToString(payload))
-
-			decompr := make([]byte, len(payload)*20)
-			l, err := lz4.UncompressBlock(payload, decompr)
-			if err != nil {
-				log.Println("lz4 error:", err.Error())
-				return
-			}
-			payload = decompr[:l]
-			log.Println("payload:", payload)
-		} else if compression == 0x2a {
-			log.Println("LZO compression 0x2a not supported")
-		*/
 	} else {
 		log.Printf("WARN no compression supported: %x %d\n", compression, compression)
 	}
+
+	// ------------- end compression routine ------------------------------
+
+	// XXX this needs to be moved somewhere else:
+	// the data channel has decrypted a openvpn request for ping,
+	// we queue a reply.
 
 	if bytes.Equal(payload, getPingData()) {
 		log.Println("openvpn-ping, sending reply")

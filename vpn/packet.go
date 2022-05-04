@@ -105,6 +105,9 @@ func serializeControlPacket(packet *packet) []byte {
 
 // parseControlPacket processes
 func parseControlPacket(packet *packet) *packet {
+	if len(packet.payload) == 0 {
+		return packet
+	}
 	// TODO assert this is indeed a control packet
 	buf := bytes.NewBuffer(packet.payload)
 	// remote session id

@@ -8,11 +8,31 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
 	"sync"
 )
+
+/* REFACTOR CRUFT ------------------------------------------------------------------------ */
+// this state should go into the mux
+var (
+	// XXX HACK: i'm turning this into a global state so that it's easier to refactor.
+	// do not use w/o mutex
+	lastAck  uint32
+	ackmu    sync.Mutex
+	ackQueue = make(chan *packet, 100)
+)
+
+// this needs to be moved to muxer state
+func isNextPacket(p *packet) bool {
+	ackmu.Lock()
+	defer ackmu.Unlock()
+	return p.id-lastAck == 1
+}
+
+/* REFACTOR CRUFT ------------------------------------------------------------------------ */
 
 func newControl(c net.Conn, k *keySource, o *Options) *control {
 	q := make(chan []byte)
@@ -39,9 +59,7 @@ type control struct {
 	dataQueue  chan []byte
 	tlsIn      chan []byte
 	remoteOpts string
-	lastAck    int
-	closed     bool
-	ackmu      sync.Mutex
+	closed     bool // TODO delete
 }
 
 func (c *control) processIncoming() {
@@ -57,12 +75,12 @@ func (c *control) initSession() error {
 	}
 	c.SessionID = b
 	log.Printf("Local session ID: %x\n", string(c.SessionID))
+
+	// this is the root of all evil
 	go c.processIncoming()
 	return nil
 }
 
-// this is hacky, needs refactor. just trying to pass the data packets
-// to the data queue for now.
 func (c *control) addDataQueue(queue chan []byte) {
 	c.dataQueue = queue
 }
@@ -125,6 +143,8 @@ func (c *control) sendControl(opcode int, ack int, payload []byte) (n int, err e
 	if isTCP(c.Opts.Proto) {
 		p = toSizeFrame(p)
 	}
+	log.Printf("control write: (%d bytes)\n", len(p))
+	fmt.Println(hex.Dump(p))
 	return c.conn.Write(p)
 }
 
@@ -215,7 +235,7 @@ func (c *control) readControlMessage(d []byte) *keySource {
 	r, err := decodeOptionStringFromBytes(d[offset:])
 	if err != nil {
 		// TODO(ainghazal): do we depend on this? I think no
-		log.Println("WARN server sent bad options string")
+		log.Printf("WARN server sent bad options string: %s\n", err.Error())
 	}
 
 	log.Println("Remote opts:", r)
@@ -231,8 +251,9 @@ func (c *control) sendPushRequest() {
 }
 
 func (c *control) sendAck(pid uint32) {
-	c.ackmu.Lock()
-	defer c.ackmu.Unlock()
+	ackmu.Lock()
+	defer ackmu.Unlock()
+
 	if len(c.RemoteID) == 0 {
 		log.Fatal("Remote session should not be null!")
 	}
@@ -248,11 +269,14 @@ func (c *control) sendAck(pid uint32) {
 		p = toSizeFrame(p)
 	}
 	c.conn.Write(p)
-	c.lastAck = int(pid)
+	fmt.Println("write ack:", pid)
+	fmt.Println(hex.Dump(p))
+	lastAck = pid
 }
 
 func (c *control) handleIn(data []byte) {
-	// log.Println("handle in: ", len(data))
+	log.Println("HANDLE IN DATA===================================>")
+
 	op := data[0] >> 3
 	if op == byte(pControlV1) {
 		pid, _, payload := c.readControl(data)

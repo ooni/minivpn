@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 )
 
@@ -121,4 +122,23 @@ func bytesPadPKCS7(b []byte, blockSize int) ([]byte, error) {
 	psiz := blockSize - len(b)%blockSize
 	padding := bytes.Repeat([]byte{byte(psiz)}, psiz)
 	return append(b, padding...), nil
+}
+
+// bufReadUint32 is a convenience function that reads a uint32 from a 4-byte
+// buffer, returning an error if the operation failed.
+func bufReadUint32(buf *bytes.Buffer) (uint32, error) {
+	var numBuf [4]byte
+	_, err := io.ReadFull(buf, numBuf[:])
+	if err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint32(numBuf[:]), nil
+}
+
+// bufWriteUint32 is a convenience function that appends to the given buffer
+// 4 bytes containing the big-endian representation of the given uint32 value.
+func bufWriteUint32(buf *bytes.Buffer, val uint32) {
+	var numBuf [4]byte
+	binary.BigEndian.PutUint32(numBuf[:], val)
+	buf.Write(numBuf[:])
 }

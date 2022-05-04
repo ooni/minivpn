@@ -150,8 +150,11 @@ func (c *Client) Reset() error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
-	// TODO pass ctx, but watchout for cancel
-	go c.handleIncoming()
+	// we will transfer control to handshake now.
+	// TODO(ainghazal): do we expect an ACK here??
+	if isDebugOLD() {
+		go c.handleIncoming()
+	}
 	return nil
 }
 
@@ -262,6 +265,7 @@ func (c *Client) handleIncoming() {
 		log.Println("DEBUG Received ACK in main loop")
 	}
 	if isControlOpcode(op) {
+		log.Println("got control data", len(data))
 		c.ctrl.queue <- data
 	} else if isDataOpcode(op) {
 		c.data.queue <- data
@@ -320,6 +324,8 @@ func (c *Client) handleTLSIncoming() {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
 	var r = make([]byte, 4096)
+
+	// TODO(ainghazal): delegate this to the muxer
 	var n, err = c.ctrl.tls.Read(r)
 	if err != nil {
 		log.Println("ERROR: error reading", err.Error())
@@ -365,7 +371,6 @@ func (c *Client) WaitUntil(done chan bool) {
 }
 
 // Stop closes the tunnel connection.
-// TODO(ainghazal): WIP ---
 func (c *Client) Stop() {
 	rcvSem.Acquire(context.Background(), 1)
 	defer rcvSem.Release(1)
@@ -393,13 +398,8 @@ func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
 			log.Println("Timeout")
 			return r, fmt.Errorf("timeout")
 		default:
-			if c.HandshakeTimeout != 0 {
-				c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
-			}
 			if isTCP(c.Opts.Proto) {
-				// log.Println("==> rcv 2")
 				bl := make([]byte, 2)
-				c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
 				_, err := c.conn.Read(bl)
 				if err != nil {
 					log.Println("ERROR: reading data:", err.Error())
@@ -407,13 +407,13 @@ func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
 				}
 				l := int(binary.BigEndian.Uint16(bl))
 				r = make([]byte, l)
-				// log.Println("==> rcv", l)
-				c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.HandshakeTimeout) * time.Second))
 				n, err := c.conn.Read(r)
 				if err != nil {
 					log.Println("ERROR: reading data:", err.Error())
 					return r, err
 				}
+				log.Println("client recv: got", n)
+
 				return r[:n], nil
 			} else {
 				n, err := c.conn.Read(r)

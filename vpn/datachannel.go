@@ -2,10 +2,13 @@ package vpn
 
 import (
 	"errors"
+	"hash"
 	"io"
 	"log"
 	"sync"
 )
+
+type keySlot [64]byte
 
 // dataChannelConn is the data channel's view of the underlying conn.
 type dataChannelConn interface {
@@ -28,7 +31,7 @@ type dataChannelManager struct {
 	configure chan *dataChannelSettings
 
 	// done indicates we should stop running.
-	done chan interface{}	
+	done chan interface{}
 
 	// ch is the channel used by the Read.
 	readch chan []byte
@@ -42,20 +45,20 @@ type dataChannelManager struct {
 
 // dataChannelSettings contains settings for the data channel.
 type dataChannelSettings struct {
-	// local is the local key source.
-	local *keySource
-
 	// options contains options.
 	options *Options
 
-	// remoteID is the remote session ID.
-	remoteID []byte
+	// local is the local key source.
+	local *keySource
 
 	// remote is the remote key source.
 	remote *keySource
 
+	// remoteID is the remote session ID.
+	remoteID sessionID
+
 	// sessionID is the local session ID.
-	sessionID []byte
+	sessionID sessionID
 }
 
 // newDataChannelManager returns a new data channel manager.
@@ -207,19 +210,35 @@ func (dcm *dataChannelManager) loop(conn dataChannelConn, user dataChannelUser) 
 // dataChannelState is the state of the data channel.
 type dataChannelState struct {
 	// TODO: basically the fields of struct data.
+
+	cipherKeyLocal  keySlot
+	cipherKeyRemote keySlot
+	hmacKeyLocal    keySlot
+	hmacKeyRemote   keySlot
+
+	cipher dataCipher
+	hmac   func() hash.Hash
 }
 
 // setup configures or reconfigures the data channel state.
 func (dcs *dataChannelState) setup(config *dataChannelSettings) error {
 	// TODO: equivalent to data.initSession + data.setup
+
+	log.Printf("Cipher key local:  %x\n", dcs.cipherKeyLocal)
+	log.Printf("Cipher key remote: %x\n", dcs.cipherKeyRemote)
+	log.Printf("Hmac key local:    %x\n", dcs.hmacKeyLocal)
+	log.Printf("Hmac key remote:   %x\n", dcs.hmacKeyRemote)
+	return nil
 }
 
 // wrap wraps a user packet into a VPN packet.
 func (dcs *dataChannelState) wrap(up []byte) ([]byte, error) {
 	// TODO: equivalent to data.send without the final send call
+	return nil, nil
 }
 
 // unwrap unwraps a user packet from a VPN packet.
 func (dcs *dataChannelState) unwrap(vp []byte) ([]byte, error) {
 	// TODO: equivalent to data.handleIn without the final channel write
+	return nil, nil
 }

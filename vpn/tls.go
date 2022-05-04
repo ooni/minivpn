@@ -9,6 +9,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -18,6 +20,11 @@ import (
 
 const (
 	readTimeoutSeconds = 10
+)
+
+var (
+	// ErrBadHandshake is returned when the OpenVPN handshake failed.
+	ErrBadHandshake = errors.New("handshake failure")
 )
 
 // initTLS is part of the control channel. It initializes the TLS options with
@@ -56,23 +63,45 @@ func (c *control) initTLS() error {
 		tlsConf.Certificates = []tls.Certificate{cert}
 	}
 
-	bufReader := bytes.NewBuffer(nil)
-	ackq := make(chan []byte, 50)
-	cw := controlWrapper{control: c, bufReader: bufReader, ackQueue: ackq}
+	log.Println("TLS HANDSHAKE ~~~~~~~~~~~~~~~~~~~~ ")
+	log.Println("local pid:", c.localPID)
 
-	// start the data processing loop: it consumes packets read by the
-	// underlying conn and queued there to be processed.
-	go cw.runDataProcessLoop()
+	s := &session{sessionID: c.SessionID, localPID: c.localPID, control: c}
 
-	tlsConn := tls.Client(cw, tlsConf)
-	if err := tlsConn.Handshake(); err != nil {
-		return fmt.Errorf("%s %w", ErrBadHandshake, err)
+	if isDebugOLD() {
+		// old implementation ------------------------
+
+		bufReader := bytes.NewBuffer(nil)
+		ackq := make(chan []byte, 50)
+		cw := controlWrapper{control: c, bufReader: bufReader, ackQueue: ackq}
+
+		// start the data processing loop: it consumes packets read by the
+		// underlying conn and queued there to be processed.
+		go cw.runDataProcessLoop()
+
+		tlsConn := tls.Client(cw, tlsConf)
+		if err := tlsConn.Handshake(); err != nil {
+			return fmt.Errorf("%s %w", ErrBadHandshake, err)
+		}
+		c.tls = net.Conn(tlsConn)
+	} else {
+		// new transport
+
+		tlsConn, err := NewTLSConn(c.conn, s)
+		if err != nil {
+			return fmt.Errorf("%w: %s", ErrBadHandshake, err)
+		}
+		tls := tls.Client(tlsConn, tlsConf)
+		if err := tls.Handshake(); err != nil {
+			return fmt.Errorf("%w: %s", ErrBadHandshake, err)
+		}
 	}
-	log.Println("Handshake done!")
-	c.tls = net.Conn(tlsConn)
 
+	log.Println("Handshake done!")
 	return nil
 }
+
+// ----- all code below must die --------------------------------------------------
 
 // controlWrapper allows TLS Handshake to send its records
 // as part of one openvpn CONTROL_V1 packet. It reads from the net.Conn in the
@@ -92,15 +121,6 @@ func (cw controlWrapper) runDataProcessLoop() {
 	}
 }
 
-// we need to be able to perform a small reordering on our side - I believe
-// OpenVPN does something quite similar.
-func (cw controlWrapper) isConsecutive(b []byte) bool {
-	cw.control.ackmu.Lock()
-	defer cw.control.ackmu.Unlock()
-	pid, _, _ := cw.control.readControl(b)
-	return int(pid)-cw.control.lastAck == 1
-}
-
 // Write is simple: we just delegate wriites to the control channel, that packetizes and writes
 // to the tunnel conn.
 func (cw controlWrapper) Write(b []byte) (n int, err error) {
@@ -108,6 +128,10 @@ func (cw controlWrapper) Write(b []byte) (n int, err error) {
 }
 
 func (cw controlWrapper) Read(b []byte) (int, error) {
+	if !isDebugOLD() {
+		log.Println("cw read...", len(b))
+	}
+
 	if len(b) == 0 || cw.control.closed {
 		return 0, nil
 	}
@@ -117,6 +141,8 @@ func (cw controlWrapper) Read(b []byte) (int, error) {
 	select {
 	case p := <-cw.control.tlsIn:
 		cw.bufReader.Write(p)
+		log.Printf("tls: %d bytes\n", len(p))
+		fmt.Println(hex.Dump(p))
 		return cw.bufReader.Read(b)
 	// again, this is something empirical, but if I don't give some time
 	// to the tlsIn queue to catch up we don't move forward. code smell:
@@ -152,26 +178,24 @@ func (cw controlWrapper) doReadUDP(size int) {
 
 func (cw controlWrapper) doReadTCP(size int) (int, error) {
 	defer rcvSem.Release(1)
+	log.Println("--> read tcp")
 
+	/* read len-delimited tcp buffer -------------- */
 	bl := make([]byte, 2)
-	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
 	_, err := cw.control.conn.Read(bl)
 	if err != nil {
 		log.Println("read error:", err.Error())
 		return 2, err
 	}
 	e := int(binary.BigEndian.Uint16(bl))
-
 	b := make([]byte, e)
-	cw.control.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSeconds) * time.Second))
-
 	n, err := cw.control.conn.Read(b)
 	if err != nil {
 		log.Println("read error:", err.Error())
 		return n, err
 	}
-	cur := n
-	if cur == e {
+	//cur := n
+	if n == e {
 		cw.ackQueue <- append(bl, b...)
 		return n + 2, nil
 	}
@@ -189,7 +213,7 @@ func (cw controlWrapper) processControlData(d []byte) {
 		d = d[2:]
 		if len(d) != l {
 			if isDebug() {
-				log.Printf("WARN packet len mismatch: expected %d, got %d\n", l, len(d))
+				log.Printf("bad len: expected %d, got %d\n", l, len(d))
 			}
 			log.Println("dropping", len(d))
 			return
@@ -198,27 +222,31 @@ func (cw controlWrapper) processControlData(d []byte) {
 	if len(d) == 0 {
 		return
 	}
-	op := d[0] >> 3
-	if op == byte(pACKV1) {
-		// might want to do something with this ACK
-		log.Println("Received ACK")
+
+	p := newPacketFromBytes(d)
+	if p.isACK() {
+		log.Println("Received ACK; len:", len(d))
+		fmt.Println(hex.Dump(d))
 		return
 	}
-	// this is *only* a DATA_V1 for now
-	if isDataOpcode(op) {
+	if p.isData() {
 		cw.control.dataQueue <- d
 		return
-	} else if op != byte(pControlV1) {
-		log.Printf("WARN dropping unknown opcode: %v\n", op)
+	}
+	if !p.isControlV1() {
+		log.Printf("WARN dropping unknown opcode: %v\n", p.opcode)
 		return
 	}
-	if cw.isConsecutive(d) {
-		pid, _, payload := cw.control.readControl(d)
-		cw.control.sendAck(pid)
-		cw.control.tlsIn <- payload
+
+	// parse it
+	p = newControlPacketFromBytes(d)
+	if isNextPacket(p) {
+		log.Println("ack:", p.id)
+		cw.control.sendAck(p.id)
+		cw.control.tlsIn <- p.payload
 	} else {
 		// TODO add a delay here to avoid waste?
-		log.Println("Out of order: re-queue...")
+		log.Println("Out of order: re-queue. got", p.id, "expected:", lastAck+1)
 		cw.ackQueue <- d
 	}
 }
