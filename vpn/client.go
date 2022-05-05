@@ -10,17 +10,13 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
-)
-
-const (
-	UDPBufferSize = 8192
 )
 
 var (
@@ -62,7 +58,6 @@ type Client struct {
 	remoteKeySrc     *keySource
 	ctx              context.Context
 	cancel           context.CancelFunc
-	initSt           int
 	tunnelIP         string
 	tunMTU           int
 	conn             net.Conn
@@ -96,10 +91,6 @@ func (c *Client) Run() error {
 // Init is the first step to stablish an OpenVPN tunnel (out of five). It only
 // initializes local state, so it's not expected to fail.
 func (c *Client) Init() error {
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	c.ctx = ctx
-	c.cancel = cancel
 	ks, err := newKeySource()
 	c.localKeySrc = ks
 	return err
@@ -114,7 +105,6 @@ func (c *Client) Dial() error {
 		proto = protoTCP.String()
 	}
 	log.Printf("Connecting to %s:%s with proto %s\n", c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
-	// TODO pass context?
 	conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 
 	if err != nil {
@@ -124,7 +114,6 @@ func (c *Client) Dial() error {
 	c.ctrl = newControl(conn, c.localKeySrc, c.Opts)
 	c.ctrl.initSession()
 	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Opts)
-	c.ctrl.addDataQueue(c.data.queue)
 	return nil
 }
 
@@ -132,29 +121,19 @@ func (c *Client) Dial() error {
 // confirmation. It is the third step in an OpenVPN connection (out of five).
 func (c *Client) Reset() error {
 	log.Printf("Setting timeout to %ds.\n", c.HandshakeTimeout)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(c.HandshakeTimeout))
-	defer cancel()
+	c.ctrl.sendHardReset()
 
-	c.ctrl.sendHardReset(ctx)
-	r, err := c.recv(ctx, 0)
-	if err != nil {
-		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
-	}
-
-	id, err := c.ctrl.readHardReset(ctx, r)
+	// TODO refactor: parse packet -----------------------------------
+	// pa := parseHardReset([]byte) (uint32, error)
+	r := c.readPacket()
+	id, err := c.ctrl.readHardReset(r)
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
 	// this id is always going to be 0, is the first packet we ack
-	err = c.sendAck(uint32(id))
-	if err != nil {
-		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
-	}
+	// TODO get error
+	c.ctrl.sendAck(uint32(id))
 	// we will transfer control to handshake now.
-	// TODO(ainghazal): do we expect an ACK here??
-	if isDebugOLD() {
-		go c.handleIncoming()
-	}
 	return nil
 }
 
@@ -162,10 +141,6 @@ func (c *Client) Reset() error {
 // step in an OpenVPN connection (out of five).
 func (c *Client) InitTLS() error {
 	err := c.ctrl.initTLS()
-	c.initSt = stControlChannelOpen
-	// TODO these errors can be configuration errors (loading the keypair)
-	// or actual handshake errors, need to separate them.
-	// perhaps it make sense to load the certificates etc before touching the net...
 	return err
 }
 
@@ -175,121 +150,35 @@ func (c *Client) InitTLS() error {
 // of this exchange, the data channel is ready to be used. This is the fifth
 // and last step in an OpenVPN connection.
 func (c *Client) InitData() error {
-	for {
-		select {
-		case <-c.ctx.Done():
-			return nil
-		default:
-			switch {
-			case c.initSt == stControlChannelOpen:
-				c.sendFirstControl()
-			case c.initSt == stKeyExchanged:
-				c.sendPushRequest()
-			case c.initSt == stOptionsPushed:
-				c.initDataChannel()
-			case c.initSt == stInitialized:
-				c.handleDataChannel()
-				goto done
-			}
-		}
-	}
-done:
+	// TODO error handling
+	c.sendFirstControl()
+	c.sendPushRequest()
+	c.initDataChannel()
+	c.handleDataChannel()
 	return nil
 }
 
 func (c *Client) sendFirstControl() {
 	log.Println("Control channel open, sending auth...")
 	c.ctrl.sendControlMessage()
-	c.initSt = stControlMessageSent
-	c.handleTLSIncoming()
+	c.handleControlIncoming()
+
 }
 
 func (c *Client) sendPushRequest() {
 	log.Println("Key exchange complete")
 	c.ctrl.sendPushRequest()
-	c.initSt = stPullRequestSent
-	c.handleTLSIncoming()
+	c.handleControlIncoming()
 }
 
 func (c *Client) initDataChannel() {
 	c.data.initSession(c.ctrl)
 	c.data.setup()
 	log.Println("Initialization complete")
-	initialized = true
-	c.initSt = stInitialized
 }
 
 func (c *Client) handleDataChannel() {
-	go c.handleTLSIncoming()
-	c.initSt = stDataReady
-}
-
-func (c *Client) onKeyExchanged() {
-	c.initSt = stKeyExchanged
-}
-
-func (c *Client) sendAck(ackPid uint32) error {
-	// log.Printf("Client: ACK'ing packet %08x...", ackPid)
-	if len(c.ctrl.RemoteID) == 0 {
-		log.Println("Error: ack id cannot be zero")
-		return fmt.Errorf("%s:%s", ErrBadInit, "got null RemoteID")
-	}
-	p := make([]byte, 1)
-	p[0] = 0x28 // P_ACK_V1 0x05 (5b) + 0x0 (3b)
-	p = append(p, c.ctrl.SessionID...)
-	p = append(p, 0x01)
-	ack := make([]byte, 4)
-	binary.BigEndian.PutUint32(ack, ackPid)
-	p = append(p, ack...)
-	p = append(p, c.ctrl.RemoteID...)
-	if isTCP(c.Opts.Proto) {
-		p = toSizeFrame(p)
-	}
-	c.conn.Write(p)
-	return nil
-}
-
-func (c *Client) handleIncoming() {
-	data, err := c.recv(context.Background(), 4096)
-	if err != nil {
-		log.Println("DEBUG: handleIncoming error:", err.Error())
-		return
-	}
-	if len(data) == 0 {
-		return
-	}
-
-	op := data[0] >> 3
-
-	if op == byte(pACKV1) {
-		log.Println("DEBUG Received ACK in main loop")
-	}
-	if isControlOpcode(op) {
-		log.Println("got control data", len(data))
-		c.ctrl.queue <- data
-	} else if isDataOpcode(op) {
-		c.data.queue <- data
-	} else {
-		log.Printf("ERROR: unhandled data. (op: %d)\n", op)
-		fmt.Println(hex.Dump(data))
-	}
-}
-
-func (c *Client) onRemoteOpts() {
-	opts := strings.Split(c.ctrl.remoteOpts, ",")
-	for _, opt := range opts {
-		vals := strings.Split(opt, " ")
-		k, v := vals[0], vals[1:]
-		// TODO(ainghazal): use a type definition
-		if k == "tun-mtu" {
-			mtu, err := strconv.Atoi(v[0])
-			if err != nil {
-				log.Println("bad mtu:", err)
-				continue
-			}
-			c.tunMTU = mtu
-		}
-	}
+	go c.handleIncoming()
 }
 
 // I don't think I want to do much with the pushed options for now, other
@@ -297,7 +186,6 @@ func (c *Client) onRemoteOpts() {
 // and compare if there's a strong disagreement with the remote opts
 func (c *Client) onPush(data []byte) {
 	log.Println("Server pushed options")
-	c.initSt = stOptionsPushed
 	optStr := string(data[:len(data)-1])
 	opts := strings.Split(optStr, ",")
 	for _, opt := range opts {
@@ -320,26 +208,96 @@ func (c *Client) TunMTU() int {
 	return c.tunMTU
 }
 
-func (c *Client) handleTLSIncoming() {
-	c.rmu.Lock()
-	defer c.rmu.Unlock()
-	var r = make([]byte, 4096)
+func readPacketFromTCP(conn net.Conn) ([]byte, error) {
+	lenbuff := make([]byte, 2)
 
-	// TODO(ainghazal): delegate this to the muxer
-	var n, err = c.ctrl.tls.Read(r)
-	if err != nil {
-		log.Println("ERROR: error reading", err.Error())
+	if _, err := io.ReadFull(conn, lenbuff); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint16(lenbuff)
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+// TODO(ainghazal): move to the muxer
+func (c *Client) readPacket() []byte {
+	if isTCP(c.Opts.Proto) {
+		b, err := readPacketFromTCP(c.conn)
+		if err != nil {
+			log.Println("error reading", err.Error())
+			return nil
+		}
+		return b
+
+	} else {
+		var r = make([]byte, 4096)
+		n, err := c.conn.Read(r)
+		if err != nil {
+			log.Println("error reading", err.Error())
+			return nil
+		}
+		data := r[:n]
+		return data
+	}
+
+}
+
+// TODO refactor: move this to packet parsing too
+func (c *Client) onRemoteOpts() {
+	opts := strings.Split(c.ctrl.remoteOpts, ",")
+	for _, opt := range opts {
+		vals := strings.Split(opt, " ")
+		k, v := vals[0], vals[1:]
+		if k == "tun-mtu" {
+			mtu, err := strconv.Atoi(v[0])
+			if err != nil {
+				log.Println("bad mtu:", err)
+				continue
+			}
+			c.tunMTU = mtu
+		}
+	}
+}
+
+// XXX mostly debug for now, this is the muxer routing stuff
+func (c *Client) handleIncoming() bool {
+	data := c.readPacket()
+	p := newPacketFromBytes(data)
+	if p.isACK() {
+		log.Println("Got ACK")
+		return false
+	}
+	if p.isControl() {
+		log.Println("got control packet", len(data))
+		fmt.Println(hex.Dump(p.payload))
+		return true
+	} else if p.isData() {
+		log.Println("got data packet")
+		return true
+	} else {
+		log.Printf("ERROR: unhandled data. (op: %d)\n", p.opcode)
+		fmt.Println(hex.Dump(data))
+		return false
+	}
+}
+
+func (c *Client) handleControlIncoming() {
+	// TODO: refactor: move to packet
+	data := make([]byte, 4096)
+	if _, err := c.ctrl.tls.Read(data); err != nil {
+		log.Println("error reading:", err.Error())
 		return
 	}
-	data := r[:n]
 
 	if bytes.Equal(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
 		remoteKey := c.ctrl.readControlMessage(data)
+		// XXX where are the remote options coming from?
 		c.onRemoteOpts()
-		// TODO(ainghazal): update only in one place
 		c.remoteKeySrc = remoteKey
 		c.data.remoteKeySource = remoteKey
-		c.onKeyExchanged()
 	} else {
 		rpl := []byte("PUSH_REPLY")
 		if bytes.Equal(data[:len(rpl)], rpl) {
@@ -352,7 +310,8 @@ func (c *Client) handleTLSIncoming() {
 			log.Fatal("Aborting")
 			return
 		}
-		log.Println("I DONT KNOW THAT TO DO WITH THIS")
+		log.Println("ERROR: cannot handle control packet")
+		fmt.Println(hex.Dump(data))
 	}
 }
 
@@ -371,60 +330,9 @@ func (c *Client) WaitUntil(done chan bool) {
 }
 
 // Stop closes the tunnel connection.
+
 func (c *Client) Stop() {
-	rcvSem.Acquire(context.Background(), 1)
-	defer rcvSem.Release(1)
-	log.Println("Closing client conn...")
 	c.conn.Close()
-	c.cancel()
-	c.ctrl.closed = true
-}
-
-func (c *Client) recv(ctx context.Context, size int) ([]byte, error) {
-	ok := rcvSem.TryAcquire(1)
-	if !ok {
-		return []byte{}, nil
-	}
-	defer rcvSem.Release(1)
-	if !isTCP(c.Opts.Proto) {
-		if size == 0 {
-			size = UDPBufferSize
-		}
-	}
-	r := make([]byte, size)
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Timeout")
-			return r, fmt.Errorf("timeout")
-		default:
-			if isTCP(c.Opts.Proto) {
-				bl := make([]byte, 2)
-				_, err := c.conn.Read(bl)
-				if err != nil {
-					log.Println("ERROR: reading data:", err.Error())
-					return bl, err
-				}
-				l := int(binary.BigEndian.Uint16(bl))
-				r = make([]byte, l)
-				n, err := c.conn.Read(r)
-				if err != nil {
-					log.Println("ERROR: reading data:", err.Error())
-					return r, err
-				}
-				log.Println("client recv: got", n)
-
-				return r[:n], nil
-			} else {
-				n, err := c.conn.Read(r)
-				if err != nil {
-					log.Println("ERROR: reading data:", err.Error())
-					return r, err
-				}
-				return r[:n], nil
-			}
-		}
-	}
 }
 
 // DataChannel returns the internal data channel.

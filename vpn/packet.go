@@ -6,7 +6,19 @@ package vpn
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
+	"log"
+	"sync"
+)
+
+var (
+	errEmptyPayload      = errors.New("empty payload")
+	errBadKeyMethod      = errors.New("unsupported key method")
+	errBadControlMessage = errors.New("bad message")
+
+	controlMessageHeader = []byte{0x00, 0x00, 0x00, 0x00}
 )
 
 type sessionID [8]byte
@@ -27,6 +39,9 @@ type packet struct {
 	remoteSessionID sessionID
 	payload         []byte
 	acks            ackArray
+
+	// TODO remove this
+	parseOnce *sync.Once
 }
 
 // TODO(ainghazal): move those methods here
@@ -47,29 +62,169 @@ func (p *packet) isData() bool {
 	return isDataOpcode(p.opcode)
 }
 
+// serverControlMessage is sent by the server. it contains reply to the auth
+// and push requests. we initialize client's internal state after parsing the
+// fields contained in here.
+// TODO does this have a constant type? (can I write a parse function that
+// returns the right record?)
+type serverControlMessage struct {
+	// TODO code in
+	// client.onRemoteOpts()
+	// client.onKeyExchanged()
+	// client on.PushData()
+	// AUTH_FAILED
+	payload []byte
+}
+
+func (sc *serverControlMessage) valid() bool {
+	return bytes.Equal(sc.payload[:4], controlMessageHeader)
+}
+
+func newServerControlMessageFromBytes(buf []byte) *serverControlMessage {
+	return &serverControlMessage{buf}
+}
+
+// parseControlMessage gets a server control message and returns the value for
+// the remote key, the server remote options, and an error indicating if the
+// operation could not be completed.
+func parseServerControlMessage(sc *serverControlMessage) (*keySource, string, error) {
+	if !sc.valid() {
+		return nil, "", fmt.Errorf("%w: %s", errBadControlMessage, "bad header")
+	}
+	if len(sc.payload) < 71 {
+		return nil, "", fmt.Errorf("%w: bad len from server:%d", errBadControlMessage, len(sc.payload))
+	}
+	keyMethod := sc.payload[4]
+	if keyMethod != 2 {
+		return nil, "", fmt.Errorf("%w: %d", errBadKeyMethod, keyMethod)
+
+	}
+	// first chunk of random bytes
+	r1 := sc.payload[5:37]
+	// second chunk of random bytes
+	r2 := sc.payload[37:69]
+	options, err := decodeOptionStringFromBytes(sc.payload[69:])
+	if err != nil {
+		log.Printf("ERROR server sent bad options string: %s\n", err.Error())
+	}
+
+	log.Println("Remote opts:", options)
+	remoteKey := &keySource{r1: r1, r2: r2}
+	return remoteKey, options, nil
+}
+
+// encodeClientControlMessage returns a byte array with the payload for a control channel packet.
+// This is the packet that the client sends to the server with the key
+// material, local options and credentials (if username+password authentication is used).
+func encodeClientControlMessageAsBytes(k *keySource, o *Options) ([]byte, error) {
+	opt, err := encodeOptionStringToBytes(o.String())
+	if err != nil {
+		return nil, err
+	}
+	user, err := encodeOptionStringToBytes(string(o.Username))
+	if err != nil {
+		return nil, err
+	}
+	pass, err := encodeOptionStringToBytes(string(o.Password))
+	if err != nil {
+		return nil, err
+	}
+
+	var out bytes.Buffer
+	out.Write(controlMessageHeader)
+	out.WriteByte(0x02) // key method (2)
+	out.Write(k.Bytes())
+	out.Write(opt)
+	out.Write(user)
+	out.Write(pass)
+	return out.Bytes(), nil
+}
+
+// encodePushRequestAsBytes returns a byte array with the PUSH_REQUEST command.
+func encodePushRequestAsBytes() []byte {
+	var out bytes.Buffer
+	out.Write([]byte("PUSH_REQUEST"))
+	out.WriteByte(0x00)
+	return out.Bytes()
+}
+
 // packetFromBytes produces a packet after parsing the common header.
-// In TCP mode, it is assumed that the packet length part of the header has
+// In TCP mode, it is assumed that the packet length (part of the header) has
 // already been stripped out.
 func newPacketFromBytes(buf []byte) *packet {
 	if len(buf) < 2 {
 		return nil
 	}
 	packet := &packet{
-		opcode: buf[0] >> 3,
-		keyID:  buf[0] & 0x07,
+		opcode:    buf[0] >> 3,
+		keyID:     buf[0] & 0x07,
+		parseOnce: &sync.Once{},
 	}
 	packet.payload = make([]byte, len(buf)-1)
 	copy(packet.payload, buf[1:])
+	packet.parse()
 	return packet
 }
 
-// TODO while-refactor -------------------------------
-// XXX needed? return a parsed control packet
-// should return error if not a control packet too
-func newControlPacketFromBytes(buf []byte) *packet {
-	p := newPacketFromBytes(buf)
-	p = parseControlPacket(p)
-	return p
+// parse tries to parse the payload of the packet. this method can only be
+// called once.
+// TODO remove once
+func (p *packet) parse() error {
+	p.parseOnce.Do(func() {
+		if p.isControl() {
+			p.parseControlPacket()
+		}
+	})
+	return nil
+}
+
+// TODO make parsers an interface
+// parseControlPacket parses the contents of a packet.
+func (p *packet) parseControlPacket() error {
+	if len(p.payload) == 0 {
+		return errEmptyPayload
+	}
+	// TODO assert this is indeed a control packet
+	buf := bytes.NewBuffer(p.payload)
+
+	// TODO need to pass the local sessionID?
+	// session id
+	_, err := io.ReadFull(buf, p.localSessionID[:])
+	if err != nil {
+		return err
+	}
+	// ack array
+	code, err := buf.ReadByte()
+	if err != nil {
+		return err
+	}
+
+	// TODO: come to terms with acks
+	nAcks := int(code)
+	p.acks = make([]uint32, nAcks)
+	for i := 0; i < nAcks; i++ {
+		p.acks[i], err = bufReadUint32(buf)
+		if err != nil {
+			return nil
+		}
+	}
+	// local session id
+	if nAcks > 0 {
+		_, err = io.ReadFull(buf, p.remoteSessionID[:])
+		if err != nil {
+			return nil
+		}
+	}
+	// packet id
+	if p.opcode != pACKV1 {
+		p.id, err = bufReadUint32(buf)
+		if err != nil {
+			return nil
+		}
+	}
+	// payload
+	p.payload = buf.Bytes()
+	return nil
 }
 
 // TODO(ainghazal): make it a method?
@@ -77,7 +232,7 @@ func newControlPacketFromBytes(buf []byte) *packet {
 // wire.
 // TODO(ainghazal): this function should fail for non-control opcodes.
 // TODO(ainghazal): how do data packets work?
-func serializeControlPacket(packet *packet) []byte {
+func (packet *packet) Bytes() []byte {
 	buf := &bytes.Buffer{}
 	buf.WriteByte((packet.opcode << 3) | (packet.keyID & 0x07))
 	//  local session id --> we take this from the muxer
@@ -103,50 +258,21 @@ func serializeControlPacket(packet *packet) []byte {
 	return buf.Bytes()
 }
 
-// parseControlPacket processes
-func parseControlPacket(packet *packet) *packet {
-	if len(packet.payload) == 0 {
-		return packet
+// newACKPacket returns a packet with the P_ACK_V1 opcode.
+func newACKPacket(ackID uint32, lsid, rsid []byte) *packet {
+	acks := []uint32{ackID}
+	// in go 1.7, one could do:
+	// localSession := (*sessionID)(lsid)
+	var localSession, remoteSession sessionID
+	copy(localSession[:], lsid[:8])
+	copy(remoteSession[:], rsid[:8])
+	p := &packet{
+		opcode:          pACKV1,
+		localSessionID:  localSession,
+		remoteSessionID: remoteSession,
+		acks:            acks,
 	}
-	// TODO assert this is indeed a control packet
-	buf := bytes.NewBuffer(packet.payload)
-	// remote session id
-	_, err := io.ReadFull(buf, packet.localSessionID[:])
-	if err != nil {
-		return nil
-	}
-	// ack array
-	code, err := buf.ReadByte()
-	if err != nil {
-		return nil
-	}
-
-	// TODO: come to terms with acks
-	nAcks := int(code)
-	packet.acks = make([]uint32, nAcks)
-	for i := 0; i < nAcks; i++ {
-		packet.acks[i], err = bufReadUint32(buf)
-		if err != nil {
-			return nil
-		}
-	}
-	// local session id
-	if nAcks > 0 {
-		_, err = io.ReadFull(buf, packet.remoteSessionID[:])
-		if err != nil {
-			return nil
-		}
-	}
-	// packet id
-	if packet.opcode != pACKV1 {
-		packet.id, err = bufReadUint32(buf)
-		if err != nil {
-			return nil
-		}
-	}
-	// payload
-	packet.payload = buf.Bytes()
-	return packet
+	return p
 }
 
 func isControlOpcode(b byte) bool {

@@ -1,7 +1,7 @@
 package vpn
 
 //
-// Transports for OpenVPN over TCP and over UDP.
+// TLS transports for OpenVPN over TCP and over UDP.
 //
 
 import (
@@ -10,9 +10,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -23,6 +23,48 @@ var (
 	// ErrPacketTooShort indicates that a packet is too short.
 	ErrPacketTooShort = errors.New("packet too short")
 )
+
+// ------------------------------------------------------------------------------------------
+// TODO(ainghazal): this is an attempt to extract what mutable state do we need to pass around
+// for being able to write/read control packets. these fields were in control struct before.
+// TODO this state goes into --> dataChannelState
+type session struct {
+	sessionID []byte
+	localPID  uint32
+	mu        sync.Mutex
+
+	// TODO refactor: temporary workaround,
+	// to be able to send acks during the handshake
+	control *control
+}
+
+// localPacketID returns an unique Packet ID. It increments the counter.
+// TODO should warn when we're approaching the key end of life.
+func (s *session) localPacketID() uint32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pid := s.localPID
+	s.localPID++
+	return pid
+}
+
+// --------------------------------------------------------------------------------------------
+
+// there needs to be an interface between session <----> packetWriter
+func (s *session) localPacketIDAsBytes() []byte {
+	pid := make([]byte, 4)
+	binary.BigEndian.PutUint32(pid, s.localPacketID())
+	return pid
+}
+
+func (s *session) makeControlPayload(data []byte) ([]byte, error) {
+	var out bytes.Buffer
+	out.Write(s.sessionID)
+	out.WriteByte(0x00)
+	out.Write(s.localPacketIDAsBytes())
+	out.Write(data)
+	return out.Bytes(), nil
+}
 
 // TLSModeTransport is a transport for OpenVPN in TLS mode.
 //
@@ -66,19 +108,6 @@ func NewTLSModeTransport(conn net.Conn, s *session) (TLSModeTransport, error) {
 	}
 }
 
-// transportParsePacket is a convenience function for parsing packets.
-// TODO(ainghazal): this belongs to the muxer
-// TODO move to session for now?
-func transportParsePacket(buff []byte) (uint8, []byte, error) {
-	if len(buff) < 1 {
-		return 0, nil, ErrPacketTooShort
-	}
-	opcodeKeyID := buff[0]
-	buff = buff[1:]
-	fmt.Println(hex.Dump(buff))
-	return opcodeKeyID, buff, nil
-}
-
 // tlsModeTransportUDP implements TLSModeTransport for UDP.
 type tlsModeTransportUDP struct {
 	net.Conn
@@ -114,28 +143,22 @@ type tlsModeTransportTCP struct {
 	session *session
 }
 
+// refactor with a util function
 func (txp *tlsModeTransportTCP) ReadPacket() (*packet, error) {
-	log.Println("read tcp...")
-	lenbuff := make([]byte, 2)
-	if _, err := io.ReadFull(txp.Conn, lenbuff); err != nil {
+	buf, err := readPacketFromTCP(txp.Conn)
+	if err != nil {
 		return nil, err
 	}
-	length := binary.BigEndian.Uint16(lenbuff)
-	log.Println("debug: len", length)
 
-	buff := make([]byte, length)
-	if _, err := io.ReadFull(txp.Conn, buff); err != nil {
-		return nil, err
-	}
-	p := newPacketFromBytes(buff)
-	if p.isControlV1() {
-		p = parseControlPacket(p)
-	}
-	log.Println("Received packet id", p.id)
-
+	p := newPacketFromBytes(buf)
+	/*
+		if p.isControlV1() {
+			p = parseControlPacket(p)
+		}
+	*/
 	if p.isACK() {
-		log.Println("ACK, should skip...")
-		return nil, nil
+		log.Println("ACK, skip...")
+		return &packet{}, nil
 	}
 	return p, nil
 }
@@ -143,15 +166,15 @@ func (txp *tlsModeTransportTCP) ReadPacket() (*packet, error) {
 func (txp *tlsModeTransportTCP) WritePacket(opcodeKeyID uint8, data []byte) error {
 	log.Println("write control packet tcp")
 
-	// XXX dump from packet instead??
+	// REFACTOR: dump from packet instead
 	payload, err := txp.session.makeControlPayload(data)
 	if err != nil {
 		log.Println("error writing:", err.Error())
 		return err
 	}
 
+	// len = opcode + payload. use a packet method instead
 	length := make([]byte, 2)
-	// XXX watch out, I had an off-by-one bug!! the len is the payload + the opcode!!
 	binary.BigEndian.PutUint16(length, uint16(len(payload)+1))
 
 	var out bytes.Buffer
@@ -165,43 +188,19 @@ func (txp *tlsModeTransportTCP) WritePacket(opcodeKeyID uint8, data []byte) erro
 	return err
 }
 
-// TODO(ainghazal): this is an attempt to extract what mutable state do we need to pass around
-// for being able to write/read control packets. these fields were in control struct before.
-// TODO this state goes into --> dataChannelState
-type session struct {
-	sessionID []byte
-	localPID  uint32
-
-	// TODO refactor: temporary workaround to be able to send acks during the handshake
-	control *control
-}
-
-func (s *session) localPIDAsBytes() []byte {
-	pid := make([]byte, 4)
-	binary.BigEndian.PutUint32(pid, s.localPID)
-	return pid
-}
-
-func (s *session) makeControlPayload(data []byte) ([]byte, error) {
-	var out bytes.Buffer
-	out.Write(s.sessionID)
-	out.WriteByte(0x00)
-	out.Write(s.localPIDAsBytes())
-	out.Write(data)
-	// TODO(ainghazal): protect this increment
-	s.localPID++
-	return out.Bytes(), nil
-}
-
 // TLSConn implements net.Conn, and is passed to the tls.Client to perform a
 // TLS Handshake over OpenVPN control packets.
 type TLSConn struct {
-	tlsTr     TLSModeTransport
-	conn      net.Conn
-	session   *session
+	tlsTr   TLSModeTransport
+	conn    net.Conn
+	session *session
+	// we need a buffer because the tls records request less than the
+	// payload we receive.
 	bufReader *bytes.Buffer
 }
 
+// TODO refactor this algorithm into the control channel / muxer that is in
+// control of the reads on the net.Conn
 func (t *TLSConn) Read(b []byte) (int, error) {
 	// XXX this is basically the reliability layer. retry until next packet is received.
 	pa := &packet{}
@@ -209,7 +208,6 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 		if len(ackQueue) != 0 {
 			log.Printf("queued: %d packets", len(ackQueue))
 			for p := range ackQueue {
-				log.Println("trying packet:", p.id)
 				if isNextPacket(p) {
 					pa = p
 					break
@@ -219,32 +217,22 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 				}
 			}
 		}
-
 	read:
-		log.Println("read packet")
-		p, err := t.tlsTr.ReadPacket()
-		if err != nil {
-			log.Println("got error:", err.Error())
-			return 0, err
-		}
-		if isNextPacket(p) {
+		if p, _ := t.tlsTr.ReadPacket(); isNextPacket(p) {
 			pa = p
 			break
 		} else {
-			log.Println("queue")
 			ackQueue <- p
-			continue
 		}
 
 	}
-	if isNextPacket(pa) {
-		t.session.control.sendAck(pa.id)
-	}
+	t.session.control.sendAck(pa.id)
 	t.bufReader.Write(pa.payload)
 	return t.bufReader.Read(b)
 }
 
 func (t *TLSConn) Write(b []byte) (int, error) {
+	// TODO use a packet
 	opCode := byte(pControlV1 << 3)
 	err := t.tlsTr.WritePacket(opCode, b)
 	if err != nil {
@@ -283,18 +271,4 @@ func NewTLSConn(conn net.Conn, s *session) (*TLSConn, error) {
 	tlsConn := &TLSConn{tlsTr, conn, s, bufReader}
 	return tlsConn, err
 
-}
-
-// some convenience functions while debugging handshake, move to packet.go?
-
-func dumpOpcodeInfo(op uint8) {
-	log.Printf(">> opcode: %d. ack: %v, data: %v, control: %v\n", op, isACK(op), isDataOpcode(op), isControlOpcode(op))
-}
-
-func isControlV1(op uint8) bool {
-	return op == byte(pControlV1)
-}
-
-func isACK(op uint8) bool {
-	return op == byte(pACKV1)
 }
