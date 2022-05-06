@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sync"
 )
 
 var (
@@ -23,6 +22,10 @@ var (
 
 type sessionID [8]byte
 type ackArray []uint32
+
+func (s *sessionID) Bytes() []byte {
+	return s[:]
+}
 
 type packet struct {
 	// opcode is the packet message type (a P_* constant; high 5-bits of
@@ -39,9 +42,6 @@ type packet struct {
 	remoteSessionID sessionID
 	payload         []byte
 	acks            ackArray
-
-	// TODO remove this
-	parseOnce *sync.Once
 }
 
 // TODO(ainghazal): move those methods here
@@ -68,7 +68,6 @@ func (p *packet) isData() bool {
 // TODO does this have a constant type? (can I write a parse function that
 // returns the right record?)
 type serverControlMessage struct {
-	// TODO code in
 	// client.onRemoteOpts()
 	// client.onKeyExchanged()
 	// client on.PushData()
@@ -140,6 +139,35 @@ func encodeClientControlMessageAsBytes(k *keySource, o *Options) ([]byte, error)
 	return out.Bytes(), nil
 }
 
+type serverHardReset struct {
+	payload []byte
+}
+
+func newServerHardReset(b []byte) (*serverHardReset, error) {
+	if len(b) == 0 {
+		return nil, fmt.Errorf("%w: %s", errBadReset, "zero len")
+	}
+	p := &serverHardReset{b}
+	return p, nil
+}
+
+// parseServerHardReset returns the sessionID received from the server, or an
+// error if we could not parse the message.
+func parseServerHardReset(p *serverHardReset) (sessionID, error) {
+	s := sessionID{}
+	// TODO get the opcode from this, parse packet etc
+	// (assumes keyID == 0)
+	if p.payload[0] != 0x40 {
+		return s, fmt.Errorf("%w: %s", errBadReset, "bad header")
+	}
+	if len(p.payload) < 10 {
+		return s, fmt.Errorf("%w: %s", errBadReset, "not enough bytes")
+	}
+	var rs sessionID
+	copy(rs[:], p.payload[1:9])
+	return rs, nil
+}
+
 // encodePushRequestAsBytes returns a byte array with the PUSH_REQUEST command.
 func encodePushRequestAsBytes() []byte {
 	var out bytes.Buffer
@@ -156,9 +184,8 @@ func newPacketFromBytes(buf []byte) *packet {
 		return nil
 	}
 	packet := &packet{
-		opcode:    buf[0] >> 3,
-		keyID:     buf[0] & 0x07,
-		parseOnce: &sync.Once{},
+		opcode: buf[0] >> 3,
+		keyID:  buf[0] & 0x07,
 	}
 	packet.payload = make([]byte, len(buf)-1)
 	copy(packet.payload, buf[1:])
@@ -166,15 +193,23 @@ func newPacketFromBytes(buf []byte) *packet {
 	return packet
 }
 
+// TODO uint8
+func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
+	packet := &packet{
+		opcode:  opcode,
+		keyID:   keyID,
+		payload: payload,
+	}
+	return packet
+}
+
 // parse tries to parse the payload of the packet. this method can only be
 // called once.
-// TODO remove once
+// TODO convert into a pure function
 func (p *packet) parse() error {
-	p.parseOnce.Do(func() {
-		if p.isControl() {
-			p.parseControlPacket()
-		}
-	})
+	if p.isControl() {
+		p.parseControlPacket()
+	}
 	return nil
 }
 
@@ -187,7 +222,6 @@ func (p *packet) parseControlPacket() error {
 	// TODO assert this is indeed a control packet
 	buf := bytes.NewBuffer(p.payload)
 
-	// TODO need to pass the local sessionID?
 	// session id
 	_, err := io.ReadFull(buf, p.localSessionID[:])
 	if err != nil {
@@ -259,17 +293,15 @@ func (packet *packet) Bytes() []byte {
 }
 
 // newACKPacket returns a packet with the P_ACK_V1 opcode.
-func newACKPacket(ackID uint32, lsid, rsid []byte) *packet {
+func newACKPacket(ackID uint32, s *session) *packet {
 	acks := []uint32{ackID}
-	// in go 1.7, one could do:
-	// localSession := (*sessionID)(lsid)
-	var localSession, remoteSession sessionID
-	copy(localSession[:], lsid[:8])
-	copy(remoteSession[:], rsid[:8])
+	// var localSession, remoteSession sessionID
+	// copy(localSession[:], lsid[:8])
+	// copy(remoteSession[:], rsid[:8])
 	p := &packet{
 		opcode:          pACKV1,
-		localSessionID:  localSession,
-		remoteSessionID: remoteSession,
+		localSessionID:  s.LocalSessionID,
+		remoteSessionID: s.RemoteSessionID,
 		acks:            acks,
 	}
 	return p

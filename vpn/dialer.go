@@ -226,7 +226,8 @@ func (d *RawDialer) Dial() (net.PacketConn, error) {
 		done := make(chan bool) // TODO use a context instead
 		c.WaitUntil(done)
 	}
-	return packetConn{cl: d.c, dc: d.c.DataChannel()}, nil
+	return packetConn{cl: d.c}, nil
+	// dc: d.c.DataChannel()}, nil
 }
 
 // packetConn is a packet-oriented network connection using an OpenVPN tunnel. It

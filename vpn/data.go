@@ -21,25 +21,21 @@ func getPingData() []byte {
 	return []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
 }
 
-func newData(local, remote *keySource, o *Options) *data {
-	q := make(chan []byte, 10)
-	dq := make(chan []byte, 20)
-	d := &data{
-		opts:  o,
-		queue: q, dataQueue: dq,
-		localKeySource:  local,
-		remoteKeySource: remote,
-	}
+func newData(o *Options) *data {
+	d := &data{opts: o}
 	return d
 }
 
 type data struct {
 	/* get this from options */
-	opts            *Options
-	queue           chan []byte
-	dataQueue       chan []byte
-	localKeySource  *keySource
-	remoteKeySource *keySource
+	opts *Options
+	//queue           chan []byte
+	//dataQueue       chan []byte
+
+	/*
+		localKeySource  *keySource
+		remoteKeySource *keySource
+	*/
 
 	remoteID  []byte
 	sessionID []byte
@@ -59,40 +55,40 @@ type data struct {
 	hmac func() hash.Hash
 }
 
-func (d *data) dataChan() chan []byte {
-	return d.dataQueue
-}
-
-func (d *data) processIncoming() {
-	for data := range d.queue {
-		d.handleIn(data)
-	}
-}
-
 func (d *data) initSession(c *control) {
-	d.remoteID = c.RemoteID
-	d.sessionID = c.SessionID
+	// TODO no need, pass pointer to session ----------------
+	/* just to get it compiling */
+	var rem, loc []byte
+	copy(rem[:], c.session.RemoteSessionID[:])
+	copy(loc[:], c.session.LocalSessionID[:])
+	d.remoteID = rem
+	d.sessionID = loc
+	// ------------------------------------------------------
+
 	d.conn = c.conn
 	d.loadCipherFromOptions()
-	// TODO(ainghazal): accept a cancellable context to stop the loop?
-	go d.processIncoming()
 }
 
-func (d *data) setup() {
+// TODO keep prf state in a separate struct
+func (d *data) setup(dck *dataChannelKey, s *session) error {
+	if !dck.ready {
+		return fmt.Errorf("%w: %s", errDataChannelKey, "key not ready")
+
+	}
 	master := prf(
-		d.localKeySource.preMaster,
+		dck.local.preMaster,
 		[]byte("OpenVPN master secret"),
-		d.localKeySource.r1,
-		d.remoteKeySource.r1,
+		dck.local.r1,
+		dck.remote.r1,
 		[]byte{}, []byte{},
 		48)
 
 	keys := prf(
 		master,
 		[]byte("OpenVPN key expansion"),
-		d.localKeySource.r2,
-		d.remoteKeySource.r2,
-		d.sessionID, d.remoteID,
+		dck.local.r2,
+		dck.remote.r2,
+		s.LocalSessionID.Bytes(), s.RemoteSessionID.Bytes(),
 		256)
 
 	d.cipherKeyLocal, d.hmacKeyLocal = keys[0:64], keys[64:128]
@@ -102,6 +98,7 @@ func (d *data) setup() {
 	log.Printf("Cipher key remote: %x\n", d.cipherKeyRemote)
 	log.Printf("Hmac key local:    %x\n", d.hmacKeyLocal)
 	log.Printf("Hmac key remote:   %x\n", d.hmacKeyRemote)
+	return nil
 }
 
 // TODO bubble errors up
@@ -368,7 +365,4 @@ func (d *data) handleIn(packet []byte) {
 		d.send(getPingData())
 		return
 	}
-
-	// log.Printf("data: %x\n", payload)
-	d.dataQueue <- payload
 }

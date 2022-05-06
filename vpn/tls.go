@@ -24,6 +24,7 @@ var (
 )
 
 // TODO(ainghazal): add checks for valid certificates etc on config time.
+// TODO(ainghazal): return the net.Conn ?
 
 func (c *control) initTLS() error {
 	max := tls.VersionTLS13
@@ -55,10 +56,7 @@ func (c *control) initTLS() error {
 		tlsConf.Certificates = []tls.Certificate{cert}
 	}
 
-	// TODO: session must go to muxer
-	s := &session{sessionID: c.SessionID, localPID: c.localPID, control: c}
-
-	tlsConn, err := NewTLSConn(c.conn, s)
+	tlsConn, err := NewTLSConn(c.conn, c.session)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
 	}
@@ -69,6 +67,7 @@ func (c *control) initTLS() error {
 
 	// From now on, the communication over the control channel SHOULD happen
 	// over this new net.Conn - it encrypts the contents written to it.
+	// TODO assign this in control
 	c.tls = net.Conn(tls)
 
 	log.Println("Handshake done!")

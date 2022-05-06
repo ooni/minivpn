@@ -39,6 +39,7 @@ func NewClientFromSettings(o *Options) *Client {
 	return &Client{
 		Opts:             o,
 		HandshakeTimeout: t,
+		tunnel:           &tunnel{},
 		DialFn:           net.Dial,
 	}
 }
@@ -54,25 +55,28 @@ type Client struct {
 	Opts             *Options
 	HandshakeTimeout int
 	DialFn           DialFunc
-	localKeySrc      *keySource
-	remoteKeySrc     *keySource
-	ctx              context.Context
-	cancel           context.CancelFunc
-	tunnelIP         string
-	tunMTU           int
-	conn             net.Conn
-	ctrl             *control
-	data             *data
-	rmu              sync.Mutex
+
+	ctrl   *control
+	data   *data
+	tunnel *tunnel
+
+	conn net.Conn
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	rmu    sync.Mutex
+}
+
+type tunnel struct {
+	ip  string
+	mtu int
 }
 
 // Run starts the OpenVPN tunnel. It calls all the protocol steps serially.
 // If you want to perform only some parts, you should use each of the methods
 // above instead.
 func (c *Client) Run() error {
-	if err := c.Init(); err != nil {
-		return err
-	}
+
 	if err := c.Dial(); err != nil {
 		return err
 	}
@@ -86,14 +90,6 @@ func (c *Client) Run() error {
 		return err
 	}
 	return nil
-}
-
-// Init is the first step to stablish an OpenVPN tunnel (out of five). It only
-// initializes local state, so it's not expected to fail.
-func (c *Client) Init() error {
-	ks, err := newKeySource()
-	c.localKeySrc = ks
-	return err
 }
 
 // Dial opens a TCP/UDP socket against the remote, and creates an internal
@@ -111,9 +107,10 @@ func (c *Client) Dial() error {
 		return fmt.Errorf("%s: %w", ErrDialError, err)
 	}
 	c.conn = conn
-	c.ctrl = newControl(conn, c.localKeySrc, c.Opts)
+
+	c.ctrl = newControl(conn, c.Opts)
 	c.ctrl.initSession()
-	c.data = newData(c.localKeySrc, c.remoteKeySrc, c.Opts)
+	c.data = newData(c.Opts)
 	return nil
 }
 
@@ -126,14 +123,13 @@ func (c *Client) Reset() error {
 	// TODO refactor: parse packet -----------------------------------
 	// pa := parseHardReset([]byte) (uint32, error)
 	r := c.readPacket()
-	id, err := c.ctrl.readHardReset(r)
+	err := c.ctrl.readHardReset(r)
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
-	// this id is always going to be 0, is the first packet we ack
-	// TODO get error
-	c.ctrl.sendAck(uint32(id))
-	// we will transfer control to handshake now.
+	// this id is (always?) 0, is the first packet we ack
+	// TODO should I parse the packet id from server instead?
+	c.ctrl.sendAck(uint32(0))
 	return nil
 }
 
@@ -160,9 +156,12 @@ func (c *Client) InitData() error {
 
 func (c *Client) sendFirstControl() {
 	log.Println("Control channel open, sending auth...")
-	c.ctrl.sendControlMessage()
+	err := c.ctrl.sendControlMessage()
+	if err != nil {
+		// return err
+		log.Println("ERROR: sendFirstControl", err.Error())
+	}
 	c.handleControlIncoming()
-
 }
 
 func (c *Client) sendPushRequest() {
@@ -171,10 +170,19 @@ func (c *Client) sendPushRequest() {
 	c.handleControlIncoming()
 }
 
-func (c *Client) initDataChannel() {
+func (c *Client) initDataChannel() error {
 	c.data.initSession(c.ctrl)
-	c.data.setup()
+	key0, err := c.ctrl.session.ActiveKey()
+	if err != nil {
+		return err
+	}
+	err = c.data.setup(key0, c.ctrl.session)
+	if err != nil {
+		log.Println("ERROR: initDataChannel", err.Error())
+		return err
+	}
 	log.Println("Initialization complete")
+	return nil
 }
 
 func (c *Client) handleDataChannel() {
@@ -192,21 +200,24 @@ func (c *Client) onPush(data []byte) {
 		vals := strings.Split(opt, " ")
 		k, v := vals[0], vals[1:]
 		if k == "ifconfig" {
-			c.tunnelIP = v[0]
-			log.Println("tunnel_ip: ", c.tunnelIP)
+			c.tunnel.ip = v[0]
+			log.Println("tunnel_ip: ", c.tunnel.ip)
 		}
 	}
 }
 
+// this is not really needed, can read fields --------------------
 // TunnelIP returns the local IP that the server assigned us.
 func (c *Client) TunnelIP() string {
-	return c.tunnelIP
+	return c.tunnel.ip
 }
 
 // TunMTU returns the tun-mtu value that the remote advertises.
 func (c *Client) TunMTU() int {
-	return c.tunMTU
+	return c.tunnel.mtu
 }
+
+// transport
 
 func readPacketFromTCP(conn net.Conn) ([]byte, error) {
 	lenbuff := make([]byte, 2)
@@ -245,9 +256,9 @@ func (c *Client) readPacket() []byte {
 
 }
 
-// TODO refactor: move this to packet parsing too
-func (c *Client) onRemoteOpts() {
-	opts := strings.Split(c.ctrl.remoteOpts, ",")
+// TODO: move to options?
+func (c *Client) parseRemoteOptions(remoteOpts string) {
+	opts := strings.Split(remoteOpts, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
 		k, v := vals[0], vals[1:]
@@ -257,7 +268,7 @@ func (c *Client) onRemoteOpts() {
 				log.Println("bad mtu:", err)
 				continue
 			}
-			c.tunMTU = mtu
+			c.tunnel.mtu = mtu
 		}
 	}
 }
@@ -284,36 +295,46 @@ func (c *Client) handleIncoming() bool {
 	}
 }
 
-func (c *Client) handleControlIncoming() {
-	// TODO: refactor: move to packet
+// TODO: refactor: move to control -----------------------------------------
+func (c *Client) handleControlIncoming() error {
 	data := make([]byte, 4096)
 	if _, err := c.ctrl.tls.Read(data); err != nil {
 		log.Println("error reading:", err.Error())
-		return
+		return err
 	}
 
 	if bytes.Equal(data[:4], []byte{0x00, 0x00, 0x00, 0x00}) {
-		remoteKey := c.ctrl.readControlMessage(data)
-		// XXX where are the remote options coming from?
-		c.onRemoteOpts()
-		c.remoteKeySrc = remoteKey
-		c.data.remoteKeySource = remoteKey
+		remoteKey, opts, err := c.ctrl.readControlMessage(data)
+		if err != nil {
+			log.Println("ERROR: cannot parse control message")
+		}
+		key, err := c.ctrl.session.ActiveKey()
+		if err != nil {
+			log.Println("ERROR: cannot get active key", err.Error())
+			return err
+		}
+		key.addRemoteKey(remoteKey)
+		c.parseRemoteOptions(opts)
 	} else {
 		rpl := []byte("PUSH_REPLY")
 		if bytes.Equal(data[:len(rpl)], rpl) {
 			c.onPush(data)
-			return
+			return nil
 		}
 		badauth := []byte("AUTH_FAILED")
 		if bytes.Equal(data[:len(badauth)], badauth) {
 			log.Println(string(data))
 			log.Fatal("Aborting")
-			return
+			// TODO proper error
+			return fmt.Errorf("bad auth")
 		}
 		log.Println("ERROR: cannot handle control packet")
 		fmt.Println(hex.Dump(data))
 	}
+	return nil
 }
+
+// -----------------------------------------------------------------------------------
 
 // Write sends bytes into the tunnel.
 func (c *Client) Write(b []byte) {
@@ -333,9 +354,4 @@ func (c *Client) WaitUntil(done chan bool) {
 
 func (c *Client) Stop() {
 	c.conn.Close()
-}
-
-// DataChannel returns the internal data channel.
-func (c *Client) DataChannel() chan []byte {
-	return c.data.dataChan()
 }

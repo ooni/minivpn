@@ -8,10 +8,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"sync"
+)
+
+var (
+	errBadReset = errors.New("bad reset packet")
 )
 
 /* REFACTOR CRUFT ------------------------------------------------------------------------ */
@@ -28,33 +33,113 @@ var (
 func isNextPacket(p *packet) bool {
 	ackmu.Lock()
 	defer ackmu.Unlock()
+	if p == nil {
+		return false
+	}
 	return p.id-lastAck == 1
+}
+
+type control struct {
+	// local state
+	Opts    *Options
+	session *session
+
+	// TODO when is this populated?
+	remoteOpts string
+
+	tls  net.Conn
+	conn net.Conn
+}
+
+var errDataChannelKey = errors.New("bad key")
+
+// TODO pass these keys to datachannel via a key chan ??
+// TODO rename: dataChannelKey
+type dataChannelKey struct {
+	index  uint32
+	ready  bool
+	local  *keySource
+	remote *keySource
+	mu     sync.Mutex
+}
+
+func (dck *dataChannelKey) addRemoteKey(k *keySource) error {
+	dck.mu.Lock()
+	defer dck.mu.Unlock()
+	if dck.ready {
+		return fmt.Errorf("%w:%s", errDataChannelKey, "cannot overwrite remote key slot")
+	}
+	dck.remote = k
+	dck.ready = true
+	return nil
+}
+
+type session struct {
+	RemoteSessionID sessionID
+	LocalSessionID  sessionID
+	keys            []*dataChannelKey
+	keyID           int
+	localPacketID   uint32
+
+	mu sync.Mutex
+	// TODO refactor: temporary workaround ----------------------------
+	// to be able to send acks during the handshake (invert dependency)
+	control *control
+}
+
+// ActiveKey returns the dataChannelKey that is actively being used.
+func (s *session) ActiveKey() (*dataChannelKey, error) {
+	if len(s.keys) < s.keyID {
+		return nil, fmt.Errorf("%w: %s", errDataChannelKey, "no such key id")
+	}
+	dck := s.keys[s.keyID]
+	return dck, nil
+}
+
+// localPacketID returns an unique Packet ID. It increments the counter.
+// TODO should warn when we're approaching the key end of life.
+func (s *session) LocalPacketID() uint32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pid := s.localPacketID
+	s.localPacketID++
+	return pid
+}
+
+// there needs to be an interface between session <----> packetWriter --------------------- */
+func (s *session) localPacketIDAsBytes() []byte {
+	pid := make([]byte, 4)
+	binary.BigEndian.PutUint32(pid, s.LocalPacketID())
+	return pid
+}
+
+// TODO probably not needed, can use packet.Bytes() instead ------------------------------ */
+
+func (s *session) makeControlPayload(data []byte) ([]byte, error) {
+	var out bytes.Buffer
+	out.Write([]byte(s.LocalSessionID[:]))
+	out.WriteByte(0x00)
+	out.Write(s.localPacketIDAsBytes())
+	out.Write(data)
+	return out.Bytes(), nil
 }
 
 /* REFACTOR CRUFT ------------------------------------------------------------------------ */
 
-func newControl(c net.Conn, k *keySource, o *Options) *control {
-	q := make(chan []byte)
-	return &control{
-		Opts:   o,
-		conn:   c,
-		queue:  q,
-		keySrc: k,
+func newControl(c net.Conn, o *Options) *control {
+	key0 := &dataChannelKey{}
+	ctrl := &control{
+		Opts: o,
+		conn: c,
+		session: &session{
+			keys: []*dataChannelKey{key0},
+		},
 	}
-}
 
-type control struct {
-	Opts       *Options
-	RemoteID   []byte
-	SessionID  []byte
-	localPID   uint32
-	remoteOpts string
-	keySrc     *keySource
-
-	tls       net.Conn
-	conn      net.Conn
-	queue     chan []byte
-	dataQueue chan []byte
+	// FIXME hack! passing self pointer to tls -------------------------
+	ctrl.session.control = ctrl
+	// -----------------------------------------------------------------
+	return ctrl
 }
 
 func (c *control) initSession() error {
@@ -62,43 +147,46 @@ func (c *control) initSession() error {
 	if err != nil {
 		return err
 	}
-	c.SessionID = randomBytes
-	log.Printf("Local session ID: %x\n", string(c.SessionID))
+
+	// in go 1.17, one could do:
+	// localSession := (*sessionID)(lsid)
+	var localSession sessionID
+	copy(localSession[:], randomBytes[:8])
+
+	c.session.LocalSessionID = localSession
+	log.Printf("Local session ID: %x\n", localSession.Bytes())
+
+	localKey, err := newKeySource()
+	if err != nil {
+		return err
+	}
+
+	k, err := c.session.ActiveKey()
+	if err != nil {
+		return err
+	}
+	k.local = localKey
+
 	return nil
 }
 
-/*
-func (c *control) addDataQueue(queue chan []byte) {
-	c.dataQueue = queue
-}
-*/
-
 func (c *control) sendHardReset() {
-	// TODO move this to packet too
 	c.sendControl(pControlHardResetClientV2, 0, []byte(""))
 }
 
-func (c *control) readHardReset(d []byte) (int, error) {
-	if len(d) == 0 {
-		return 0, nil
+func (c *control) readHardReset(b []byte) error {
+	p, err := newServerHardReset(b)
+	if err != nil {
+		return err
 	}
-	// TODO opcode??
-	// REFACTOR: use parsed packet -------------------------------------
-	if d[0] != 0x40 {
-		return 0, fmt.Errorf("not a hard reset response packet")
-	}
+	remoteSession, err := parseServerHardReset(p)
+	c.session.RemoteSessionID = remoteSession
 
-	// REFACTOR: get from session --------------------------------------
-	if len(c.RemoteID) != 0 {
-		if !bytes.Equal(c.RemoteID[:], d[1:9]) {
-			log.Printf("Offending session ID: %08x\n", d[1:9])
-			return 0, fmt.Errorf("invalid remote session ID")
-		}
-	} else {
-		c.RemoteID = d[1:9]
-		log.Printf("Learned remote session ID: %x\n", c.RemoteID)
-	}
-	return 0, nil
+	// here we could check if we have received a remote session id but
+	// our session.remoteSessionID is != from all zeros
+
+	log.Printf("Learned remote session ID: %x\n", remoteSession.Bytes())
+	return nil
 }
 
 func (c *control) sendControlV1(data []byte) (n int, err error) {
@@ -106,50 +194,42 @@ func (c *control) sendControlV1(data []byte) (n int, err error) {
 }
 
 func (c *control) sendControl(opcode int, ack int, payload []byte) (n int, err error) {
-	// -----------------------------------------------------
-	// REFACTOR pa := newPacket() ... + serialize isn't it?
-	p := make([]byte, 1)
-	p[0] = byte(opcode << 3)
-	p = append(p, c.SessionID...)
-	p = append(p, 0x00) // no ack, so zero byte
-	// FIXME if ack, append the array
-	pid := make([]byte, 4)
-	binary.BigEndian.PutUint32(pid, c.localPID)
-	p = append(p, pid...)
-	c.localPID++
-	if len(payload) != 0 {
-		p = append(p, payload...)
-	}
+	p := newPacketFromPayload(uint8(opcode), 0, payload)
+	p.localSessionID = c.session.LocalSessionID
+	p.id = c.session.LocalPacketID()
+	out := p.Bytes()
+
+	// move this to the transport below, care about TCP frame there. ---------
 	if isTCP(c.Opts.Proto) {
-		p = toSizeFrame(p)
+		out = toSizeFrame(out)
 	}
-	log.Printf("control write: (%d bytes)\n", len(p))
-	fmt.Println(hex.Dump(p))
-	return c.conn.Write(p)
+	// REFACTOR --------------------------------------------------------------
+	log.Printf("control write: (%d bytes)\n", len(out))
+	fmt.Println(hex.Dump(out))
+	return c.conn.Write(out)
 }
 
-// sends a control channel packet, not a P_CONTROL
-// TODO(ainghazal): return error too
-func (c *control) sendControlMessage() {
-	payload, err := encodeClientControlMessageAsBytes(c.keySrc, c.Opts)
+// sendControlMessage sends a message over the control channel packet
+// (this is not a P_CONTROL, but a message over the TLS encrypted channel).
+func (c *control) sendControlMessage() error {
+	key, err := c.session.ActiveKey()
 	if err != nil {
-		log.Println("ERROR: cannot encode control message", err.Error())
+		return err
 	}
-	// this is the first control message *after* the handshake.
-	// we send it through the *encrypted* control channel.
-	// this write is now encrypted by the tls conn!
+	payload, err := encodeClientControlMessageAsBytes(key.local, c.Opts)
+	if err != nil {
+		return err
+	}
 	c.tls.Write(payload)
+	return nil
 }
 
-// reads the control message with authentication result data
-func (c *control) readControlMessage(d []byte) *keySource {
+// readControlMessage reads a control message with authentication result data.
+// it returns the remote key, remote options and an error if we cannot parse
+// the data.
+func (c *control) readControlMessage(d []byte) (*keySource, string, error) {
 	cm := newServerControlMessageFromBytes(d)
-	key, options, err := parseServerControlMessage(cm)
-	if err != nil {
-		log.Printf("ERROR bad control message from server: %s\n", err.Error())
-	}
-	c.remoteOpts = options
-	return key
+	return parseServerControlMessage(cm)
 }
 
 func (c *control) sendPushRequest() {
@@ -158,12 +238,12 @@ func (c *control) sendPushRequest() {
 
 // TODO return error
 func (c *control) sendAck(pid uint32) {
-	panicIfFalse(len(c.RemoteID) != 0, "tried to ack with null remote")
+	panicIfFalse(len(c.session.RemoteSessionID) != 0, "tried to ack with null remote")
 
 	ackmu.Lock()
 	defer ackmu.Unlock()
 
-	p := newACKPacket(pid, c.SessionID, c.RemoteID)
+	p := newACKPacket(pid, c.session)
 	payload := p.Bytes()
 
 	if isTCP(c.Opts.Proto) {
