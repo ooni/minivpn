@@ -54,6 +54,11 @@ type TLSModeTransport interface {
 }
 
 // NewTLSModeTransport creates a new TLSModeTransport using the given net.Conn.
+// TODO refactor --------------------------------------------
+// we currently need the session because:
+// 1. we get a hold on the localPacketID during write.
+// 2. we need to send (queue?) acks during reads.
+// TODO I think there's no need to split udp/tcp.
 func NewTLSModeTransport(conn net.Conn, s *session) (TLSModeTransport, error) {
 	switch network := conn.LocalAddr().Network(); network {
 	case "tcp", "tcp4", "tcp6":
@@ -116,27 +121,21 @@ func (txp *tlsModeTransportTCP) ReadPacket() (*packet, error) {
 }
 
 func (txp *tlsModeTransportTCP) WritePacket(opcodeKeyID uint8, data []byte) error {
-	log.Println("write control packet tcp")
+	p := newPacketFromPayload(opcodeKeyID, 0, data)
+	p.id = txp.session.LocalPacketID()
+	p.localSessionID = txp.session.LocalSessionID
+	payload := p.Bytes()
 
-	// REFACTOR: dump from packet instead ------------------
-	payload, err := txp.session.makeControlPayload(data)
-	if err != nil {
-		log.Println("error writing:", err.Error())
-		return err
-	}
-
-	// len = opcode + payload. use a packet method instead
 	length := make([]byte, 2)
-	binary.BigEndian.PutUint16(length, uint16(len(payload)+1))
-
+	binary.BigEndian.PutUint16(length, uint16(len(payload)))
 	var out bytes.Buffer
 	out.Write(length)
-	out.WriteByte(opcodeKeyID)
 	out.Write(payload)
 
 	log.Println("tls write:", len(out.Bytes()))
 	fmt.Println(hex.Dump(out.Bytes()))
-	_, err = txp.Conn.Write(out.Bytes())
+
+	_, err := txp.Conn.Write(out.Bytes())
 	return err
 }
 
@@ -182,16 +181,14 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 		}
 
 	}
-	// XXX use a channel?  --- although this read will be on the muxer.
-	t.session.control.sendAck(pa.id)
+
+	sendACK(t.conn, t.session, pa.id)
 	t.bufReader.Write(pa.payload)
 	return t.bufReader.Read(b)
 }
 
 func (t *TLSConn) Write(b []byte) (int, error) {
-	// TODO use a packet
-	opCode := byte(pControlV1 << 3)
-	err := t.tlsTr.WritePacket(opCode, b)
+	err := t.tlsTr.WritePacket(uint8(pControlV1), b)
 	if err != nil {
 		log.Println("ERROR write:", err.Error())
 	}

@@ -8,7 +8,8 @@ import (
 	"sync"
 )
 
-type keySlot [64]byte
+// TODO remove
+type keySlot1 [64]byte
 
 // dataChannelConn is the data channel's view of the underlying conn.
 type dataChannelConn interface {
@@ -208,9 +209,7 @@ func (dcm *dataChannelManager) loop(conn dataChannelConn, user dataChannelUser) 
 }
 
 // dataChannelState is the state of the data channel.
-type dataChannelState struct {
-	// TODO: basically the fields of struct data.
-
+type dataChannelState1 struct {
 	cipherKeyLocal  keySlot
 	cipherKeyRemote keySlot
 	hmacKeyLocal    keySlot

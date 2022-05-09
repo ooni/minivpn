@@ -16,8 +16,11 @@ var (
 	errEmptyPayload      = errors.New("empty payload")
 	errBadKeyMethod      = errors.New("unsupported key method")
 	errBadControlMessage = errors.New("bad message")
+	errBadServerReply    = errors.New("bad server reply")
+	errBadAuth           = errors.New("server says: bad auth")
 
 	controlMessageHeader = []byte{0x00, 0x00, 0x00, 0x00}
+	pingPayload          = []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
 )
 
 type sessionID [8]byte
@@ -44,14 +47,17 @@ type packet struct {
 	acks            ackArray
 }
 
-// TODO(ainghazal): move those methods here
-
 func (p *packet) isACK() bool {
-	return isACKOpcode(p.opcode)
+	return p.opcode == byte(pACKV1)
 }
 
 func (p *packet) isControl() bool {
-	return isControlOpcode(p.opcode)
+	switch p.opcode {
+	case byte(pControlHardResetServerV2), byte(pControlV1):
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *packet) isControlV1() bool {
@@ -59,7 +65,12 @@ func (p *packet) isControlV1() bool {
 }
 
 func (p *packet) isData() bool {
-	return isDataOpcode(p.opcode)
+	switch p.opcode {
+	case byte(pDataV1):
+		return true
+	default:
+		return false
+	}
 }
 
 // serverControlMessage is sent by the server. it contains reply to the auth
@@ -68,10 +79,6 @@ func (p *packet) isData() bool {
 // TODO does this have a constant type? (can I write a parse function that
 // returns the right record?)
 type serverControlMessage struct {
-	// client.onRemoteOpts()
-	// client.onKeyExchanged()
-	// client on.PushData()
-	// AUTH_FAILED
 	payload []byte
 }
 
@@ -151,12 +158,12 @@ func newServerHardReset(b []byte) (*serverHardReset, error) {
 	return p, nil
 }
 
-// parseServerHardReset returns the sessionID received from the server, or an
+// parseServerHardResetPacket returns the sessionID received from the server, or an
 // error if we could not parse the message.
-func parseServerHardReset(p *serverHardReset) (sessionID, error) {
+func parseServerHardResetPacket(p *serverHardReset) (sessionID, error) {
 	s := sessionID{}
 	// TODO get the opcode from this, parse packet etc
-	// (assumes keyID == 0)
+	// BUG: this function assumes keyID == 0
 	if p.payload[0] != 0x40 {
 		return s, fmt.Errorf("%w: %s", errBadReset, "bad header")
 	}
@@ -193,7 +200,6 @@ func newPacketFromBytes(buf []byte) *packet {
 	return packet
 }
 
-// TODO uint8
 func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
 	packet := &packet{
 		opcode:  opcode,
@@ -203,9 +209,8 @@ func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
 	return packet
 }
 
-// parse tries to parse the payload of the packet. this method can only be
-// called once.
 // TODO convert into a pure function
+// parse tries to parse the payload of the packet.
 func (p *packet) parse() error {
 	if p.isControl() {
 		p.parseControlPacket()
@@ -261,18 +266,11 @@ func (p *packet) parseControlPacket() error {
 	return nil
 }
 
-// TODO(ainghazal): make it a method?
-// serializeControlPacket returns a byte array that is ready to be sent on the
-// wire.
-// TODO(ainghazal): this function should fail for non-control opcodes.
-// TODO(ainghazal): how do data packets work?
+// Bytes returns a byte array that is ready to be sent on the wire.
 func (packet *packet) Bytes() []byte {
 	buf := &bytes.Buffer{}
 	buf.WriteByte((packet.opcode << 3) | (packet.keyID & 0x07))
-	//  local session id --> we take this from the muxer
 	buf.Write(packet.localSessionID[:])
-	// TODO how do acks work?
-	//  acks --> if we have acks for this packet (??),
 	// we write a byte with the number of acks, and then
 	// serialize each ack.
 	// TODO(ainghazal): boundary check, ackArray must be <255.
@@ -295,9 +293,6 @@ func (packet *packet) Bytes() []byte {
 // newACKPacket returns a packet with the P_ACK_V1 opcode.
 func newACKPacket(ackID uint32, s *session) *packet {
 	acks := []uint32{ackID}
-	// var localSession, remoteSession sessionID
-	// copy(localSession[:], lsid[:8])
-	// copy(remoteSession[:], rsid[:8])
 	p := &packet{
 		opcode:          pACKV1,
 		localSessionID:  s.LocalSessionID,
@@ -306,31 +301,3 @@ func newACKPacket(ackID uint32, s *session) *packet {
 	}
 	return p
 }
-
-func isControlOpcode(b byte) bool {
-	switch b {
-	case byte(pControlHardResetServerV2), byte(pControlV1):
-		return true
-	default:
-		return false
-	}
-}
-
-func isDataOpcode(b byte) bool {
-	switch b {
-	case byte(pDataV1):
-		return true
-	default:
-		return false
-	}
-}
-
-func isACKOpcode(b byte) bool {
-	return b == byte(pACKV1)
-}
-
-//
-// TODO
-//
-// [ ] implement unwrap/decrypt functions for data packets?
-// [ ] implement unwrap methods for control packet? (options etc)

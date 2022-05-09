@@ -17,6 +17,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -106,6 +107,48 @@ func (o *Options) String() string {
 	}
 	log.Println("Local opts: ", s)
 	return s
+}
+
+//
+// parsing options returned or pushed by server
+//
+// TODO unsure if this is the best place to put this
+func parseRemoteOptions(remoteOpts string) (*tunnel, error) {
+	opts := strings.Split(remoteOpts, ",")
+	tunnel := &tunnel{}
+	for _, opt := range opts {
+		vals := strings.Split(opt, " ")
+		k, v := vals[0], vals[1:]
+		if k == "tun-mtu" {
+			mtu, err := strconv.Atoi(v[0])
+			if err != nil {
+				log.Println("bad mtu:", err)
+				continue
+			}
+			tunnel.mtu = mtu
+		}
+	}
+	return tunnel, nil
+}
+
+// I don't think I want to do much with the pushed options for now, other
+// than extracting the tunnel ip, but it can be useful to parse them into a map
+// and compare if there's a strong disagreement with the remote opts
+// XXX right now this only returns the ip. we could accept a tunnel struct and
+// write to it.
+func parsePushedOptions(pushedOptions []byte) string {
+	log.Println("Server pushed options")
+	optStr := string(pushedOptions[:len(pushedOptions)-1])
+	opts := strings.Split(optStr, ",")
+	for _, opt := range opts {
+		vals := strings.Split(opt, " ")
+		k, v := vals[0], vals[1:]
+		if k == "ifconfig" {
+			log.Println("tunnel_ip: ", v[0])
+			return v[0]
+		}
+	}
+	return ""
 }
 
 func getHashLength(s string) int {

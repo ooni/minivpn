@@ -1,5 +1,6 @@
 package vpn
 
+// TODO move to control.go
 //
 // TLS initialization and read/write wrappers
 //
@@ -23,13 +24,13 @@ var (
 	ErrBadHandshake = errors.New("handshake failure")
 )
 
+// InitTLS performs a TLS handshake over the control channel. It is the fourth
+// step in an OpenVPN connection (out of five).
 // TODO(ainghazal): add checks for valid certificates etc on config time.
-// TODO(ainghazal): return the net.Conn ?
-
-func (c *control) initTLS() error {
+func (c *control) InitTLS(conn net.Conn, session *session) (net.Conn, error) {
 	max := tls.VersionTLS13
 
-	if c.Opts.TLSMaxVer == "1.2" {
+	if c.Options().TLSMaxVer == "1.2" {
 		max = tls.VersionTLS12
 	}
 
@@ -39,37 +40,33 @@ func (c *control) initTLS() error {
 		MaxVersion:         uint16(max),
 	}
 
+	// TODO make cert checks a pre-run check.
 	// we assume a non-empty cert means we've got also a valid ca and key,
 	// but should check
-	if c.Opts.Cert != "" {
+	if c.Options().Cert != "" {
 		ca := x509.NewCertPool()
-		caData, err := ioutil.ReadFile(c.Opts.Ca)
+		caData, err := ioutil.ReadFile(c.Options().Ca)
 		if err != nil {
-			return fmt.Errorf("%s %w", ErrBadCA, err)
+			return nil, fmt.Errorf("%s %w", ErrBadCA, err)
 		}
 		ca.AppendCertsFromPEM(caData)
-		cert, err := tls.LoadX509KeyPair(c.Opts.Cert, c.Opts.Key)
+		cert, err := tls.LoadX509KeyPair(c.Options().Cert, c.Options().Key)
 		if err != nil {
-			return fmt.Errorf("%s %w", ErrBadKeypair, err)
+			return nil, fmt.Errorf("%s %w", ErrBadKeypair, err)
 		}
 		tlsConf.RootCAs = ca
 		tlsConf.Certificates = []tls.Certificate{cert}
 	}
 
-	tlsConn, err := NewTLSConn(c.conn, c.session)
+	tlsConn, err := NewTLSConn(conn, session)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
+		return nil, fmt.Errorf("%w: %s", ErrBadHandshake, err)
 	}
-	tls := tls.Client(tlsConn, tlsConf)
-	if err := tls.Handshake(); err != nil {
-		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
+	tlsClient := tls.Client(tlsConn, tlsConf)
+	if err := tlsClient.Handshake(); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadHandshake, err)
 	}
 
-	// From now on, the communication over the control channel SHOULD happen
-	// over this new net.Conn - it encrypts the contents written to it.
-	// TODO assign this in control
-	c.tls = net.Conn(tls)
-
-	log.Println("Handshake done!")
-	return nil
+	log.Println("TLS handshake done!")
+	return net.Conn(tlsClient), nil
 }

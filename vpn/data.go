@@ -5,10 +5,10 @@ package vpn
 //
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"log"
@@ -17,60 +17,79 @@ import (
 	"sync"
 )
 
-func getPingData() []byte {
-	return []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
-}
+var (
+	errDataChannelKey = errors.New("bad key")
+)
 
-func newData(o *Options) *data {
-	d := &data{opts: o}
-	return d
-}
+type keySlot [64]byte
 
+// data represents the data channel, that will encrypt and decrypt the tunnel payloads.
+// data implements the dataHandler interface.
 type data struct {
-	/* get this from options */
-	opts *Options
-	//queue           chan []byte
-	//dataQueue       chan []byte
-
-	/*
-		localKeySource  *keySource
-		remoteKeySource *keySource
-	*/
-
-	remoteID  []byte
-	sessionID []byte
-
-	cipherKeyLocal  []byte
-	cipherKeyRemote []byte
-	hmacKeyLocal    []byte
-	hmacKeyRemote   []byte
-
-	localPacketID  uint32
-	remotePacketID uint32
-
-	conn net.Conn
-	mu   sync.Mutex
-
-	c    dataCipher
-	hmac func() hash.Hash
+	options *Options
+	session *session
+	state   *dataChannelState
 }
 
-func (d *data) initSession(c *control) {
-	// TODO no need, pass pointer to session ----------------
-	/* just to get it compiling */
-	var rem, loc []byte
-	copy(rem[:], c.session.RemoteSessionID[:])
-	copy(loc[:], c.session.LocalSessionID[:])
-	d.remoteID = rem
-	d.sessionID = loc
-	// ------------------------------------------------------
-
-	d.conn = c.conn
-	d.loadCipherFromOptions()
+// dataChannelState is the state of the data channel.
+// TODO add mutex to protect updates to remotePacketID
+type dataChannelState struct {
+	dataCipher      dataCipher
+	hmac            func() hash.Hash
+	remotePacketID  uint32
+	cipherKeyLocal  keySlot
+	cipherKeyRemote keySlot
+	hmacKeyLocal    keySlot
+	hmacKeyRemote   keySlot
 }
 
-// TODO keep prf state in a separate struct
-func (d *data) setup(dck *dataChannelKey, s *session) error {
+// dataChannelKey represents  one of the key sources that have been negotiated
+// over the control channel, and from which we will derive local and remote keys for encryption and decrption
+// over the data channel. The index refers to the short key_id that is passed in the lower 3 bits if a packet header.
+// The setup of the keys for a given data channel (that is, for every key_id) is made by expanding the
+// keysources using the prf function.
+// Do note that we are not yet implementing key renegotiation - but the index is provided for convenience
+// when/if we support that in the future.
+type dataChannelKey struct {
+	index  uint32
+	ready  bool
+	local  *keySource
+	remote *keySource
+	mu     sync.Mutex
+}
+
+func (dck *dataChannelKey) addRemoteKey(k *keySource) error {
+	dck.mu.Lock()
+	defer dck.mu.Unlock()
+	if dck.ready {
+		return fmt.Errorf("%w:%s", errDataChannelKey, "cannot overwrite remote key slot")
+	}
+	dck.remote = k
+	dck.ready = true
+	return nil
+}
+
+// newDataFromOptions returns a new data object, initialized with the
+// options given. it also returns any error raised.
+func newDataFromOptions(opt *Options, s *session) (*data, error) {
+	state := &dataChannelState{}
+	data := &data{options: opt, session: s, state: state}
+	log.Println("Setting cipher:", opt.Cipher)
+	dataCipher, err := newDataCipherFromCipherSuite(opt.Cipher)
+	if err != nil {
+		return data, err
+	}
+	data.state.dataCipher = dataCipher
+	log.Println("Setting auth:", opt.Auth)
+	hmac, ok := newHMACFactory(strings.ToLower(opt.Auth))
+	if !ok {
+		return data, fmt.Errorf("%w:%s", errBadInput, "no such mac")
+	}
+	data.state.hmac = hmac
+	return data, nil
+}
+
+func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
 	if !dck.ready {
 		return fmt.Errorf("%w: %s", errDataChannelKey, "key not ready")
 
@@ -91,39 +110,31 @@ func (d *data) setup(dck *dataChannelKey, s *session) error {
 		s.LocalSessionID.Bytes(), s.RemoteSessionID.Bytes(),
 		256)
 
-	d.cipherKeyLocal, d.hmacKeyLocal = keys[0:64], keys[64:128]
-	d.cipherKeyRemote, d.hmacKeyRemote = keys[128:192], keys[192:256]
+	var keyLocal, hmacLocal, keyRemote, hmacRemote keySlot
+	copy(keyLocal[:], keys[0:64])
+	copy(hmacLocal[:], keys[64:128])
+	copy(keyRemote[:], keys[128:192])
+	copy(hmacRemote[:], keys[192:256])
 
-	log.Printf("Cipher key local:  %x\n", d.cipherKeyLocal)
-	log.Printf("Cipher key remote: %x\n", d.cipherKeyRemote)
-	log.Printf("Hmac key local:    %x\n", d.hmacKeyLocal)
-	log.Printf("Hmac key remote:   %x\n", d.hmacKeyRemote)
+	d.state.cipherKeyLocal = keyLocal
+	d.state.hmacKeyLocal = hmacLocal
+	d.state.cipherKeyRemote = keyRemote
+	d.state.hmacKeyRemote = hmacRemote
+
+	log.Printf("Cipher key local:  %x\n", keyLocal)
+	log.Printf("Cipher key remote: %x\n", keyRemote)
+	log.Printf("Hmac key local:    %x\n", hmacLocal)
+	log.Printf("Hmac key remote:   %x\n", hmacRemote)
 	return nil
 }
 
-// TODO bubble errors up
-func (d *data) loadCipherFromOptions() {
-	log.Println("Setting cipher:", d.opts.Cipher)
-	c, err := newDataCipherFromCipherSuite(d.opts.Cipher)
-	if err != nil {
-		log.Fatal("bad cipher")
-	}
-	d.c = c
-	log.Println("Setting auth:", d.opts.Auth)
-	h, ok := newHMACFactory(strings.ToLower(d.opts.Auth))
-	if !ok {
-		log.Println("error: no such mac")
-		return
-	}
-	d.hmac = h
-}
-
 func (d *data) encrypt(plaintext []byte) ([]byte, error) {
-	bs := d.c.blockSize()
+	bs := d.state.dataCipher.blockSize()
 	var padded []byte
 	var err error
 
-	if d.opts.Compress == "stub" {
+	/* TODO: deal with compression in a separate routine */
+	if d.options.Compress == "stub" {
 		// for the compression stub, we need to send the first byte to
 		// the last one, after padding
 		lp := len(plaintext)
@@ -140,12 +151,14 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 		}
 	}
 
-	if d.c.isAEAD() {
+	// TODO refactor with packet
+	if d.state.dataCipher.isAEAD() {
 		packetID := make([]byte, 4)
-		binary.BigEndian.PutUint32(packetID, d.localPacketID)
-		iv := append(packetID, d.hmacKeyLocal[:8]...)
+		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
+		// TODO use keySlot as type
+		iv := append(packetID, d.state.hmacKeyLocal[:8]...)
 
-		ct, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, packetID)
+		ct, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, packetID)
 		if err != nil {
 			log.Println("error:", err)
 			return []byte{}, err
@@ -160,20 +173,21 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 		return p, nil
 	}
 
+	// non-aead (i.e., CBC encryption):
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
 	iv, err := genRandomBytes(bs)
 	if err != nil {
 		return []byte{}, err
 	}
-	ciphertext, err := d.c.encrypt(d.cipherKeyLocal, iv, padded, []byte(""))
+	ciphertext, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, []byte(""))
 	if err != nil {
 		return []byte{}, err
 	}
 
-	hashLength := getHashLength(strings.ToLower(d.opts.Auth))
-	key := d.hmacKeyLocal[:hashLength]
-	mac := hmac.New(d.hmac, key)
+	hashLength := getHashLength(strings.ToLower(d.options.Auth))
+	key := d.state.hmacKeyLocal[:hashLength]
+	mac := hmac.New(d.state.hmac, key)
 	mac.Write(append(iv, ciphertext...))
 	calcMAC := mac.Sum(nil)
 
@@ -183,25 +197,25 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 }
 
 func (d *data) decrypt(encrypted []byte) []byte {
-	// TODO can use a switch on the implementation instead
-	if d.c.isAEAD() {
+	if d.state.dataCipher.isAEAD() {
 		return d.decryptAEAD(encrypted)
 	}
 	return d.decryptV1(encrypted)
 }
 
 func (d *data) decryptV1(encrypted []byte) []byte {
+	// TODO return error instead
 	if len(encrypted) < 28 {
 		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
 	}
-	hashLength := getHashLength(strings.ToLower(d.opts.Auth))
-	bs := d.c.blockSize()
+	hashLength := getHashLength(strings.ToLower(d.options.Auth))
+	bs := d.state.dataCipher.blockSize()
 	recvMAC := encrypted[:hashLength]
 	iv := encrypted[hashLength : hashLength+bs]
 	cipherText := encrypted[hashLength+bs:]
 
-	key := d.hmacKeyRemote[:hashLength]
-	mac := hmac.New(d.hmac, key)
+	key := d.state.hmacKeyRemote[:hashLength]
+	mac := hmac.New(d.state.hmac, key)
 	mac.Write(append(iv, cipherText...))
 	calcMAC := mac.Sum(nil)
 
@@ -209,41 +223,43 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 		log.Fatal("Cannot decrypt!")
 	}
 
-	plainText, err := d.c.decrypt(d.cipherKeyRemote, iv, cipherText, []byte(""))
+	plainText, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], iv, cipherText, []byte(""))
 	if err != nil {
 		log.Fatal("Decryption error")
 	}
 	return plainText
 }
 
-func (d *data) decryptAEAD(dat []byte) []byte {
+func (d *data) decryptAEAD(payload []byte) []byte {
 	// Sample AES-GCM head: (V2 though)
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
 	//            [4-byte
 	//            IV head]
-	if len(dat) == 0 || len(dat) < 40 {
-		log.Println("WARN decryptAEAD: bad length:", len(dat))
-		fmt.Println(hex.Dump(dat))
+	if len(payload) == 0 || len(payload) < 40 {
+		log.Println("WARN decryptAEAD: bad length:", len(payload))
+		fmt.Println(hex.Dump(payload))
 		return []byte{}
 	}
 	// BUG: we should not attempt to decrypt payloads until we have initialized the key material
-	if len(d.hmacKeyRemote) == 0 {
+	if len(d.state.hmacKeyRemote) == 0 {
 		log.Println("WARN decryptAEAD: not ready yet")
 		return []byte{}
 	}
-	packetID := dat[:4]
-	// for some reason that I don't understand, this is not properly parsed
-	// as bytes... the tag gets mangled. but it's good if I convert it to hex and back (which sorcery is this?)
-	recvHex := hex.EncodeToString(dat[:])
+	packetID := payload[:4]
+	/* BUG: for some reason that I don't understand, this is not properly parsed
+	   as bytes... the tag gets mangled. but it's good if I convert it to
+	   hex and back (which sorcery is this?)
+	*/
+	recvHex := hex.EncodeToString(payload[:])
 	tagH := recvHex[8:40]
 	ctH := recvHex[40:]
 
-	iv := append(packetID, d.hmacKeyRemote[:8]...)
+	iv := append(packetID, d.state.hmacKeyRemote[:8]...)
 	ct, _ := hex.DecodeString(ctH)
 	tag, _ := hex.DecodeString(tagH)
 	reconstructed := append(ct, tag...)
-	plaintext, err := d.c.decrypt(d.cipherKeyRemote, iv, reconstructed, packetID)
+	plaintext, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], iv, reconstructed, packetID)
 
 	if err != nil {
 		log.Println("error", err.Error())
@@ -252,53 +268,55 @@ func (d *data) decryptAEAD(dat []byte) []byte {
 	return plaintext
 }
 
-func (d *data) send(payload []byte) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.localPacketID++
+func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	var plaintext []byte
-	if !d.c.isAEAD() {
+	if !d.state.dataCipher.isAEAD() {
 		// log.Println("non aead: adding packetid prefix")
 		packetID := make([]byte, 4)
-		binary.BigEndian.PutUint32(packetID, d.localPacketID)
+		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
 		plaintext = packetID[:]
 	} else {
 		plaintext = payload[:]
 	}
 
-	if d.opts.Compress == "stub" {
+	if d.options.Compress == "stub" {
 		// compress
 		plaintext = append(plaintext, plaintext[0])
 		plaintext[0] = 0xfb
-	} else if d.opts.Compress == "lzo-no" {
+	} else if d.options.Compress == "lzo-no" {
 		// this is the case for the old "comp-lzo no"
 		plaintext = append([]byte{0xfa}, plaintext...) // no compression
 	}
 
-	e, err := d.encrypt(plaintext)
+	encrypted, err := d.encrypt(plaintext)
 	if err != nil {
 		// TODO define encryptErr
 		log.Println("encryption error: %w", err)
-		return
+		return 0, err
 	}
 
-	buf := append([]byte{0x30}, e...)
-	if isTCP(d.opts.Proto) {
-		buf = toSizeFrame(buf)
-	}
-	d.conn.Write(buf)
+	// TODO use packet
+	buf := append([]byte{0x30}, encrypted...)
+	buf = maybeAddSizeFrame(conn, buf)
+
+	log.Println("data: write packet")
+	fmt.Println(hex.Dump(buf))
+
+	return conn.Write(buf)
 }
 
-func (d *data) handleIn(packet []byte) {
+// TODO pass data []byte, this is not (yet) a packet type
+func (d *data) ReadPacket(packet []byte) ([]byte, error) {
 	if len(packet) == 0 {
 		log.Println("ERROR handleIn: empty packet")
-		return
+		// TODO define error
+		return []byte{}, errBadInput
 	}
 
 	// 0x30 is just pDataV1 + key_id=0
 	if packet[0] != 0x30 {
 		log.Println("ERROR handleIn: wrong data header")
-		return
+		return []byte{}, errBadInput
 	}
 
 	// TODO so this is essentially:
@@ -308,19 +326,20 @@ func (d *data) handleIn(packet []byte) {
 	plaintext := d.decrypt(data)
 	if len(plaintext) == 0 {
 		log.Println("WARN handleIn: could not decrypt, skipped")
-		return
+		return []byte{}, errBadInput
 	}
 
 	/* what follows deals with compression and de-serializes the "real"
 	   plaintext payload from the decrypted plaintext */
 
 	// ------------- begin compression routine ------------------------------
+	// TODO can pass a state type, right?
 	// pt = decompress(plaintext) ???
 
 	var compression byte
 	var payload []byte
-	if d.c.isAEAD() {
-		if d.opts.Compress == "stub" || d.opts.Compress == "lzo-no" {
+	if d.state.dataCipher.isAEAD() {
+		if d.options.Compress == "stub" || d.options.Compress == "lzo-no" {
 			compression = plaintext[0]
 			payload = plaintext[1:]
 		} else {
@@ -329,11 +348,12 @@ func (d *data) handleIn(packet []byte) {
 		}
 	} else {
 		packetID := binary.BigEndian.Uint32(plaintext[:4])
-		if int(packetID) <= int(d.remotePacketID) {
+		if int(packetID) <= int(d.state.remotePacketID) {
 			log.Fatal("Replay attack detected, aborting!")
 		}
 		// TODO for CBC mode the compression might need work...
-		d.remotePacketID = packetID
+		// TODO use setter method (w/ mutex)
+		d.state.remotePacketID = packetID
 		compression = plaintext[4]
 		payload = plaintext[5:]
 	}
@@ -352,17 +372,9 @@ func (d *data) handleIn(packet []byte) {
 		payload = append([]byte{end}, b...)
 	} else {
 		log.Printf("WARN no compression supported: %x %d\n", compression, compression)
+		return []byte{}, errBadInput
 	}
-
 	// ------------- end compression routine ------------------------------
 
-	// XXX this needs to be moved somewhere else:
-	// the data channel has decrypted a openvpn request for ping,
-	// we queue a reply.
-
-	if bytes.Equal(payload, getPingData()) {
-		log.Println("openvpn-ping, sending reply")
-		d.send(getPingData())
-		return
-	}
+	return payload, nil
 }
