@@ -21,6 +21,10 @@ const (
 var (
 	// ErrBadTLSHandshake is returned when the OpenVPN handshake failed.
 	ErrBadTLSHandshake = errors.New("handshake failure")
+	// ErrBadCA is returned when the CA file cannot be found or is not valid.
+	ErrBadCA = "bad ca conf"
+	// ErrBadKeypair is returned when the key or cert file cannot be found or is not valid.
+	ErrBadKeypair = "bad keypair conf"
 )
 
 // InitTLS performs a TLS handshake over the control channel. It is the fourth

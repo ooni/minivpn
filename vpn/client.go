@@ -14,6 +14,9 @@ import (
 )
 
 var (
+	// ErrDialError is a generic error while dialing
+	ErrDialError = "dial error"
+
 	handshakeTimeout    = 30
 	handshakeTimeoutEnv = "HANDSHAKE_TIMEOUT"
 )
