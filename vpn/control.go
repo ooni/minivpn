@@ -19,49 +19,43 @@ var (
 	errBadReset = errors.New("bad reset packet")
 )
 
-/* TODO: refactor -------------------------------------------------------------------------------- */
-// move global state into the session
-
-var (
-	lastAck  uint32
-	ackmu    sync.Mutex
-	ackQueue = make(chan *packet, 100)
-)
-
-// this needs to be moved to muxer state
-func isNextPacket(p *packet) bool {
-	ackmu.Lock()
-	defer ackmu.Unlock()
-	if p == nil {
-		return false
-	}
-	return p.id-lastAck == 1
-}
-
 var (
 	serverPushReply = []byte("PUSH_REPLY")
 	serverBadAuth   = []byte("AUTH_FAILED")
 )
 
+// session keeps mutable state related to an OpenVPN session.
 type session struct {
 	RemoteSessionID sessionID
 	LocalSessionID  sessionID
 	keys            []*dataChannelKey
 	keyID           int
 	localPacketID   uint32
+	lastAck         uint32
+	ackQueue        chan *packet
 
 	mu sync.Mutex
 }
 
-/* --- refactor hack end -------------------------------------------------------------------------- */
+// isNextPacket returns true if the packetID is the next integer
+// from the last acknowledged packet.
+func (s *session) isNextPacket(p *packet) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p == nil {
+		return false
+	}
+	return p.id-s.lastAck == 1
+}
 
-// newSession initializes a session ready to be used.
-// 1. a first session key is initialized
-// 2. the LocalSessionID for the first session key id is initialized with
-//    random bytes
+// newSession returns a session ready to be used.
 func newSession() (*session, error) {
 	key0 := &dataChannelKey{}
-	session := &session{keys: []*dataChannelKey{key0}}
+	ackQueue := make(chan *packet, 100)
+	session := &session{
+		keys:     []*dataChannelKey{key0},
+		ackQueue: ackQueue,
+	}
 
 	randomBytes, err := genRandomBytes(8)
 	if err != nil {
@@ -159,23 +153,32 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	return conn.Write(out)
 }
 
+// sendACK builds an ACK control packet for the given packetID, and writes it
+// over the passed connection.
 func sendACK(conn net.Conn, s *session, pid uint32) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
-	ackmu.Lock()
-	defer ackmu.Unlock()
+	// TODO(ainghazal): we should not use the session lock ourselves.
+	// my intention here is to make the increment of the pid atomic, and
+	// that only should happen if there are no errors writing (but I want
+	// to hold any updates to lastAck until we know if we did write properly or
+	// not).
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	p := newACKPacket(pid, s)
 	payload := p.Bytes()
 	payload = maybeAddSizeFrame(conn, payload)
 
 	_, err := conn.Write(payload)
+	if err != nil {
+		return err
+	}
 	fmt.Println("write ack:", pid)
 	fmt.Println(hex.Dump(payload))
 
-	// TODO update lastAck on session -------------------------------
-	lastAck = pid
-	// --------------------------------------------------------------
+	// TODO delegate this assignment to session
+	s.lastAck = pid
 	return err
 }
 
@@ -216,7 +219,7 @@ func readControlMessage(d []byte) (*keySource, string, error) {
 
 func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
 	switch conn.LocalAddr().Network() {
-	case protoTCP.String():
+	case "tcp", "tcp4", "tcp6":
 		lenght := make([]byte, 2)
 		binary.BigEndian.PutUint16(lenght, uint16(len(payload)))
 		return append(lenght, payload...)

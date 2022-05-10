@@ -32,9 +32,9 @@ func NewClientFromSettings(o *Options) *Client {
 	}
 	return &Client{
 		Opts:             o,
-		HandshakeTimeout: t,
 		tunnel:           &tunnel{},
 		DialFn:           net.Dial,
+		HandshakeTimeout: t,
 	}
 }
 
@@ -55,7 +55,7 @@ type Client struct {
 
 	conn net.Conn
 
-	// TODO does this belong here?
+	// TODO where does this belong?
 	HandshakeTimeout int
 }
 
@@ -71,9 +71,7 @@ func (c *Client) Run() error {
 		return err
 	}
 
-	// TODO newMuxerFromOptions?
-	mux := &muxer{conn: conn}
-	err = mux.Init(c.Opts)
+	mux, err := newMuxerFromOptions(conn, c.Opts)
 	if err != nil {
 		return err
 	}
@@ -82,7 +80,6 @@ func (c *Client) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Println("VPN handshake done.")
 	c.mux = mux
 	return nil
 }
@@ -118,3 +115,13 @@ func (c *Client) Read(b []byte) (int, error) {
 //func (c *Client) Close() {
 //	c.conn.Close()
 //}
+
+// TunnelIP returns the local IP that the server assigned us.
+func (m *muxer) TunnelIP() string {
+	return m.tunnel.ip
+}
+
+// TunMTU returns the tun-mtu value that the remote advertises.
+func (m *muxer) TunMTU() int {
+	return m.tunnel.mtu
+}

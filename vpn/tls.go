@@ -21,6 +21,7 @@ const (
 
 var (
 	// ErrBadHandshake is returned when the OpenVPN handshake failed.
+	// TODO(ainghazal): limit to tls handshake
 	ErrBadHandshake = errors.New("handshake failure")
 )
 

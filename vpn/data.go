@@ -19,6 +19,10 @@ import (
 
 var (
 	errDataChannelKey = errors.New("bad key")
+	errBadCompression = errors.New("bad compression")
+	errReplayAttack   = errors.New("replay attack")
+	errCannotEncrypt  = errors.New("cannot encrypt")
+	errCannotDecrypt  = errors.New("cannot decrypt")
 )
 
 type keySlot [64]byte
@@ -43,13 +47,14 @@ type dataChannelState struct {
 	hmacKeyRemote   keySlot
 }
 
-// dataChannelKey represents  one of the key sources that have been negotiated
-// over the control channel, and from which we will derive local and remote keys for encryption and decrption
-// over the data channel. The index refers to the short key_id that is passed in the lower 3 bits if a packet header.
-// The setup of the keys for a given data channel (that is, for every key_id) is made by expanding the
-// keysources using the prf function.
-// Do note that we are not yet implementing key renegotiation - but the index is provided for convenience
-// when/if we support that in the future.
+// dataChannelKey represents a pair of key sources that have been negotiated
+// over the control channel, and from which we will derive local and remote
+// keys for encryption and decrption over the data channel. The index refers to
+// the short key_id that is passed in the lower 3 bits if a packet header.
+// The setup of the keys for a given data channel (that is, for every key_id)
+// is made by expanding the keysources using the prf function.
+// Do note that we are not yet implementing key renegotiation - but the index
+// is provided for convenience when/if we support that in the future.
 type dataChannelKey struct {
 	index  uint32
 	ready  bool
@@ -58,6 +63,8 @@ type dataChannelKey struct {
 	mu     sync.Mutex
 }
 
+// addRemoteKey adds the server keySource to our dataChannelKey. This makes the
+// dataChannelKey ready to be used.
 func (dck *dataChannelKey) addRemoteKey(k *keySource) error {
 	dck.mu.Lock()
 	defer dck.mu.Unlock()
@@ -89,6 +96,8 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 	return data, nil
 }
 
+// SetSetupKeys performs the key expansion from the local and remote
+// keySources, initializing the data channel state.
 func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
 	if !dck.ready {
 		return fmt.Errorf("%w: %s", errDataChannelKey, "key not ready")
@@ -128,40 +137,27 @@ func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
 	return nil
 }
 
-func (d *data) encrypt(plaintext []byte) ([]byte, error) {
-	bs := d.state.dataCipher.blockSize()
-	var padded []byte
-	var err error
+//
+// write + encrypt
+//
 
-	/* TODO: deal with compression in a separate routine */
-	if d.options.Compress == "stub" {
-		// for the compression stub, we need to send the first byte to
-		// the last one, after padding
-		lp := len(plaintext)
-		end := plaintext[lp-1]
-		padded, err = bytesPadPKCS7(plaintext[:lp-1], bs)
-		if err != nil {
-			return nil, err
-		}
-		padded[len(padded)-1] = end
-	} else {
-		padded, err = bytesPadPKCS7(plaintext, bs)
-		if err != nil {
-			return nil, err
-		}
+func (d *data) encrypt(plaintext []byte) ([]byte, error) {
+	blockSize := d.state.dataCipher.blockSize()
+	padded, err := maybeAddCompressPadding(plaintext, d.options, blockSize)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 	}
 
 	// TODO refactor with packet
 	if d.state.dataCipher.isAEAD() {
 		packetID := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
-		// TODO use keySlot as type
+		// TODO use keySlot as type, this could be methods in state.
 		iv := append(packetID, d.state.hmacKeyLocal[:8]...)
 
 		ct, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, packetID)
 		if err != nil {
-			log.Println("error:", err)
-			return []byte{}, err
+			return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 		}
 
 		// openvpn uses tag | payload
@@ -176,7 +172,7 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 	// non-aead (i.e., CBC encryption):
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
-	iv, err := genRandomBytes(bs)
+	iv, err := genRandomBytes(blockSize)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -196,6 +192,76 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 	return payload, nil
 }
 
+// maybeAddCompressPadding does pkcs7 padding of the encryption payloads as
+// needed. in the case of AEAD mode, it swaps the first and last byte after
+// padding too, according to the spec.
+func maybeAddCompressPadding(b []byte, opt *Options, blockSize int) ([]byte, error) {
+	if opt.Compress == "stub" {
+		// for the compression stub, we need to send the first byte to
+		// the last one, after padding
+		endByte := b[len(b)-1]
+		padded, err := bytesPadPKCS7(b[:len(b)-1], blockSize)
+		if err != nil {
+			return nil, err
+		}
+		padded[len(padded)-1] = endByte
+		return padded, nil
+	}
+	padded, err := bytesPadPKCS7(b, blockSize)
+	if err != nil {
+		return nil, err
+	}
+	return padded, nil
+}
+
+// maybeAddCompressStub adds compression bytes if needed by the passed compression options.
+func maybeAddCompressStub(b []byte, opt *Options) []byte {
+	if opt.Compress == "stub" {
+		// compresssion stub
+		b = append(b, b[0])
+		b[0] = 0xfb
+	} else if opt.Compress == "lzo-no" {
+		// old "comp-lzo no" option
+		b = append([]byte{0xfa}, b...)
+	}
+	return b
+}
+
+func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
+	var buf []byte
+	if !d.state.dataCipher.isAEAD() {
+		// log.Println("non aead: adding packetid prefix")
+		packetID := make([]byte, 4)
+		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
+		buf = append(packetID[:], payload...)
+	} else {
+		buf = payload[:]
+	}
+
+	plaintext := maybeAddCompressStub(buf, d.options)
+	encrypted, err := d.encrypt(plaintext)
+
+	if err != nil {
+		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
+	}
+
+	// eventually we'll need to write the keyID here too, from session.
+	// TODO this can be handled in packet.go and clean up the implementation.
+	keyID := 0
+	header := byte((pDataV1 << 3) | (keyID & 0x07))
+	panicIfFalse(header == byte(0x30), "expected header == 0x30")
+	buf = append([]byte{header}, encrypted...)
+	buf = maybeAddSizeFrame(conn, buf)
+	// TODO if extra verbose
+	//log.Println("data: write packet")
+	//fmt.Println(hex.Dump(buf))
+	return conn.Write(buf)
+}
+
+//
+// read + decrypt
+//
+
 func (d *data) decrypt(encrypted []byte) []byte {
 	if d.state.dataCipher.isAEAD() {
 		return d.decryptAEAD(encrypted)
@@ -203,8 +269,8 @@ func (d *data) decrypt(encrypted []byte) []byte {
 	return d.decryptV1(encrypted)
 }
 
+// TODO return errors
 func (d *data) decryptV1(encrypted []byte) []byte {
-	// TODO return error instead
 	if len(encrypted) < 28 {
 		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
 	}
@@ -268,113 +334,65 @@ func (d *data) decryptAEAD(payload []byte) []byte {
 	return plaintext
 }
 
-func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
-	var plaintext []byte
-	if !d.state.dataCipher.isAEAD() {
-		// log.Println("non aead: adding packetid prefix")
-		packetID := make([]byte, 4)
-		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
-		plaintext = packetID[:]
-	} else {
-		plaintext = payload[:]
+func (d *data) ReadPacket(p *packet) ([]byte, error) {
+	if len(p.payload) == 0 {
+		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, "empty payload")
 	}
+	panicIfFalse(p.isData(), "ReadPacket expects data packet")
 
-	if d.options.Compress == "stub" {
-		// compress
-		plaintext = append(plaintext, plaintext[0])
-		plaintext[0] = 0xfb
-	} else if d.options.Compress == "lzo-no" {
-		// this is the case for the old "comp-lzo no"
-		plaintext = append([]byte{0xfa}, plaintext...) // no compression
-	}
-
-	encrypted, err := d.encrypt(plaintext)
-	if err != nil {
-		// TODO define encryptErr
-		log.Println("encryption error: %w", err)
-		return 0, err
-	}
-
-	// TODO use packet
-	buf := append([]byte{0x30}, encrypted...)
-	buf = maybeAddSizeFrame(conn, buf)
-
-	log.Println("data: write packet")
-	fmt.Println(hex.Dump(buf))
-
-	return conn.Write(buf)
-}
-
-// TODO pass data []byte, this is not (yet) a packet type
-func (d *data) ReadPacket(packet []byte) ([]byte, error) {
-	if len(packet) == 0 {
-		log.Println("ERROR handleIn: empty packet")
-		// TODO define error
-		return []byte{}, errBadInput
-	}
-
-	// 0x30 is just pDataV1 + key_id=0
-	if packet[0] != 0x30 {
-		log.Println("ERROR handleIn: wrong data header")
-		return []byte{}, errBadInput
-	}
-
-	// TODO so this is essentially:
-	// plaintext: decrypt(ctx, packet.payload)
-
-	data := packet[1:]
-	plaintext := d.decrypt(data)
+	// TODO get error instead of relying on len
+	plaintext := d.decrypt(p.payload)
 	if len(plaintext) == 0 {
 		log.Println("WARN handleIn: could not decrypt, skipped")
 		return []byte{}, errBadInput
 	}
 
-	/* what follows deals with compression and de-serializes the "real"
-	   plaintext payload from the decrypted plaintext */
+	// get plaintext payload from the decrypted plaintext
+	return maybeDecompress(plaintext, d.state, d.options)
+}
 
-	// ------------- begin compression routine ------------------------------
-	// TODO can pass a state type, right?
-	// pt = decompress(plaintext) ???
-
-	var compression byte
+// decompress de-serializes the data from the payload according to the framing
+// given by different compression methods. only the different no-compression
+// modes are supported at the moment.
+func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, error) {
+	var compr byte // compression type
 	var payload []byte
-	if d.state.dataCipher.isAEAD() {
-		if d.options.Compress == "stub" || d.options.Compress == "lzo-no" {
-			compression = plaintext[0]
-			payload = plaintext[1:]
+	if st.dataCipher.isAEAD() {
+		if opt.Compress == "stub" || opt.Compress == "lzo-no" {
+			compr = b[0]
+			payload = b[1:]
 		} else {
-			compression = 0x00
-			payload = plaintext[:]
+			compr = 0x00
+			payload = b[:]
 		}
 	} else {
-		packetID := binary.BigEndian.Uint32(plaintext[:4])
-		if int(packetID) <= int(d.state.remotePacketID) {
-			log.Fatal("Replay attack detected, aborting!")
+		packetID := binary.BigEndian.Uint32(b[:4])
+		if int(packetID) <= int(st.remotePacketID) {
+			// TODO should probably fatal
+			return payload, errReplayAttack
 		}
 		// TODO for CBC mode the compression might need work...
 		// TODO use setter method (w/ mutex)
-		d.state.remotePacketID = packetID
-		compression = plaintext[4]
-		payload = plaintext[5:]
+		st.remotePacketID = packetID
+		compr = b[4]
+		payload = b[5:]
 	}
-	if compression == 0x00 {
-		// all good, no need to do anything else
-	} else if compression == 0xfa {
-		// do nothing, this is the old no compression
-		// or comp-lzo no case.
-		// http://build.openvpn.net/doxygen/comp_8h_source.html
-		// see: https://community.openvpn.net/openvpn/ticket/952#comment:5
-	} else if compression == 0xfb {
+	switch compr {
+	case 0xfb:
 		// compression stub swap:
 		// we get the last byte and replace the compression byte
 		end := payload[len(payload)-1]
 		b := payload[:len(payload)-1]
 		payload = append([]byte{end}, b...)
-	} else {
-		log.Printf("WARN no compression supported: %x %d\n", compression, compression)
-		return []byte{}, errBadInput
+	case 0x00, 0xfa:
+		// do nothing
+		// 0x00 is compress-no,
+		// 0xfa is the old no compression or comp-lzo no case.
+		// http://build.openvpn.net/doxygen/comp_8h_source.html
+		// see: https://community.openvpn.net/openvpn/ticket/952#comment:5
+	default:
+		errMsg := fmt.Sprintf("cannot handle compression:%x", compr)
+		return []byte{}, fmt.Errorf("%w:%s", errBadCompression, errMsg)
 	}
-	// ------------- end compression routine ------------------------------
-
 	return payload, nil
 }

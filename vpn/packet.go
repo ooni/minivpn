@@ -12,6 +12,38 @@ import (
 	"log"
 )
 
+const (
+	stNothing = iota
+	stControlChannelOpen
+	stControlMessageSent
+	stKeyExchanged
+	stPullRequestSent
+	stOptionsPushed
+	stInitialized
+	stDataReady
+)
+
+const (
+	pControlHardResetClientV1 = iota + 1
+	pControlHardResetServerV1 // 2
+	pControlSoftResetV1       // 3
+	pControlV1                // 4
+	pACKV1                    // 5
+	pDataV1                   // 6
+	pControlHardResetClientV2 // 7
+	pControlHardResetServerV2 // 8
+	pDataV2                   // 9
+)
+
+const (
+	UDPMode = iota
+	TCPMode
+)
+
+func isTCP(mode int) bool {
+	return mode == TCPMode
+}
+
 var (
 	errEmptyPayload      = errors.New("empty payload")
 	errBadKeyMethod      = errors.New("unsupported key method")
@@ -71,6 +103,11 @@ func (p *packet) isData() bool {
 	default:
 		return false
 	}
+}
+
+// TODO process as packet?
+func isPingPacket(b []byte) bool {
+	return bytes.Equal(b, pingPayload)
 }
 
 // serverControlMessage is sent by the server. it contains reply to the auth

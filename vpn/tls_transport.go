@@ -6,7 +6,6 @@ package vpn
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -23,11 +22,11 @@ var (
 	ErrPacketTooShort = errors.New("packet too short")
 )
 
-// TLSModeTransport is a transport for OpenVPN in TLS mode.
+// TLSModeTransporter is a transport for OpenVPN in TLS mode.
 //
 // See https://openvpn.net/community-resources/openvpn-protocol/ for documentation
 // on the protocol used by OpenVPN on the wire.
-type TLSModeTransport interface {
+type TLSModeTransporter interface {
 	// ReadPacket reads an OpenVPN packet from the wire.
 	ReadPacket() (p *packet, err error)
 
@@ -53,96 +52,60 @@ type TLSModeTransport interface {
 	RemoteAddr() net.Addr
 }
 
-// NewTLSModeTransport creates a new TLSModeTransport using the given net.Conn.
-// TODO refactor --------------------------------------------
-// we currently need the session because:
-// 1. we get a hold on the localPacketID during write.
-// 2. we need to send (queue?) acks during reads.
-// TODO I think there's no need to split udp/tcp.
-func NewTLSModeTransport(conn net.Conn, s *session) (TLSModeTransport, error) {
+// NewTLSModeTransport creates a new TLSModeTransporter using the given net.Conn.
+func NewTLSModeTransport(conn net.Conn, s *session) (TLSModeTransporter, error) {
+	return &tlsTransport{Conn: conn, session: s}, nil
+}
+
+// tlsModeTransportTCP implements TLSModeTransporter.
+type tlsTransport struct {
+	net.Conn
+	session *session
+}
+
+func readPacket(conn net.Conn) ([]byte, error) {
 	switch network := conn.LocalAddr().Network(); network {
 	case "tcp", "tcp4", "tcp6":
-		return &tlsModeTransportTCP{Conn: conn, session: s}, nil
+		return readPacketFromTCP(conn)
 	case "udp", "udp4", "udp6":
-		return &tlsModeTransportUDP{Conn: conn, session: s}, nil
+		return readPacketFromUDP(conn)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrBadConnNetwork, network)
 	}
 }
 
-// tlsModeTransportUDP implements TLSModeTransport for UDP.
-type tlsModeTransportUDP struct {
-	net.Conn
-	session *session
-}
-
-func (txp *tlsModeTransportUDP) ReadPacket() (*packet, error) {
-	const enough = 1 << 17
-	buff := make([]byte, enough)
-	count, err := txp.Conn.Read(buff)
+func (txp *tlsTransport) ReadPacket() (*packet, error) {
+	buf, err := readPacket(txp.Conn)
 	if err != nil {
 		return nil, err
 	}
-	buff = buff[:count]
-
-	p := newPacketFromBytes(buff)
-	return p, nil
-}
-
-func (txp *tlsModeTransportUDP) WritePacket(opcodeKeyID uint8, data []byte) error {
-	log.Println("write packet udp")
-
-	var out bytes.Buffer
-	out.WriteByte(opcodeKeyID)
-	out.Write(data)
-	_, err := txp.Conn.Write(out.Bytes())
-	return err
-}
-
-// tlsModeTransportTCP implements TLSModeTransport for TCP.
-type tlsModeTransportTCP struct {
-	net.Conn
-	session *session
-}
-
-// refactor with a util function
-func (txp *tlsModeTransportTCP) ReadPacket() (*packet, error) {
-	buf, err := readPacketFromTCP(txp.Conn)
-	if err != nil {
-		return nil, err
-	}
-
 	p := newPacketFromBytes(buf)
 	if p.isACK() {
-		log.Println("ACK, skip...")
+		log.Println("Got ACK (ignored)")
 		return &packet{}, nil
 	}
 	return p, nil
 }
 
-func (txp *tlsModeTransportTCP) WritePacket(opcodeKeyID uint8, data []byte) error {
+func (txp *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	p := newPacketFromPayload(opcodeKeyID, 0, data)
 	p.id = txp.session.LocalPacketID()
 	p.localSessionID = txp.session.LocalSessionID
 	payload := p.Bytes()
 
-	length := make([]byte, 2)
-	binary.BigEndian.PutUint16(length, uint16(len(payload)))
-	var out bytes.Buffer
-	out.Write(length)
-	out.Write(payload)
+	out := maybeAddSizeFrame(txp.Conn, payload)
 
-	log.Println("tls write:", len(out.Bytes()))
-	fmt.Println(hex.Dump(out.Bytes()))
+	log.Println("tls write:", len(out))
+	fmt.Println(hex.Dump(out))
 
-	_, err := txp.Conn.Write(out.Bytes())
+	_, err := txp.Conn.Write(out)
 	return err
 }
 
 // TLSConn implements net.Conn, and is passed to the tls.Client to perform a
 // TLS Handshake over OpenVPN control packets.
 type TLSConn struct {
-	tlsTr   TLSModeTransport
+	tlsTr   TLSModeTransporter
 	conn    net.Conn
 	session *session
 	// we need a buffer because the tls records request less than the
@@ -150,33 +113,32 @@ type TLSConn struct {
 	bufReader *bytes.Buffer
 }
 
-// TODO refactor this algorithm into the control channel / muxer that is in
-// control of the reads on the net.Conn
+// Read over the control channel. This method implements the reliability layer:
+// it retry reads until the next packet is received.
 func (t *TLSConn) Read(b []byte) (int, error) {
-	// XXX this is basically the reliability layer. retry until next packet is received.
-	pa := &packet{}
+	var pa *packet
 	for {
-		if len(ackQueue) != 0 {
-			log.Printf("queued: %d packets", len(ackQueue))
-			for p := range ackQueue {
-				if p != nil && isNextPacket(p) {
+		if len(t.session.ackQueue) != 0 {
+			log.Printf("queued: %d packets", len(t.session.ackQueue))
+			for p := range t.session.ackQueue {
+				if p != nil && t.session.isNextPacket(p) {
 					pa = p
 					break
 				} else {
 					if p != nil {
-						ackQueue <- p
+						t.session.ackQueue <- p
 						goto read
 					}
 				}
 			}
 		}
 	read:
-		if p, _ := t.tlsTr.ReadPacket(); p != nil && isNextPacket(p) {
+		if p, _ := t.tlsTr.ReadPacket(); p != nil && t.session.isNextPacket(p) {
 			pa = p
 			break
 		} else {
 			if p != nil {
-				ackQueue <- p
+				t.session.ackQueue <- p
 			}
 		}
 
@@ -191,6 +153,7 @@ func (t *TLSConn) Write(b []byte) (int, error) {
 	err := t.tlsTr.WritePacket(uint8(pControlV1), b)
 	if err != nil {
 		log.Println("ERROR write:", err.Error())
+		return 0, err
 	}
 	return len(b), err
 }
@@ -224,5 +187,4 @@ func NewTLSConn(conn net.Conn, s *session) (*TLSConn, error) {
 	bufReader := bytes.NewBuffer(nil)
 	tlsConn := &TLSConn{tlsTr, conn, s, bufReader}
 	return tlsConn, err
-
 }
