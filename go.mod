@@ -7,6 +7,7 @@ replace gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d => gitla
 
 require (
 	git.torproject.org/pluggable-transports/goptlib.git v1.2.0
+	github.com/apex/log v1.9.0
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5
 	github.com/google/go-cmp v0.5.8
 	github.com/google/gopacket v1.1.19
@@ -16,7 +17,6 @@ require (
 	github.com/pborman/getopt/v2 v2.1.0
 	gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d
 	golang.org/x/net v0.0.0-20211111083644-e5c967477495
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.zx2c4.com/go118/netip v0.0.0-20211105124833-002a02cb0e53
 	golang.zx2c4.com/wireguard v0.0.0-20210424170727-c9db4b7aaa22
 	golang.zx2c4.com/wireguard/tun/netstack v0.0.0-20220202223031-3b95c81cc178

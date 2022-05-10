@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 )
@@ -34,7 +33,8 @@ type session struct {
 	lastAck         uint32
 	ackQueue        chan *packet
 
-	mu sync.Mutex
+	mu  sync.Mutex
+	Log Logger
 }
 
 // isNextPacket returns true if the packetID is the next integer
@@ -68,7 +68,7 @@ func newSession() (*session, error) {
 	copy(localSession[:], randomBytes[:8])
 	session.LocalSessionID = localSession
 
-	log.Printf("Local session ID: %x\n", localSession.Bytes())
+	logger.Info(fmt.Sprintf("Local session ID:  %x", localSession.Bytes()))
 
 	localKey, err := newKeySource()
 	if err != nil {
@@ -142,14 +142,13 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	p := newPacketFromPayload(uint8(opcode), 0, payload)
 	p.localSessionID = s.LocalSessionID
 
-	log.Println("session id:", p.localSessionID)
-
 	p.id = s.LocalPacketID()
 	out := p.Bytes()
 
 	out = maybeAddSizeFrame(conn, out)
-	log.Printf("control write: (%d bytes)\n", len(out))
-	fmt.Println(hex.Dump(out))
+
+	logger.Debug(fmt.Sprintf("control write: (%d bytes)\n", len(out)))
+	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 	return conn.Write(out)
 }
 
@@ -174,8 +173,9 @@ func sendACK(conn net.Conn, s *session, pid uint32) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("write ack:", pid)
-	fmt.Println(hex.Dump(payload))
+
+	logger.Debug(fmt.Sprintln("write ack:", pid))
+	logger.Debug(fmt.Sprintln(hex.Dump(payload)))
 
 	// TODO delegate this assignment to session
 	s.lastAck = pid

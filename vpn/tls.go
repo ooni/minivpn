@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 )
 
@@ -20,9 +19,8 @@ const (
 )
 
 var (
-	// ErrBadHandshake is returned when the OpenVPN handshake failed.
-	// TODO(ainghazal): limit to tls handshake
-	ErrBadHandshake = errors.New("handshake failure")
+	// ErrBadTLSHandshake is returned when the OpenVPN handshake failed.
+	ErrBadTLSHandshake = errors.New("handshake failure")
 )
 
 // InitTLS performs a TLS handshake over the control channel. It is the fourth
@@ -61,13 +59,15 @@ func (c *control) InitTLS(conn net.Conn, session *session) (net.Conn, error) {
 
 	tlsConn, err := NewTLSConn(conn, session)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrBadHandshake, err)
+		return nil, fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 	}
 	tlsClient := tls.Client(tlsConn, tlsConf)
+
 	if err := tlsClient.Handshake(); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrBadHandshake, err)
+		return nil, fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 	}
 
-	log.Println("TLS handshake done!")
+	logger.Info(fmt.Sprintf("TLS handshake done"))
+
 	return net.Conn(tlsClient), nil
 }

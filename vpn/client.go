@@ -18,8 +18,10 @@ var (
 	handshakeTimeoutEnv = "HANDSHAKE_TIMEOUT"
 )
 
+var logger Logger
+
 // NewClientFromSettings returns a Client configured with the given Options.
-func NewClientFromSettings(o *Options) *Client {
+func NewClientFromSettings(opt *Options) *Client {
 	t := handshakeTimeout
 	tenv := os.Getenv(handshakeTimeoutEnv)
 	if tenv != "" {
@@ -30,8 +32,11 @@ func NewClientFromSettings(o *Options) *Client {
 			log.Println("Cannot set timeot from env:", os.Getenv(handshakeTimeoutEnv))
 		}
 	}
+	if opt.Log != nil {
+		logger = opt.Log
+	}
 	return &Client{
-		Opts:             o,
+		Opts:             opt,
 		tunnel:           &tunnel{},
 		DialFn:           net.Dial,
 		HandshakeTimeout: t,
@@ -54,6 +59,8 @@ type Client struct {
 	tunnel *tunnel
 
 	conn net.Conn
+
+	Log Logger
 
 	// TODO where does this belong?
 	HandshakeTimeout int
@@ -92,7 +99,9 @@ func (c *Client) Dial() (net.Conn, error) {
 	if isTCP(c.Opts.Proto) {
 		proto = protoTCP.String()
 	}
-	log.Printf("Connecting to %s:%s with proto %s\n", c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
+	msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
+		c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
+	logger.Info(msg)
 	conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 
 	if err != nil {
@@ -124,4 +133,31 @@ func (m *muxer) TunnelIP() string {
 // TunMTU returns the tun-mtu value that the remote advertises.
 func (m *muxer) TunMTU() int {
 	return m.tunnel.mtu
+}
+
+// Logger is compatible with github.com/apex/log
+type Logger interface {
+	// Debug emits a debug message.
+	Debug(msg string)
+
+	// Debugf formats and emits a debug message.
+	Debugf(format string, v ...interface{})
+
+	// ... ?
+	Error(msg string)
+
+	// ... ?
+	Errorf(format string, v ...interface{})
+
+	// Info emits an informational message.
+	Info(msg string)
+
+	// Infof formats and emits an informational message.
+	Infof(format string, v ...interface{})
+
+	// Warn emits a warning message.
+	Warn(msg string)
+
+	// Warnf formats and emits a warning message.
+	Warnf(format string, v ...interface{})
 }

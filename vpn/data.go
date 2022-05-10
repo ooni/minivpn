@@ -81,13 +81,17 @@ func (dck *dataChannelKey) addRemoteKey(k *keySource) error {
 func newDataFromOptions(opt *Options, s *session) (*data, error) {
 	state := &dataChannelState{}
 	data := &data{options: opt, session: s, state: state}
-	log.Println("Setting cipher:", opt.Cipher)
+
+	logger.Info(fmt.Sprintf("Cipher: %s", opt.Cipher))
+
 	dataCipher, err := newDataCipherFromCipherSuite(opt.Cipher)
 	if err != nil {
 		return data, err
 	}
 	data.state.dataCipher = dataCipher
-	log.Println("Setting auth:", opt.Auth)
+
+	logger.Info(fmt.Sprintf("Auth:   %s", opt.Auth))
+
 	hmac, ok := newHMACFactory(strings.ToLower(opt.Auth))
 	if !ok {
 		return data, fmt.Errorf("%w:%s", errBadInput, "no such mac")
@@ -130,10 +134,10 @@ func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
 	d.state.cipherKeyRemote = keyRemote
 	d.state.hmacKeyRemote = hmacRemote
 
-	log.Printf("Cipher key local:  %x\n", keyLocal)
-	log.Printf("Cipher key remote: %x\n", keyRemote)
-	log.Printf("Hmac key local:    %x\n", hmacLocal)
-	log.Printf("Hmac key remote:   %x\n", hmacRemote)
+	logger.Infof("Cipher key local:  %x", keyLocal)
+	logger.Infof("Cipher key remote: %x", keyRemote)
+	logger.Infof("Hmac key local:    %x", hmacLocal)
+	logger.Infof("Hmac key remote:   %x", hmacRemote)
 	return nil
 }
 

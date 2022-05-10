@@ -6,6 +6,7 @@ package extras
 
 import (
 	"encoding/binary"
+	"fmt"
 	"log"
 	"math"
 	"net"
@@ -81,7 +82,7 @@ func (p *Pinger) printStats() {
 	if p.packetsSent == 0 {
 		return
 	}
-	log.Println("--- " + p.host + " ping statistics ---")
+	fmt.Println("--- " + p.host + " ping statistics ---")
 	loss := (p.packetsRecv / p.packetsSent) / 100
 	var r []float32
 	var sum, sd, min, max float32
@@ -101,8 +102,8 @@ func (p *Pinger) printStats() {
 		sd += float32(math.Pow(float64(s.rtt-avg), 2))
 	}
 	sd = float32(math.Sqrt(float64(sd / float32(len(r)))))
-	log.Printf("%d packets transmitted, %d received, %d%% packet loss", p.packetsSent, p.packetsRecv, loss)
-	log.Printf("rtt min/avg/max/stdev = %.3f, %.3f, %.3f, %.3f ms", min, avg, max, sd)
+	fmt.Printf("%d packets transmitted, %d received, %d%% packet loss\n", p.packetsSent, p.packetsRecv, loss)
+	fmt.Printf("rtt min/avg/max/stdev = %.3f, %.3f, %.3f, %.3f ms\n", min, avg, max, sd)
 }
 
 func (p *Pinger) Run() error {
@@ -214,6 +215,6 @@ func (p *Pinger) parseEchoReply(d []byte, dst string, start, end time.Time) {
 	}
 	du := end.Sub(start)
 	rtt := float32(du/time.Microsecond) / 1000
-	log.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
+	fmt.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms\n", ip.SrcIP, icmp.Seq, ip.TTL, rtt)
 	p.st = append(p.st, st{rtt, ip.TTL})
 }

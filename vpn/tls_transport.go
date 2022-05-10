@@ -81,7 +81,7 @@ func (txp *tlsTransport) ReadPacket() (*packet, error) {
 	}
 	p := newPacketFromBytes(buf)
 	if p.isACK() {
-		log.Println("Got ACK (ignored)")
+		logger.Warn("tls: got ACK (ignored)")
 		return &packet{}, nil
 	}
 	return p, nil
@@ -95,8 +95,8 @@ func (txp *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 
 	out := maybeAddSizeFrame(txp.Conn, payload)
 
-	log.Println("tls write:", len(out))
-	fmt.Println(hex.Dump(out))
+	logger.Debug(fmt.Sprintln("tls write:", len(out)))
+	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 
 	_, err := txp.Conn.Write(out)
 	return err
@@ -114,12 +114,14 @@ type TLSConn struct {
 }
 
 // Read over the control channel. This method implements the reliability layer:
-// it retry reads until the next packet is received.
+// it retries reads until the _next_ packet is received (according to the packetID).
 func (t *TLSConn) Read(b []byte) (int, error) {
 	var pa *packet
 	for {
 		if len(t.session.ackQueue) != 0 {
-			log.Printf("queued: %d packets", len(t.session.ackQueue))
+
+			logger.Debug(fmt.Sprintf("queued: %d packets", len(t.session.ackQueue)))
+
 			for p := range t.session.ackQueue {
 				if p != nil && t.session.isNextPacket(p) {
 					pa = p

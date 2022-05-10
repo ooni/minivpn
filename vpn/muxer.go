@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -80,6 +81,10 @@ type dataHandler interface {
 	ReadPacket(*packet) ([]byte, error)
 }
 
+var (
+	ErrBadHandshake = errors.New("bad vpn handshake")
+)
+
 // initialization
 
 func newMuxerFromOptions(conn net.Conn, opt *Options) (*muxer, error) {
@@ -123,7 +128,7 @@ func (m *muxer) Handshake() error {
 		return err
 	}
 
-	log.Println("VPN handshake done.")
+	logger.Info("VPN handshake done")
 	return nil
 }
 
@@ -140,7 +145,8 @@ func (m *muxer) Reset() error {
 		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
 	}
 	m.session.RemoteSessionID = remoteSessionID
-	log.Printf("Learned remote session ID: %x\n", remoteSessionID.Bytes())
+
+	logger.Infof("Remote session ID: %x", remoteSessionID.Bytes())
 
 	// we assume id is 0, this is the first packet we ack.
 	// TODO should I parse the real packet id from server instead? this might be important when re-keying...
@@ -203,11 +209,11 @@ func (m *muxer) handleIncomingPacket() bool {
 	data := m.readPacket()
 	p := newPacketFromBytes(data)
 	if p.isACK() {
-		log.Println("Got ACK")
+		logger.Warn("muxer: got ACK (ignored)")
 		return false
 	}
 	if p.isControl() {
-		log.Println("Got control packet", len(data))
+		logger.Infof("Got control packet: %d", len(data))
 		// TODO pass it to contronHandler.
 		// Here the server might be requesting us to reset, or to
 		// re-key (but I keep ignoring that case for now).
@@ -215,7 +221,7 @@ func (m *muxer) handleIncomingPacket() bool {
 		return false
 	}
 	if !p.isData() {
-		log.Printf("ERROR: unhandled data. (op: %d)\n", p.opcode)
+		logger.Warnf("unhandled data. (op: %d)", p.opcode)
 		fmt.Println(hex.Dump(data))
 		return false
 	}
@@ -230,7 +236,7 @@ func (m *muxer) handleIncomingPacket() bool {
 	//plaintext, err := m.data.ReadPacket(data)
 	plaintext, err := m.data.ReadPacket(p)
 	if err != nil {
-		log.Println("bad decryption:", err.Error())
+		logger.Errorf("bad decryption: %s", err.Error())
 		// XXX I'm not sure returning false is the right thing to do here.
 		return false
 	}
@@ -332,7 +338,8 @@ func (m *muxer) InitDataWithRemoteKey() error {
 	if err != nil {
 		return err
 	}
-	log.Println("Key exchange complete")
+
+	logger.Info(fmt.Sprintf("Key exchange complete"))
 
 	// 3. now we can initialize the data channel.
 
@@ -351,7 +358,7 @@ func (m *muxer) InitDataWithRemoteKey() error {
 	m.sendPushRequest()
 	m.readPushReply()
 
-	log.Println("Data channel initialized.")
+	logger.Info(fmt.Sprintf("Data channel initialized"))
 	return nil
 }
 

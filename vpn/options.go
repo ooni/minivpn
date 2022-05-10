@@ -87,6 +87,7 @@ type Options struct {
 	TLSMaxVer string
 	// below are options that do not conform to the OpenVPN configuration format.
 	ProxyOBFS4 string
+	Log        Logger
 }
 
 const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
@@ -105,7 +106,7 @@ func (o *Options) String() string {
 	} else if o.Compress == "lzo-no" {
 		s = s + ",lzo-comp no"
 	}
-	log.Println("Local opts: ", s)
+	logger.Infof("Local opts:  %s", s)
 	return s
 }
 
@@ -137,14 +138,14 @@ func parseRemoteOptions(remoteOpts string) (*tunnel, error) {
 // XXX right now this only returns the ip. we could accept a tunnel struct and
 // write to it.
 func parsePushedOptions(pushedOptions []byte) string {
-	log.Println("Server pushed options")
+	logger.Info("Server pushed options")
 	optStr := string(pushedOptions[:len(pushedOptions)-1])
 	opts := strings.Split(optStr, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
 		k, v := vals[0], vals[1:]
 		if k == "ifconfig" {
-			log.Println("tunnel_ip: ", v[0])
+			logger.Infof("tunnel_ip: %s", v[0])
 			return v[0]
 		}
 	}

@@ -151,7 +151,7 @@ func parseServerControlMessage(sc *serverControlMessage) (*keySource, string, er
 		log.Printf("ERROR server sent bad options string: %s\n", err.Error())
 	}
 
-	log.Println("Remote opts:", options)
+	logger.Infof("Remote opts: %s", options)
 	remoteKey := &keySource{r1: r1, r2: r2}
 	return remoteKey, options, nil
 }
