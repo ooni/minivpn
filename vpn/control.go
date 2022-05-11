@@ -82,7 +82,8 @@ func (s *session) ActiveKey() (*dataChannelKey, error) {
 }
 
 // localPacketID returns an unique Packet ID. It increments the counter.
-// TODO should warn when we're approaching the key end of life.
+// In the future, this call could detect (or warn us) when we're approaching
+// the key end of life.
 func (s *session) LocalPacketID() uint32 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

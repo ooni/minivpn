@@ -23,31 +23,6 @@ var (
 
 var logger Logger
 
-// NewClientFromSettings returns a Client configured with the given Options.
-func NewClientFromSettings(opt *Options) *Client {
-	t := handshakeTimeout
-	tenv := os.Getenv(handshakeTimeoutEnv)
-	if tenv != "" {
-		ti, err := strconv.Atoi(tenv)
-		if err == nil {
-			t = ti
-		} else {
-			log.Println("Cannot set timeot from env:", os.Getenv(handshakeTimeoutEnv))
-		}
-	}
-	if opt.Log != nil {
-		logger = opt.Log
-	}
-	return &Client{
-		Opts:             opt,
-		tunnel:           &tunnel{},
-		DialFn:           net.Dial,
-		HandshakeTimeout: t,
-	}
-}
-
-type DialFunc func(string, string) (net.Conn, error)
-
 // Client implements the OpenVPN protocol. If you're just interested in writing
 // to and reading from the tunnel you should use the dialer methods instead.
 // This type is only intended to be instantiated by users that need a finer control
@@ -69,6 +44,33 @@ type Client struct {
 	HandshakeTimeout int
 }
 
+// NewClientFromSettings returns a Client configured with the given Options.
+func NewClientFromSettings(opt *Options) *Client {
+	timeout := handshakeTimeout
+	tenv := os.Getenv(handshakeTimeoutEnv)
+	if tenv != "" {
+		ti, err := strconv.Atoi(tenv)
+		if err == nil {
+			timeout = ti
+		} else {
+			log.Println("Cannot set timeot from env:", os.Getenv(handshakeTimeoutEnv))
+		}
+	}
+	if opt.Log != nil {
+		logger = opt.Log
+	}
+	return &Client{
+		Opts:             opt,
+		tunnel:           &tunnel{},
+		DialFn:           net.Dial,
+		HandshakeTimeout: timeout,
+	}
+}
+
+type DialFunc func(string, string) (net.Conn, error)
+
+// tunnel holds state about the VPN tunnel that has longer duration than a
+// given session.
 type tunnel struct {
 	ip  string
 	mtu int
@@ -81,7 +83,7 @@ func (c *Client) Run() error {
 		return err
 	}
 
-	mux, err := newMuxerFromOptions(conn, c.Opts)
+	mux, err := newMuxerFromOptions(conn, c.Opts, c.tunnel)
 	if err != nil {
 		return err
 	}
@@ -124,9 +126,9 @@ func (c *Client) Read(b []byte) (int, error) {
 }
 
 // Close closes the tunnel connection.
-//func (c *Client) Close() {
-//	c.conn.Close()
-//}
+func (c *Client) Close() error {
+	return c.conn.Close()
+}
 
 // TunnelIP returns the local IP that the server assigned us.
 func (m *muxer) TunnelIP() string {
@@ -146,12 +148,6 @@ type Logger interface {
 	// Debugf formats and emits a debug message.
 	Debugf(format string, v ...interface{})
 
-	// ... ?
-	Error(msg string)
-
-	// ... ?
-	Errorf(format string, v ...interface{})
-
 	// Info emits an informational message.
 	Info(msg string)
 
@@ -163,4 +159,10 @@ type Logger interface {
 
 	// Warnf formats and emits a warning message.
 	Warnf(format string, v ...interface{})
+
+	// Error emits an error message
+	Error(msg string)
+
+	// Errorf formats and emits an error message.
+	Errorf(format string, v ...interface{})
 }

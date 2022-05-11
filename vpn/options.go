@@ -110,13 +110,10 @@ func (o *Options) String() string {
 	return s
 }
 
-//
-// parsing options returned or pushed by server
-//
-// TODO unsure if this is the best place to put this
-func parseRemoteOptions(remoteOpts string) (*tunnel, error) {
+// parseRemoteOptions parses the options returned or pushed by server. it
+// updates the needed fields in the passed tunnel object.
+func parseRemoteOptions(tunnel *tunnel, remoteOpts string) {
 	opts := strings.Split(remoteOpts, ",")
-	tunnel := &tunnel{}
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
 		k, v := vals[0], vals[1:]
@@ -129,7 +126,6 @@ func parseRemoteOptions(remoteOpts string) (*tunnel, error) {
 			tunnel.mtu = mtu
 		}
 	}
-	return tunnel, nil
 }
 
 // I don't think I want to do much with the pushed options for now, other

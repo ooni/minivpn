@@ -30,8 +30,6 @@ import (
  on the control channel that the server sends us (e.g., openvpn-pings) will not
  be processed (and so, not acknowledged) until triggered by a muxer.Read().
 
- TODO we can turn muxer into an interface too, it will ease testing.
-
  From: https://community.openvpn.net/openvpn/wiki/SecurityOverview
 
  OpenVPN multiplexes the SSL/TLS session used for authentication and key
@@ -92,6 +90,10 @@ type muxer struct {
 	options *Options
 }
 
+//
+// Interfaces we depend on (we could make muxer an interface too).
+//
+
 // controlHandler manages the control "channel".
 type controlHandler interface {
 	SendHardReset(net.Conn, *session)
@@ -117,7 +119,7 @@ type dataHandler interface {
 
 // newMuxerFromOptions returns a configured muxer, and any error if the
 // operation could not be completed.
-func newMuxerFromOptions(conn net.Conn, options *Options) (*muxer, error) {
+func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (*muxer, error) {
 	br := bytes.NewBuffer(nil)
 	control := &control{}
 	session, err := newSession()
@@ -134,6 +136,7 @@ func newMuxerFromOptions(conn net.Conn, options *Options) (*muxer, error) {
 		options:   options,
 		control:   control,
 		data:      data,
+		tunnel:    tunnel,
 		bufReader: br,
 	}
 	return m, nil
@@ -308,11 +311,7 @@ func (m *muxer) readAndLoadRemoteKey() error {
 	key.addRemoteKey(remoteKey)
 
 	// Parse and store the useful parts of the remote optionh.
-	tunnel, err := parseRemoteOptions(opts)
-	if err != nil {
-		return err
-	}
-	m.tunnel = tunnel
+	parseRemoteOptions(m.tunnel, opts)
 	return nil
 }
 
