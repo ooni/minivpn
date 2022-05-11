@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
 )
@@ -100,14 +99,14 @@ func NewTLSModeTransport(conn net.Conn, s *session) (TLSModeTransporter, error) 
 	return &tlsTransport{Conn: conn, session: s}, nil
 }
 
-// tlsModeTransportTCP implements TLSModeTransporter.
+// tlsTransport implements TLSModeTransporter.
 type tlsTransport struct {
 	net.Conn
 	session *session
 }
 
-func (txp *tlsTransport) ReadPacket() (*packet, error) {
-	buf, err := readPacket(txp.Conn)
+func (t *tlsTransport) ReadPacket() (*packet, error) {
+	buf, err := readPacket(t.Conn)
 	if err != nil {
 		return nil, err
 	}
@@ -122,34 +121,55 @@ func (txp *tlsTransport) ReadPacket() (*packet, error) {
 	return p, nil
 }
 
-func (txp *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
+func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	p := newPacketFromPayload(opcodeKeyID, 0, data)
-	p.id = txp.session.LocalPacketID()
-	p.localSessionID = txp.session.LocalSessionID
+	p.id = t.session.LocalPacketID()
+	p.localSessionID = t.session.LocalSessionID
 	payload := p.Bytes()
 
-	out := maybeAddSizeFrame(txp.Conn, payload)
+	out := maybeAddSizeFrame(t.Conn, payload)
 
 	logger.Debug(fmt.Sprintln("tls write:", len(out)))
 	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 
-	_, err := txp.Conn.Write(out)
+	_, err := t.Conn.Write(out)
 	return err
 }
+
+var _ TLSModeTransporter = &tlsTransport{} // Ensure that we implement TLSModelTransporter
 
 // TLSConn implements net.Conn, and is passed to the tls.Client to perform a
 // TLS Handshake over OpenVPN control packets.
 type TLSConn struct {
-	tlsTr   TLSModeTransporter
-	conn    net.Conn
-	session *session
+	conn      net.Conn
+	session   *session
+	transport TLSModeTransporter
 	// we need a buffer because the tls records request less than the
 	// payload we receive.
 	bufReader *bytes.Buffer
 }
 
+// NewTLSConn returns a TLSConn. It requires the on-the-wire net.Conn that will
+// be used underneath, and a configured session. It returns also an error if
+// the operation cannot be completed.
+func NewTLSConn(conn net.Conn, s *session) (*TLSConn, error) {
+	transport, err := NewTLSModeTransport(conn, s)
+	if err != nil {
+		return &TLSConn{}, err
+	}
+	buf := bytes.NewBuffer(nil)
+	tlsConn := &TLSConn{
+		conn:      conn,
+		session:   s,
+		transport: transport,
+		bufReader: buf,
+	}
+	return tlsConn, err
+}
+
 // Read over the control channel. This method implements the reliability layer:
-// it retries reads until the _next_ packet is received (according to the packetID).
+// it retries reads until the _next_ packet is received (according to the
+// packetID). Returns also an error if the operation cannot be completed.
 func (t *TLSConn) Read(b []byte) (int, error) {
 	var pa *packet
 	for {
@@ -170,7 +190,7 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 			}
 		}
 	read:
-		if p, _ := t.tlsTr.ReadPacket(); p != nil && t.session.isNextPacket(p) {
+		if p, _ := t.transport.ReadPacket(); p != nil && t.session.isNextPacket(p) {
 			pa = p
 			break
 		} else {
@@ -187,9 +207,9 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 }
 
 func (t *TLSConn) Write(b []byte) (int, error) {
-	err := t.tlsTr.WritePacket(uint8(pControlV1), b)
+	err := t.transport.WritePacket(uint8(pControlV1), b)
 	if err != nil {
-		log.Println("ERROR write:", err.Error())
+		logger.Errorf("tls write: %s", err.Error())
 		return 0, err
 	}
 	return len(b), err
@@ -219,9 +239,4 @@ func (t *TLSConn) SetWriteDeadline(tt time.Time) error {
 	return t.conn.SetWriteDeadline(tt)
 }
 
-func NewTLSConn(conn net.Conn, s *session) (*TLSConn, error) {
-	tlsTr, err := NewTLSModeTransport(conn, s)
-	bufReader := bytes.NewBuffer(nil)
-	tlsConn := &TLSConn{tlsTr, conn, s, bufReader}
-	return tlsConn, err
-}
+var _ net.Conn = &TLSConn{} // Ensure that we implement net.Conn

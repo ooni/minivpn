@@ -26,13 +26,8 @@ var (
 	ErrBadKeypair = "bad keypair conf"
 )
 
-// InitTLS performs a TLS handshake over the control channel.
-// TODO(ainghazal): this method can be splitted into a config part, that returns a tlsConf,
-// and the tls-handshake part. This way we can invoke the tlsConf before dialing the connection,
-// and raise any certificate errors early on.
-func (c *control) InitTLS(conn net.Conn, session *session, opt *Options) (net.Conn, error) {
-
-	// 1. configuration
+// initTLS returns a tls.Config matching the VPN options.
+func initTLS(session *session, opt *Options) (*tls.Config, error) {
 
 	max := tls.VersionTLS13
 	if opt.TLSMaxVer == "1.2" {
@@ -62,13 +57,13 @@ func (c *control) InitTLS(conn net.Conn, session *session, opt *Options) (net.Co
 		tlsConf.RootCAs = ca
 		tlsConf.Certificates = []tls.Certificate{cert}
 	}
+	return tlsConf, nil
+}
 
-	// 2. handshake
+// tlsHandshake performs the TLS handshake over the control channel, and return
+// the TLS Client as a net.Conn; returns also any error during the handshake.
+func tlsHandshake(tlsConn *TLSConn, tlsConf *tls.Config) (net.Conn, error) {
 
-	tlsConn, err := NewTLSConn(conn, session)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
-	}
 	tlsClient := tls.Client(tlsConn, tlsConf)
 
 	if err := tlsClient.Handshake(); err != nil {

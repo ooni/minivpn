@@ -14,6 +14,23 @@ import (
 //
 
 /*
+ muxer is the VPN transport multiplexer. The muxer:
+
+ 1. is given access to the transport net.Conn (it owns it).
+ 2. holds references to a controlHandler and a dataHandler implementer.
+ 3. writes to and reads from the transport net.Conn.
+ 4. initializes and owns a session instance.
+ 5. performs a TLS handshake and initializes the data channel with the exchanged keys.
+ 6. on reads, it routes data packets to the dataHandler implementer, and
+    control packets to the controler implementor.
+
+ One important limitation of the implementation at this moment is that the
+ processing of incoming packets needs to be driven by reads from the user of
+ the library. This means that if you don't do reads during some time, any packets
+ on the control channel that the server sends us (e.g., openvpn-pings) will not
+ be processed (and so, not acknowledged) until triggered by a muxer.Read().
+
+ TODO we can turn muxer into an interface too, it will ease testing.
 
  From: https://community.openvpn.net/openvpn/wiki/SecurityOverview
 
@@ -42,24 +59,6 @@ components want to see. The reliability and authentication layers are
 completely independent of one another, i.e. the sequence number is embedded
 inside the HMAC-signed envelope and is not used for authentication purposes.
 */
-
-// muxer is the VPN transport multiplexer. The muxer:
-//
-// 1. is given access to the transport net.Conn (it owns it).
-// 2. holds references to a controlHandler and a dataHandler implementer.
-// 3. writes to and reads from the transport net.Conn.
-// 4. initializes and owns a session instance.
-// 5. performs a TLS handshake and initializes the data channel with the exchanged keys.
-// 6. on reads, it routes data packets to the dataHandler implementer, and
-//    control packets to the controler implementor.
-//
-// One important limitation of the implementation at this moment is that the
-// processing of incoming packets needs to be driven by reads from the user of
-// the library. This means that if you don't do reads during some time, any packets
-// on the control channel that the server sends us (e.g., openvpn-pings) will not
-// be processed (and so, not acknowledged) until triggered by a muxer.Read().
-//
-// TODO we can turn muxer into an interface too, it will ease testing.
 type muxer struct {
 
 	// A net.Conn that has access to the "wire" transport. this can
@@ -68,7 +67,8 @@ type muxer struct {
 	conn net.Conn
 
 	// After completing the TLS handshake, we get a tls transport that implements
-	// net.Conn. All the control
+	// net.Conn. All the control packets from that moment on are read from
+	// and written to the tls Conn.
 	tls net.Conn
 
 	// control and data are the handlers for the control and data channels.
@@ -94,11 +94,11 @@ type muxer struct {
 
 // controlHandler manages the control "channel".
 type controlHandler interface {
-	InitTLS(net.Conn, *session, *Options) (net.Conn, error)
 	SendHardReset(net.Conn, *session)
 	ParseHardReset([]byte) (sessionID, error)
 	SendACK(net.Conn, *session, uint32) error
 	PushRequest() []byte
+	ReadPushResponse([]byte) string
 	ControlMessage(*session, *Options) ([]byte, error)
 	ReadControlMessage([]byte) (*keySource, string, error)
 	// ...
@@ -111,7 +111,9 @@ type dataHandler interface {
 	ReadPacket(*packet) ([]byte, error)
 }
 
-// initialization
+//
+// muxer: initialization
+//
 
 // newMuxerFromOptions returns a configured muxer, and any error if the
 // operation could not be completed.
@@ -137,7 +139,9 @@ func newMuxerFromOptions(conn net.Conn, options *Options) (*muxer, error) {
 	return m, nil
 }
 
-// handshake
+//
+// muxer: handshake
+//
 
 // Handshake performs the OpenVPN "handshake" operations serially. It returns
 // any error that is raised at any of the underlying steps.
@@ -151,7 +155,17 @@ func (m *muxer) Handshake() error {
 
 	// 2. TLS handshake.
 
-	tls, err := m.control.InitTLS(m.conn, m.session, m.options)
+	// XXX this step can now be moved before dial/reset; we can store the conf
+	// in the muxer.
+	tlsConf, err := initTLS(m.session, m.options)
+	if err != nil {
+		return err
+	}
+	tlsConn, err := NewTLSConn(m.conn, m.session)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
+	}
+	tls, err := tlsHandshake(tlsConn, tlsConf)
 	if err != nil {
 		return err
 	}
@@ -195,7 +209,7 @@ func (m *muxer) Reset() error {
 }
 
 //
-// read-and-handle packets
+// muxer: read and handle packets
 //
 
 // handleIncoming packet reads the next packet available in the underlying
@@ -312,20 +326,20 @@ func (m *muxer) sendPushRequest() (int, error) {
 // packet, it will store the parts of the pushed options that will be of use
 // later.
 func (m *muxer) readPushReply() error {
-	reply, err := m.readTLSPacket()
+	resp, err := m.readTLSPacket()
 	if err != nil {
 		return err
 	}
 
-	if isBadAuthReply(reply) {
+	if isBadAuthReply(resp) {
 		return errBadAuth
 	}
 
-	if !isPushReply(reply) {
+	if !isPushReply(resp) {
 		return fmt.Errorf("%w:%s", errBadServerReply, "expected push reply")
 	}
 
-	ip := parsePushedOptions(reply)
+	ip := m.control.ReadPushResponse(resp)
 	m.tunnel.ip = ip
 	return nil
 }

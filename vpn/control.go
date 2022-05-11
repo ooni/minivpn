@@ -130,6 +130,11 @@ func (c *control) PushRequest() []byte {
 	return encodePushRequestAsBytes()
 }
 
+func (*control) ReadPushResponse(b []byte) string {
+	// this is a single string containing the tunnel ip
+	return parsePushedOptions(b)
+}
+
 func (c *control) ControlMessage(s *session, o *Options) ([]byte, error) {
 	return encodeControlMessage(s, o)
 }
