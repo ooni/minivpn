@@ -231,8 +231,7 @@ type packetConn struct {
 // ReadFrom reads a packet from the connection, copying the payload into b. It
 // returns the number of bytes copied into b and the return address that
 // was on the packet.
-// TODO this should not really be a packetConn right? the addr returned is the
-// local or the remote?
+// TODO(ainghazal:) this should not really be a packetConn.
 func (p packetConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	n, err := p.cl.Read(b)
 	return n, p.LocalAddr(), err

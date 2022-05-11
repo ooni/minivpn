@@ -205,7 +205,8 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 
 	if d.state.dataCipher.isAEAD() {
 		packetID := make([]byte, 4)
-		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
+		localPacketID, _ := d.session.LocalPacketID()
+		binary.BigEndian.PutUint32(packetID, localPacketID)
 		iv := append(packetID, d.state.hmacKeyLocal[:8]...)
 
 		ct, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, packetID)
@@ -284,7 +285,8 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	var buf []byte
 	if !d.state.dataCipher.isAEAD() {
 		packetID := make([]byte, 4)
-		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
+		localPacketID, _ := d.session.LocalPacketID()
+		binary.BigEndian.PutUint32(packetID, localPacketID)
 		buf = append(packetID[:], payload...)
 	} else {
 		buf = payload[:]
@@ -355,13 +357,13 @@ func (d *data) decryptAEAD(payload []byte) ([]byte, error) {
 	//            [4-byte
 	//            IV head]
 	if len(payload) == 0 || len(payload) < 40 {
-		logger.Errorf("decrypt (aead): bad length:", len(payload))
+		logger.Errorf("decrypt (aead): bad length: %d", len(payload))
 		logger.Debug(hex.Dump(payload))
 		return []byte{}, errCannotDecrypt
 	}
 	// BUG: we should not attempt to decrypt payloads until we have initialized the key material
 	if len(d.state.hmacKeyRemote) == 0 {
-		logger.Errorf("decrypt (aead): not ready yet")
+		logger.Error("decrypt (aead): not ready yet")
 		return []byte{}, errCannotDecrypt
 	}
 	packetID := payload[:4]

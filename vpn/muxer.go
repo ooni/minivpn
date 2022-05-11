@@ -14,15 +14,7 @@ import (
 //
 
 /*
- muxer is the VPN transport multiplexer. The muxer:
-
- 1. is given access to the transport net.Conn (it owns it).
- 2. holds references to a controlHandler and a dataHandler implementer.
- 3. writes to and reads from the transport net.Conn.
- 4. initializes and owns a session instance.
- 5. performs a TLS handshake and initializes the data channel with the exchanged keys.
- 6. on reads, it routes data packets to the dataHandler implementer, and
-    control packets to the controler implementor.
+ muxer is the VPN transport multiplexer.
 
  One important limitation of the implementation at this moment is that the
  processing of incoming packets needs to be driven by reads from the user of
@@ -30,9 +22,10 @@ import (
  on the control channel that the server sends us (e.g., openvpn-pings) will not
  be processed (and so, not acknowledged) until triggered by a muxer.Read().
 
- From: https://community.openvpn.net/openvpn/wiki/SecurityOverview
+ From the original documentation:
+ https://community.openvpn.net/openvpn/wiki/SecurityOverview
 
- OpenVPN multiplexes the SSL/TLS session used for authentication and key
+ "OpenVPN multiplexes the SSL/TLS session used for authentication and key
  exchange with the actual encrypted tunnel data stream. OpenVPN provides the
  SSL/TLS connection with a reliable transport layer (as it is designed to
  operate over). The actual IP packets, after being encrypted and signed with an
@@ -40,22 +33,22 @@ import (
  is used, no IP packets are tunneled over a reliable transport, eliminating the
  problem of reliability-layer collisions -- Of course, if you are tunneling a
  TCP session over OpenVPN running in UDP mode, the TCP protocol itself will
- provide the reliability layer.
+ provide the reliability layer."
 
 SSL/TLS -> Reliability Layer -> \
            --tls-auth HMAC       \
                                   \
-                                   > Multiplexer ----> UDP
+                                   > Multiplexer ----> UDP/TCP
                                   /                    Transport
 IP        Encrypt and HMAC       /
 Tunnel -> using OpenSSL EVP --> /
 Packets   interface.
 
-This model has the benefit that SSL/TLS sees a reliable transport layer while
+"This model has the benefit that SSL/TLS sees a reliable transport layer while
 the IP packet forwarder sees an unreliable transport layer -- exactly what both
 components want to see. The reliability and authentication layers are
 completely independent of one another, i.e. the sequence number is embedded
-inside the HMAC-signed envelope and is not used for authentication purposes.
+inside the HMAC-signed envelope and is not used for authentication purposes."
 */
 type muxer struct {
 
@@ -120,7 +113,6 @@ type dataHandler interface {
 // newMuxerFromOptions returns a configured muxer, and any error if the
 // operation could not be completed.
 func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (*muxer, error) {
-	br := bytes.NewBuffer(nil)
 	control := &control{}
 	session, err := newSession()
 	if err != nil {
@@ -130,6 +122,8 @@ func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (*muxe
 	if err != nil {
 		return &muxer{}, err
 	}
+	br := bytes.NewBuffer(nil)
+
 	m := &muxer{
 		conn:      conn,
 		session:   session,
@@ -173,6 +167,7 @@ func (m *muxer) Handshake() error {
 		return err
 	}
 	m.tls = tls
+	logger.Info("TLS handshake done")
 
 	// 3. data channel init (auth, push, data initialization).
 
@@ -202,11 +197,12 @@ func (m *muxer) Reset() error {
 	}
 	m.session.RemoteSessionID = remoteSessionID
 
-	logger.Infof("Remote session ID: %x", remoteSessionID.Bytes())
+	logger.Infof("Remote session ID: %x", m.session.RemoteSessionID.Bytes())
+	logger.Infof("Local session ID:  %x", m.session.LocalSessionID.Bytes())
 
 	// we assume id is 0, this is the first packet we ack.
-	// TODO should I parse the real packet id from server instead? this
-	// might be important when re-keying...
+	// XXX I could parse the real packet id from server instead. this
+	// _might_ be important when re-keying?
 	sendACK(m.conn, m.session, uint32(0))
 	return nil
 }
@@ -361,17 +357,17 @@ func (m *muxer) sendControlMessage() error {
 // of this exchange, the data channel is ready to be used.
 func (m *muxer) InitDataWithRemoteKey() error {
 
-	// 1. first we need to send a control message.
+	// 1. first we send a control message.
+
 	if err := m.sendControlMessage(); err != nil {
 		return err
 	}
 
 	// 2. then we read the server response and load the remote key.
+
 	if err := m.readAndLoadRemoteKey(); err != nil {
 		return err
 	}
-
-	logger.Info(fmt.Sprintf("Key exchange complete"))
 
 	// 3. now we can initialize the data channel.
 
@@ -394,8 +390,6 @@ func (m *muxer) InitDataWithRemoteKey() error {
 	if err := m.readPushReply(); err != nil {
 		return err
 	}
-
-	logger.Info(fmt.Sprintf("Data channel initialized"))
 	return nil
 }
 

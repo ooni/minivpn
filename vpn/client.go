@@ -21,8 +21,6 @@ var (
 	handshakeTimeoutEnv = "HANDSHAKE_TIMEOUT"
 )
 
-var logger Logger
-
 // Client implements the OpenVPN protocol. If you're just interested in writing
 // to and reading from the tunnel you should use the dialer methods instead.
 // This type is only intended to be instantiated by users that need a finer control
@@ -40,8 +38,7 @@ type Client struct {
 
 	Log Logger
 
-	// XXX move these options
-	// to a different type.
+	// XXX move into another type
 	HandshakeTimeout int
 }
 
@@ -167,3 +164,46 @@ type Logger interface {
 	// Errorf formats and emits an error message.
 	Errorf(format string, v ...interface{})
 }
+
+// defaultLogger uses the standard log package for logs in case
+// the user does not provide a custom Log implementation.
+
+type defaultLogger struct{}
+
+func (dl *defaultLogger) Debug(msg string) {
+	if os.Getenv("EXTRA_DEBUG") == "1" {
+		log.Println(msg)
+	}
+}
+
+func (dl *defaultLogger) Debugf(format string, v ...interface{}) {
+	if os.Getenv("EXTRA_DEBUG") == "1" {
+		log.Printf(format, v...)
+	}
+}
+
+func (dl *defaultLogger) Info(msg string) {
+	log.Printf("info :%s\n", msg)
+}
+
+func (dl *defaultLogger) Infof(format string, v ...interface{}) {
+	log.Printf("info :"+format, v...)
+}
+
+func (dl *defaultLogger) Warn(msg string) {
+	log.Printf("warn: %s\n", msg)
+}
+
+func (dl *defaultLogger) Warnf(format string, v ...interface{}) {
+	log.Printf("warn: "+format, v...)
+}
+
+func (dl *defaultLogger) Error(msg string) {
+	log.Printf("error: %s\n", msg)
+}
+
+func (dl *defaultLogger) Errorf(format string, v ...interface{}) {
+	log.Printf("error: "+format, v...)
+}
+
+var logger Logger = &defaultLogger{}

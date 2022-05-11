@@ -79,7 +79,7 @@ func decodeOptionStringFromBytes(b []byte) (string, error) {
 		return "", fmt.Errorf("%w: zero length encoded option is not possible: %s", errDecodeOption,
 			"we need at least one byte for the trailing \\0")
 	}
-	if b[len(b)-1] != 0x00 {
+	if b[length-1] != 0x00 {
 		return "", fmt.Errorf("%w: missing trailing \\0", errDecodeOption)
 	}
 	return string(b[:len(b)-1]), nil

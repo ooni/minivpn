@@ -123,7 +123,7 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 
 func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	p := newPacketFromPayload(opcodeKeyID, 0, data)
-	p.id = t.session.LocalPacketID()
+	p.id, _ = t.session.LocalPacketID()
 	p.localSessionID = t.session.LocalSessionID
 	payload := p.Bytes()
 

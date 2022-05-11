@@ -10,12 +10,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 )
 
 var (
-	errBadReset = errors.New("bad reset packet")
+	errBadReset   = errors.New("bad reset packet")
+	errExpiredKey = errors.New("max packet id reached")
 )
 
 var (
@@ -32,9 +34,8 @@ type session struct {
 	localPacketID   uint32
 	lastACK         uint32
 	ackQueue        chan *packet
-
-	mu  sync.Mutex
-	Log Logger
+	mu              sync.Mutex
+	Log             Logger
 }
 
 // newSession returns a session ready to be used.
@@ -56,8 +57,6 @@ func newSession() (*session, error) {
 	var localSession sessionID
 	copy(localSession[:], randomBytes[:8])
 	session.LocalSessionID = localSession
-
-	logger.Info(fmt.Sprintf("Local session ID:  %x", localSession.Bytes()))
 
 	localKey, err := newKeySource()
 	if err != nil {
@@ -84,24 +83,31 @@ func (s *session) ActiveKey() (*dataChannelKey, error) {
 // localPacketID returns an unique Packet ID. It increments the counter.
 // In the future, this call could detect (or warn us) when we're approaching
 // the key end of life.
-func (s *session) LocalPacketID() uint32 {
+func (s *session) LocalPacketID() (uint32, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pid := s.localPacketID
+	if pid == math.MaxUint32 {
+		// we reached the max packetID, increment will overflow
+		return 0, errExpiredKey
+	}
 	s.localPacketID++
-	return pid
+	return pid, nil
 }
 
 // UpdateLastACK will update the internal variable for the last acknowledged
 // packet to the passed packetID, only if packetID is greater than the lastACK.
-func (s *session) UpdateLastACK(packetID uint32) {
+func (s *session) UpdateLastACK(packetID uint32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if packetID <= s.lastACK {
+	if s.lastACK == math.MaxUint32 {
+		return errExpiredKey
+	}
+	if s.lastACK != 0 && packetID <= s.lastACK {
 		logger.Warnf("tried to write ack %d; last was %d", packetID, s.lastACK)
-		return
 	}
 	s.lastACK = packetID
+	return nil
 }
 
 // isNextPacket returns true if the packetID is the next integer
@@ -156,7 +162,10 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	p := newPacketFromPayload(uint8(opcode), 0, payload)
 	p.localSessionID = s.LocalSessionID
 
-	p.id = s.LocalPacketID()
+	p.id, err = s.LocalPacketID()
+	if err != nil {
+		return 0, err
+	}
 	out := p.Bytes()
 
 	out = maybeAddSizeFrame(conn, out)
@@ -207,10 +216,6 @@ func encodeControlMessage(s *session, opt *Options) ([]byte, error) {
 	return encodeClientControlMessageAsBytes(key.local, opt)
 }
 
-func isControlMessage(b []byte) bool {
-	return bytes.Equal(b[:4], controlMessageHeader)
-}
-
 // readControlMessage reads a control message with authentication result data.
 // it returns the remote key, remote options and an error if we cannot parse
 // the data.
@@ -219,28 +224,48 @@ func readControlMessage(b []byte) (*keySource, string, error) {
 	return parseServerControlMessage(cm)
 }
 
+// isControlMessage returns a boolean indicating whether the header of a
+// payload indicates a control message.
+func isControlMessage(b []byte) bool {
+	if len(b) < 4 {
+		return false
+	}
+	return bytes.Equal(b[:4], controlMessageHeader)
+}
+
 // maybeAddSizeFrame prepends a two-byte header containing the size of the
-// payload if the network type for the passed net.Conn is TCP.
+// payload if the network type for the passed net.Conn is not UDP (assumed to
+// be TCP).
 func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
 	switch conn.LocalAddr().Network() {
-	case "tcp", "tcp4", "tcp6":
+	case "udp", "udp4", "udp6":
+		// nothing to do for UDP
+		return payload
+	// TODO not catching tcp explicitely because it makes it harder to test.
+	// For now I rely on the client to filter out non-tcp networks.
+	default:
 		lenght := make([]byte, 2)
 		binary.BigEndian.PutUint16(lenght, uint16(len(payload)))
 		return append(lenght, payload...)
-	default:
-		// nothing to do for UDP
-		return payload
 	}
 }
 
 // isBadAuthReply returns true if the passed payload is a "bad auth" server
 // response; false otherwise.
 func isBadAuthReply(b []byte) bool {
-	return bytes.Equal(b[:len(serverBadAuth)], serverBadAuth)
+	l := len(serverBadAuth)
+	if len(b) < l {
+		return false
+	}
+	return bytes.Equal(b[:l], serverBadAuth)
 }
 
 // isPushReply returns true if the passed payload is a "push reply" server
 // response; false otherwise.
 func isPushReply(b []byte) bool {
-	return bytes.Equal(b[:len(serverPushReply)], serverPushReply)
+	l := len(serverPushReply)
+	if len(b) < l {
+		return false
+	}
+	return bytes.Equal(b[:l], serverPushReply)
 }

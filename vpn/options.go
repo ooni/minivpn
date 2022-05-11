@@ -141,7 +141,7 @@ func parsePushedOptions(pushedOptions []byte) string {
 		vals := strings.Split(opt, " ")
 		k, v := vals[0], vals[1:]
 		if k == "ifconfig" {
-			logger.Infof("tunnel_ip: %s", v[0])
+			logger.Infof("Tunnel IP: %s", v[0])
 			return v[0]
 		}
 	}
