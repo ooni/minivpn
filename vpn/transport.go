@@ -1,14 +1,19 @@
 package vpn
 
 //
-// TLS transports for OpenVPN over TCP and over UDP.
+// Transports for OpenVPN over TCP and over UDP.
+// This file includes:
+// 1. Methods for reading packets from the wire
+// 2. A TLS transport that reads and writes TLS records as part of control packets.
 //
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -21,6 +26,44 @@ var (
 	// ErrPacketTooShort indicates that a packet is too short.
 	ErrPacketTooShort = errors.New("packet too short")
 )
+
+// direct reads on the underlying conn
+
+func readPacket(conn net.Conn) ([]byte, error) {
+	switch network := conn.LocalAddr().Network(); network {
+	case protoTCP.String(), "tcp4", "tcp6":
+		return readPacketFromTCP(conn)
+	case protoUDP.String(), "udp4", "upd6":
+		// for UDP we don't need to parse size frames
+		return readPacketFromUDP(conn)
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrBadConnNetwork, network)
+	}
+}
+
+func readPacketFromUDP(conn net.Conn) ([]byte, error) {
+	const enough = 1 << 17
+	buf := make([]byte, enough)
+	count, err := conn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	buf = buf[:count]
+	return buf, nil
+}
+
+func readPacketFromTCP(conn net.Conn) ([]byte, error) {
+	lenbuf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, lenbuf); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint16(lenbuf)
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
 
 // TLSModeTransporter is a transport for OpenVPN in TLS mode.
 //
@@ -61,17 +104,6 @@ func NewTLSModeTransport(conn net.Conn, s *session) (TLSModeTransporter, error) 
 type tlsTransport struct {
 	net.Conn
 	session *session
-}
-
-func readPacket(conn net.Conn) ([]byte, error) {
-	switch network := conn.LocalAddr().Network(); network {
-	case "tcp", "tcp4", "tcp6":
-		return readPacketFromTCP(conn)
-	case "udp", "udp4", "udp6":
-		return readPacketFromUDP(conn)
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrBadConnNetwork, network)
-	}
 }
 
 func (txp *tlsTransport) ReadPacket() (*packet, error) {

@@ -2,11 +2,9 @@ package vpn
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 )
@@ -56,18 +54,27 @@ inside the HMAC-signed envelope and is not used for authentication purposes.
 //
 type muxer struct {
 
-	// a net.Conn that has access to the "wire" transport. this can
+	// A net.Conn that has access to the "wire" transport. this can
 	// represent an UDP/TCP socket, or a net.Conn coming from a Pluggable
 	// Transport etc.
 	conn net.Conn
-	tls  net.Conn
 
-	control   controlHandler
-	data      dataHandler
+	// After completing the TLS handshake, we get a tls transport that implements
+	// net.Conn. All the control
+	tls net.Conn
+
+	// control and data are the handlers for the control and data channels.
+	// they implement the methods needed for the handshake and handling of
+	// packets.
+	control controlHandler
+	data    dataHandler
+
 	bufReader *bytes.Buffer
+	session   *session
+	tunnel    *tunnel
 
-	session *session
-	tunnel  *tunnel
+	// Options are OpenVPN options that come from parsing a subset of the OpenVPN
+	// configuration directives, plus some non-standard config directives.
 	options *Options
 }
 
@@ -112,10 +119,6 @@ func newMuxerFromOptions(conn net.Conn, options *Options) (*muxer, error) {
 
 // handshake
 
-var (
-	ErrBadHandshake = errors.New("bad vpn handshake")
-)
-
 func (m *muxer) Handshake() error {
 	// 1. control channel sends reset, parse response.
 	if err := m.Reset(); err != nil {
@@ -142,7 +145,10 @@ func (m *muxer) Handshake() error {
 // confirmation.
 func (m *muxer) Reset() error {
 	m.control.SendHardReset(m.conn, m.session)
-	resp := m.readPacket()
+	resp, err := readPacket(m.conn)
+	if err != nil {
+		return err
+	}
 
 	remoteSessionID, err := parseHardReset(resp)
 	// here we could check if we have received a remote session id but
@@ -161,58 +167,17 @@ func (m *muxer) Reset() error {
 	return nil
 }
 
-// direct reads on the underlying conn
-
-// TODO return error too
-func (m *muxer) readPacket() []byte {
-	switch m.conn.LocalAddr().Network() {
-	case protoTCP.String(), "tcp4", "tcp6":
-		buf, err := readPacketFromTCP(m.conn)
-		if err != nil {
-			return nil
-		}
-		return buf
-	default:
-		// for UDP we don't need to parse size frames
-		buf, err := readPacketFromUDP(m.conn)
-		if err != nil {
-			return nil
-		}
-		return buf
-	}
-}
-
-func readPacketFromUDP(conn net.Conn) ([]byte, error) {
-	const enough = 1 << 17
-	buf := make([]byte, enough)
-	count, err := conn.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	buf = buf[:count]
-	return buf, nil
-}
-
-func readPacketFromTCP(conn net.Conn) ([]byte, error) {
-	lenbuf := make([]byte, 2)
-	if _, err := io.ReadFull(conn, lenbuf); err != nil {
-		return nil, err
-	}
-	length := binary.BigEndian.Uint16(lenbuf)
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
 // read-and-handle packets
 
 // handleIncoming packet reads the next packet available in the underlying
 // socket. It returns true if the packet was a data packet; otherwise it will
 // process it but return false.
 func (m *muxer) handleIncomingPacket() bool {
-	data := m.readPacket()
+	data, err := readPacket(m.conn)
+	if err != nil {
+		logger.Error(err.Error())
+		return false
+	}
 	p := newPacketFromBytes(data)
 	if p.isACK() {
 		logger.Warn("muxer: got ACK (ignored)")
@@ -389,3 +354,7 @@ func (m *muxer) Read(b []byte) (int, error) {
 	}
 	return m.bufReader.Read(b)
 }
+
+var (
+	ErrBadHandshake = errors.New("bad vpn handshake")
+)
