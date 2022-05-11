@@ -201,8 +201,6 @@ func (d *RawDialer) Stop() {
 	// d.c.Stop()
 }
 
-// TODO make a shutdown method accessible in here?
-
 // NewRawDialer returns a RawDialer configured with the given Options.
 func NewRawDialer(opts *Options) *RawDialer {
 	return &RawDialer{Options: opts}
@@ -211,20 +209,16 @@ func NewRawDialer(opts *Options) *RawDialer {
 // Dial returns a PacketConn that writes to and reads from the VPN tunnel.
 func (d *RawDialer) Dial() (net.PacketConn, error) {
 	if d.c == nil {
-		// TODO catch error here
 		c := NewClientFromSettings(d.Options)
 		if d.dialFn != nil {
 			c.DialFn = d.dialFn
 		}
 		d.c = c
-		// TODO unwrap these errors and classify them in connection stages
 		err := d.c.Run()
 		if err != nil {
 			return nil, err
 		}
 		d.MTU = d.c.mux.TunMTU()
-		// done := make(chan bool) // TODO use a context instead
-		// c.WaitUntil(done)
 	}
 	return packetConn{cl: d.c}, nil
 }
@@ -241,8 +235,6 @@ type packetConn struct {
 // TODO this should not really be a packetConn right? the addr returned is the
 // local or the remote?
 func (p packetConn) ReadFrom(b []byte) (int, net.Addr, error) {
-	//data := <-p.dc
-	//return copy(b, data), p.LocalAddr(), nil
 	n, err := p.cl.Read(b)
 	return n, p.LocalAddr(), err
 }
@@ -254,8 +246,7 @@ func (p packetConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 
 // Close closes the connection.
 func (p packetConn) Close() error {
-	//p.cl.Stop()
-	return nil
+	return p.cl.Close()
 }
 
 // LocalAddr returns the local network address, if known.

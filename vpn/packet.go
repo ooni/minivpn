@@ -105,7 +105,6 @@ func (p *packet) isData() bool {
 	}
 }
 
-// TODO process as packet?
 func isPingPacket(b []byte) bool {
 	return bytes.Equal(b, pingPayload)
 }
@@ -113,8 +112,6 @@ func isPingPacket(b []byte) bool {
 // serverControlMessage is sent by the server. it contains reply to the auth
 // and push requests. we initialize client's internal state after parsing the
 // fields contained in here.
-// TODO does this have a constant type? (can I write a parse function that
-// returns the right record?)
 type serverControlMessage struct {
 	payload []byte
 }
@@ -307,9 +304,13 @@ func (packet *packet) Bytes() []byte {
 	buf.Write(packet.localSessionID[:])
 	// we write a byte with the number of acks, and then
 	// serialize each ack.
-	// TODO(ainghazal): boundary check, ackArray must be <255.
-	buf.WriteByte(byte(len(packet.acks)))
-	for i := 0; i < len(packet.acks); i++ {
+	nAcks := len(packet.acks)
+	if nAcks > 255 {
+		logger.Warnf("packet %d had too many acks (%d)", packet.id, nAcks)
+		nAcks = 255
+	}
+	buf.WriteByte(byte(nAcks))
+	for i := 0; i < nAcks; i++ {
 		bufWriteUint32(buf, packet.acks[i])
 	}
 	//  remote session id

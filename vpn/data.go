@@ -36,7 +36,6 @@ type data struct {
 }
 
 // dataChannelState is the state of the data channel.
-// TODO add mutex to protect updates to remotePacketID
 type dataChannelState struct {
 	dataCipher      dataCipher
 	hmac            func() hash.Hash
@@ -45,6 +44,21 @@ type dataChannelState struct {
 	cipherKeyRemote keySlot
 	hmacKeyLocal    keySlot
 	hmacKeyRemote   keySlot
+
+	mu sync.Mutex
+}
+
+func (dcs *dataChannelState) SetRemotePacketID(id uint32) bool {
+	dcs.mu.Lock()
+	defer dcs.mu.Unlock()
+	dcs.remotePacketID = id
+	return true
+}
+
+func (dcs *dataChannelState) RemotePacketID() uint32 {
+	dcs.mu.Lock()
+	defer dcs.mu.Unlock()
+	return dcs.remotePacketID
 }
 
 // dataChannelKey represents a pair of key sources that have been negotiated
@@ -189,11 +203,9 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 	}
 
-	// TODO refactor with packet
 	if d.state.dataCipher.isAEAD() {
 		packetID := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
-		// TODO use keySlot as type, this could be methods in state.
 		iv := append(packetID, d.state.hmacKeyLocal[:8]...)
 
 		ct, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, packetID)
@@ -271,7 +283,6 @@ func maybeAddCompressStub(b []byte, opt *Options) []byte {
 func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	var buf []byte
 	if !d.state.dataCipher.isAEAD() {
-		// log.Println("non aead: adding packetid prefix")
 		packetID := make([]byte, 4)
 		binary.BigEndian.PutUint32(packetID, d.session.LocalPacketID())
 		buf = append(packetID[:], payload...)
@@ -287,15 +298,15 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	}
 
 	// eventually we'll need to write the keyID here too, from session.
-	// TODO this can be handled in packet.go and clean up the implementation.
 	keyID := 0
 	header := byte((pDataV1 << 3) | (keyID & 0x07))
 	panicIfFalse(header == byte(0x30), "expected header == 0x30")
 	buf = append([]byte{header}, encrypted...)
 	buf = maybeAddSizeFrame(conn, buf)
-	// TODO if extra verbose
-	//log.Println("data: write packet")
-	//fmt.Println(hex.Dump(buf))
+
+	logger.Debug("data: write packet")
+	logger.Debugf(hex.Dump(buf))
+
 	return conn.Write(buf)
 }
 
@@ -310,7 +321,6 @@ func (d *data) decrypt(encrypted []byte) []byte {
 	return d.decryptV1(encrypted)
 }
 
-// TODO return errors
 func (d *data) decryptV1(encrypted []byte) []byte {
 	if len(encrypted) < 28 {
 		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
@@ -408,13 +418,11 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 		}
 	} else {
 		packetID := binary.BigEndian.Uint32(b[:4])
-		if int(packetID) <= int(st.remotePacketID) {
-			// TODO should probably fatal
+		if int(packetID) <= int(st.RemotePacketID()) {
+			logger.Errorf("possible replay attack")
 			return payload, errReplayAttack
 		}
-		// TODO for CBC mode the compression might need work...
-		// TODO use setter method (w/ mutex)
-		st.remotePacketID = packetID
+		st.SetRemotePacketID(packetID)
 		compr = b[4]
 		payload = b[5:]
 	}
