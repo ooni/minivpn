@@ -30,22 +30,11 @@ type session struct {
 	keys            []*dataChannelKey
 	keyID           int
 	localPacketID   uint32
-	lastAck         uint32
+	lastACK         uint32
 	ackQueue        chan *packet
 
 	mu  sync.Mutex
 	Log Logger
-}
-
-// isNextPacket returns true if the packetID is the next integer
-// from the last acknowledged packet.
-func (s *session) isNextPacket(p *packet) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p == nil {
-		return false
-	}
-	return p.id-s.lastAck == 1
 }
 
 // newSession returns a session ready to be used.
@@ -102,33 +91,41 @@ func (s *session) LocalPacketID() uint32 {
 	return pid
 }
 
-/* TODO very little state is left here.
-   we can just keep options in the muxer and pass it to the InitTLS method, in this way
-   we don't keep any state in the controlHandler implementer.
-*/
-
-// control implements the controlHandler interface.
-type control struct {
-	options *Options
-}
-
-func (c *control) Options() *Options {
-	return c.options
-}
-
-func newControl(opt *Options) *control {
-	ctrl := &control{
-		options: opt,
+// UpdateLastACK will update the internal variable for the last acknowledged
+// packet to the passed packetID, only if packetID is greater than the lastACK.
+func (s *session) UpdateLastACK(packetID uint32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if packetID <= s.lastACK {
+		logger.Warnf("tried to write ack %d; last was %d", packetID, s.lastACK)
+		return
 	}
-	return ctrl
+	s.lastACK = packetID
 }
+
+// isNextPacket returns true if the packetID is the next integer
+// from the last acknowledged packet.
+func (s *session) isNextPacket(p *packet) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p == nil {
+		return false
+	}
+	return p.id-s.lastACK == 1
+}
+
+// control implements the controlHandler interface. Like true pirates, it has
+// no state.
+type control struct{}
+
+var _ controlHandler = &control{} // Ensure that we implement controlHandler
 
 //
 // write funcs
 //
 
 /*
-// where was this used?
+// TODO was this used somewhere? delete if not.
 func sendControlV1(conn net.Conn, s *session, data []byte) (n int, err error) {
 	return sendControlPacket(conn, s, pControlV1, 0, data)
 }
@@ -157,14 +154,6 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 func sendACK(conn net.Conn, s *session, pid uint32) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
-	// TODO(ainghazal): we should not use the session lock ourselves.
-	// my intention here is to make the increment of the pid atomic, and
-	// that only should happen if there are no errors writing (but I want
-	// to hold any updates to lastAck until we know if we did write properly or
-	// not).
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	p := newACKPacket(pid, s)
 	payload := p.Bytes()
 	payload = maybeAddSizeFrame(conn, payload)
@@ -177,8 +166,7 @@ func sendACK(conn net.Conn, s *session, pid uint32) error {
 	logger.Debug(fmt.Sprintln("write ack:", pid))
 	logger.Debug(fmt.Sprintln(hex.Dump(payload)))
 
-	// TODO delegate this assignment to session
-	s.lastAck = pid
+	s.UpdateLastACK(pid)
 	return err
 }
 

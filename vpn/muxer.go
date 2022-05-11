@@ -46,15 +46,19 @@ inside the HMAC-signed envelope and is not used for authentication purposes.
 */
 
 // muxer is the VPN transport multiplexer. The muxer:
+//
 // 1. is given access to the transport net.Conn (it owns it).
 // 2. reads from the transport
 // 3. holds references to a controler and a dataHandler implementer.
 // 4. initializes and owns a session instance.
 // 5. on reads, it routes data packets to the dataHandler implementer, and
 //    control packets to the controler implementor.
+//
 type muxer struct {
-	// a net.Conn that has access to the "wire" transport. this can represent
-	// an UDP/TCP socket, or a net.Conn coming from a Pluggable Transport etc.
+
+	// a net.Conn that has access to the "wire" transport. this can
+	// represent an UDP/TCP socket, or a net.Conn coming from a Pluggable
+	// Transport etc.
 	conn net.Conn
 	tls  net.Conn
 
@@ -64,12 +68,12 @@ type muxer struct {
 
 	session *session
 	tunnel  *tunnel
+	options *Options
 }
 
 // controlHandler manages the control "channel".
 type controlHandler interface {
-	Options() *Options
-	InitTLS(net.Conn, *session) (net.Conn, error)
+	InitTLS(net.Conn, *session, *Options) (net.Conn, error)
 	SendHardReset(net.Conn, *session)
 	// ...
 }
@@ -81,26 +85,24 @@ type dataHandler interface {
 	ReadPacket(*packet) ([]byte, error)
 }
 
-var (
-	ErrBadHandshake = errors.New("bad vpn handshake")
-)
-
 // initialization
 
-func newMuxerFromOptions(conn net.Conn, opt *Options) (*muxer, error) {
+func newMuxerFromOptions(conn net.Conn, options *Options) (*muxer, error) {
 	br := bytes.NewBuffer(nil)
-	control := newControl(opt)
+	control := &control{}
+	// newControl(opt)
 	session, err := newSession()
 	if err != nil {
 		return &muxer{}, err
 	}
-	data, err := newDataFromOptions(opt, session)
+	data, err := newDataFromOptions(options, session)
 	if err != nil {
 		return &muxer{}, err
 	}
 	m := &muxer{
 		conn:      conn,
 		session:   session,
+		options:   options,
 		control:   control,
 		data:      data,
 		bufReader: br,
@@ -110,6 +112,10 @@ func newMuxerFromOptions(conn net.Conn, opt *Options) (*muxer, error) {
 
 // handshake
 
+var (
+	ErrBadHandshake = errors.New("bad vpn handshake")
+)
+
 func (m *muxer) Handshake() error {
 	// 1. control channel sends reset, parse response.
 	if err := m.Reset(); err != nil {
@@ -117,7 +123,7 @@ func (m *muxer) Handshake() error {
 	}
 
 	// 2. tls handshake.
-	tls, err := m.control.InitTLS(m.conn, m.session)
+	tls, err := m.control.InitTLS(m.conn, m.session, m.options)
 	if err != nil {
 		return err
 	}
@@ -132,8 +138,8 @@ func (m *muxer) Handshake() error {
 	return nil
 }
 
-// Reset sends a hard-reset packet to the server, and waits for the server
-// confirmation. It is the third step in an OpenVPN connection (out of five).
+// Reset sends a hard-reset packet to the server, and awaits the server
+// confirmation.
 func (m *muxer) Reset() error {
 	m.control.SendHardReset(m.conn, m.session)
 	resp := m.readPacket()
@@ -149,17 +155,18 @@ func (m *muxer) Reset() error {
 	logger.Infof("Remote session ID: %x", remoteSessionID.Bytes())
 
 	// we assume id is 0, this is the first packet we ack.
-	// TODO should I parse the real packet id from server instead? this might be important when re-keying...
+	// TODO should I parse the real packet id from server instead? this
+	// might be important when re-keying...
 	sendACK(m.conn, m.session, uint32(0))
 	return nil
 }
 
-// direct read
+// direct reads on the underlying conn
 
 // TODO return error too
 func (m *muxer) readPacket() []byte {
 	switch m.conn.LocalAddr().Network() {
-	case protoTCP.String():
+	case protoTCP.String(), "tcp4", "tcp6":
 		buf, err := readPacketFromTCP(m.conn)
 		if err != nil {
 			return nil
@@ -187,12 +194,11 @@ func readPacketFromUDP(conn net.Conn) ([]byte, error) {
 }
 
 func readPacketFromTCP(conn net.Conn) ([]byte, error) {
-	lenbuff := make([]byte, 2)
-
-	if _, err := io.ReadFull(conn, lenbuff); err != nil {
+	lenbuf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, lenbuf); err != nil {
 		return nil, err
 	}
-	length := binary.BigEndian.Uint16(lenbuff)
+	length := binary.BigEndian.Uint16(lenbuf)
 	buf := make([]byte, length)
 	if _, err := io.ReadFull(conn, buf); err != nil {
 		return nil, err
@@ -229,11 +235,11 @@ func (m *muxer) handleIncomingPacket() bool {
 		m.handleDataPing()
 		return false
 	}
-	// at this point, the incoming packet should be data that needs to be processed
+
+	// at this point, the incoming packet should be
+	// a data packet that needs to be processed
 	// (decompress+decrypt)
 
-	// TODO pass the packet itself
-	//plaintext, err := m.data.ReadPacket(data)
 	plaintext, err := m.data.ReadPacket(p)
 	if err != nil {
 		logger.Errorf("bad decryption: %s", err.Error())
@@ -241,7 +247,7 @@ func (m *muxer) handleIncomingPacket() bool {
 		return false
 	}
 
-	// all good! we write the plaintext into the buffer.
+	// all good! we write the plaintext into the read buffer.
 	// the caller is responsible for reading from there.
 	m.bufReader.Write(plaintext)
 	return true
@@ -271,14 +277,13 @@ func (m *muxer) readAndLoadRemoteKey() error {
 	}
 	remoteKey, opts, err := readControlMessage(data)
 	if err != nil {
-		// TODO proper error
-		log.Println("ERROR: cannot parse control message")
+		logger.Errorf("cannot parse control message")
+		return fmt.Errorf("%w:%s", ErrBadHandshake, err)
 	}
 	key, err := m.session.ActiveKey()
 	if err != nil {
-		// TODO proper error
-		log.Println("ERROR: cannot get active key", err.Error())
-		return err
+		logger.Errorf("cannot get active key")
+		return fmt.Errorf("%w:%s", ErrBadHandshake, err)
 	}
 	key.addRemoteKey(remoteKey)
 	tunnel, err := parseRemoteOptions(opts)
@@ -327,13 +332,16 @@ func (m *muxer) sendPushRequest() {
 // that will be used to encrypt and decrypt data through the tunnel. At the end
 // of this exchange, the data channel is ready to be used.
 func (m *muxer) InitDataWithRemoteKey() error {
-	// 1. first we need to send a control message
-	controlMessage, err := encodeControlMessage(m.session, m.control.Options())
+
+	// 1. first we need to send a control message.
+
+	controlMessage, err := encodeControlMessage(m.session, m.options)
 	if _, err := m.tls.Write(controlMessage); err != nil {
 		return err
 	}
 
-	// 2. then we read the server response and load the remote key
+	// 2. then we read the server response and load the remote key.
+
 	err = m.readAndLoadRemoteKey()
 	if err != nil {
 		return err
@@ -355,6 +363,7 @@ func (m *muxer) InitDataWithRemoteKey() error {
 
 	// 4. finally, we ask the server to push remote options to us. we parse
 	// them and keep some useful info.
+
 	m.sendPushRequest()
 	m.readPushReply()
 

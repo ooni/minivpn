@@ -27,13 +27,17 @@ var (
 	ErrBadKeypair = "bad keypair conf"
 )
 
-// InitTLS performs a TLS handshake over the control channel. It is the fourth
-// step in an OpenVPN connection (out of five).
+// InitTLS performs a TLS handshake over the control channel.
 // TODO(ainghazal): add checks for valid certificates etc on config time.
-func (c *control) InitTLS(conn net.Conn, session *session) (net.Conn, error) {
-	max := tls.VersionTLS13
+// TODO(ainghazal): this method can be splitted into a config part, that returns a tlsConf,
+// and the tls-handshake part. This way we can invoke the tlsConf before dialing the connection,
+// and raise any certificate errors early on.
+func (c *control) InitTLS(conn net.Conn, session *session, opt *Options) (net.Conn, error) {
 
-	if c.Options().TLSMaxVer == "1.2" {
+	// 1. configuration
+
+	max := tls.VersionTLS13
+	if opt.TLSMaxVer == "1.2" {
 		max = tls.VersionTLS12
 	}
 
@@ -46,20 +50,22 @@ func (c *control) InitTLS(conn net.Conn, session *session) (net.Conn, error) {
 	// TODO make cert checks a pre-run check.
 	// we assume a non-empty cert means we've got also a valid ca and key,
 	// but should check
-	if c.Options().Cert != "" {
+	if opt.Cert != "" {
 		ca := x509.NewCertPool()
-		caData, err := ioutil.ReadFile(c.Options().Ca)
+		caData, err := ioutil.ReadFile(opt.Ca)
 		if err != nil {
 			return nil, fmt.Errorf("%s %w", ErrBadCA, err)
 		}
 		ca.AppendCertsFromPEM(caData)
-		cert, err := tls.LoadX509KeyPair(c.Options().Cert, c.Options().Key)
+		cert, err := tls.LoadX509KeyPair(opt.Cert, opt.Key)
 		if err != nil {
 			return nil, fmt.Errorf("%s %w", ErrBadKeypair, err)
 		}
 		tlsConf.RootCAs = ca
 		tlsConf.Certificates = []tls.Certificate{cert}
 	}
+
+	// 2. handshake
 
 	tlsConn, err := NewTLSConn(conn, session)
 	if err != nil {
@@ -72,6 +78,5 @@ func (c *control) InitTLS(conn net.Conn, session *session) (net.Conn, error) {
 	}
 
 	logger.Info(fmt.Sprintf("TLS handshake done"))
-
 	return net.Conn(tlsClient), nil
 }

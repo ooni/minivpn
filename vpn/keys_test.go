@@ -1,5 +1,7 @@
 package vpn
 
+// TODO move to data.go too
+
 import (
 	"reflect"
 	"testing"
