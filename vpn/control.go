@@ -114,27 +114,38 @@ func (s *session) isNextPacket(p *packet) bool {
 	return p.id-s.lastACK == 1
 }
 
-// control implements the controlHandler interface. Like true pirates, it has
-// no state.
+// control implements the controlHandler interface.
+// Like true pirates, there is no state under control.
 type control struct{}
-
-var _ controlHandler = &control{} // Ensure that we implement controlHandler
-
-//
-// write funcs
-//
-
-/*
-// TODO was this used somewhere? delete if not.
-func sendControlV1(conn net.Conn, s *session, data []byte) (n int, err error) {
-	return sendControlPacket(conn, s, pControlV1, 0, data)
-}
-*/
 
 func (c *control) SendHardReset(conn net.Conn, s *session) {
 	sendControlPacket(conn, s, pControlHardResetClientV2, 0, []byte(""))
 }
 
+func (c *control) ParseHardReset(b []byte) (sessionID, error) {
+	return parseHardReset(b)
+}
+
+func (c *control) PushRequest() []byte {
+	return encodePushRequestAsBytes()
+}
+
+func (c *control) ControlMessage(s *session, o *Options) ([]byte, error) {
+	return encodeControlMessage(s, o)
+}
+
+func (c *control) ReadControlMessage(b []byte) (*keySource, string, error) {
+	return readControlMessage(b)
+}
+
+func (c *control) SendACK(conn net.Conn, s *session, pid uint32) error {
+	return sendACK(conn, s, pid)
+}
+
+var _ controlHandler = &control{} // Ensure that we implement controlHandler
+
+// sendControlPacket crafts a control packet with the given opcode and payload,
+// and writes it to the passed net.Conn.
 func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload []byte) (n int, err error) {
 	p := newPacketFromPayload(uint8(opcode), 0, payload)
 	p.localSessionID = s.LocalSessionID
@@ -170,10 +181,8 @@ func sendACK(conn net.Conn, s *session, pid uint32) error {
 	return err
 }
 
-//
-// read functions
-//
-
+// parseHardReset extracts the sessionID from a hard-reset server response, and
+// an error if the operation was not successful.
 func parseHardReset(b []byte) (sessionID, error) {
 	p, err := newServerHardReset(b)
 	if err != nil {
@@ -199,12 +208,13 @@ func isControlMessage(b []byte) bool {
 // readControlMessage reads a control message with authentication result data.
 // it returns the remote key, remote options and an error if we cannot parse
 // the data.
-
-func readControlMessage(d []byte) (*keySource, string, error) {
-	cm := newServerControlMessageFromBytes(d)
+func readControlMessage(b []byte) (*keySource, string, error) {
+	cm := newServerControlMessageFromBytes(b)
 	return parseServerControlMessage(cm)
 }
 
+// maybeAddSizeFrame prepends a two-byte header containing the size of the
+// payload if the network type for the passed net.Conn is TCP.
 func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
 	switch conn.LocalAddr().Network() {
 	case "tcp", "tcp4", "tcp6":
@@ -212,15 +222,19 @@ func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
 		binary.BigEndian.PutUint16(lenght, uint16(len(payload)))
 		return append(lenght, payload...)
 	default:
-		// nothing to do for udp
+		// nothing to do for UDP
 		return payload
 	}
 }
 
+// isBadAuthReply returns true if the passed payload is a "bad auth" server
+// response; false otherwise.
 func isBadAuthReply(b []byte) bool {
 	return bytes.Equal(b[:len(serverBadAuth)], serverBadAuth)
 }
 
+// isPushReply returns true if the passed payload is a "push reply" server
+// response; false otherwise.
 func isPushReply(b []byte) bool {
 	return bytes.Equal(b[:len(serverPushReply)], serverPushReply)
 }
