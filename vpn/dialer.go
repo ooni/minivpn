@@ -40,11 +40,10 @@ func (n *network) isUp() bool {
 // A Dialer contains options for obtaining a network connection tunneled
 // through an OpenVPN endpoint.
 type Dialer struct {
-	ns1 string
-	ns2 string
-	raw *RawDialer
-	net *network
-	// TODO perhaps rename to TransportDialFunc?? I'm afraid this is confusing terminology as-is.
+	ns1    string
+	ns2    string
+	raw    *RawDialer
+	net    *network
 	DialFn DialFunc
 }
 

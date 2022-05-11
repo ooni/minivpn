@@ -40,7 +40,8 @@ type Client struct {
 
 	Log Logger
 
-	// TODO move to config struct?
+	// XXX move these options
+	// to a different type.
 	HandshakeTimeout int
 }
 

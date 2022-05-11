@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -23,6 +22,7 @@ var (
 	errReplayAttack   = errors.New("replay attack")
 	errCannotEncrypt  = errors.New("cannot encrypt")
 	errCannotDecrypt  = errors.New("cannot decrypt")
+	errBadHMAC        = errors.New("bad hmac")
 )
 
 type keySlot [64]byte
@@ -314,16 +314,17 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 // read + decrypt
 //
 
-func (d *data) decrypt(encrypted []byte) []byte {
+func (d *data) decrypt(encrypted []byte) ([]byte, error) {
 	if d.state.dataCipher.isAEAD() {
 		return d.decryptAEAD(encrypted)
 	}
 	return d.decryptV1(encrypted)
 }
 
-func (d *data) decryptV1(encrypted []byte) []byte {
+func (d *data) decryptV1(encrypted []byte) ([]byte, error) {
 	if len(encrypted) < 28 {
-		log.Fatalf("Packet too short: %d bytes\n", len(encrypted))
+		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt,
+			fmt.Sprintf("packet too short: %d bytes\n", len(encrypted)))
 	}
 	hashLength := getHashLength(strings.ToLower(d.options.Auth))
 	bs := d.state.dataCipher.blockSize()
@@ -337,31 +338,31 @@ func (d *data) decryptV1(encrypted []byte) []byte {
 	calcMAC := mac.Sum(nil)
 
 	if !hmac.Equal(calcMAC, recvMAC) {
-		log.Fatal("Cannot decrypt!")
+		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, errBadHMAC)
 	}
 
 	plainText, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], iv, cipherText, []byte(""))
 	if err != nil {
-		log.Fatal("Decryption error")
+		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}
-	return plainText
+	return plainText, nil
 }
 
-func (d *data) decryptAEAD(payload []byte) []byte {
+func (d *data) decryptAEAD(payload []byte) ([]byte, error) {
 	// Sample AES-GCM head: (V2 though)
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
 	//            [4-byte
 	//            IV head]
 	if len(payload) == 0 || len(payload) < 40 {
-		log.Println("WARN decryptAEAD: bad length:", len(payload))
-		fmt.Println(hex.Dump(payload))
-		return []byte{}
+		logger.Errorf("decrypt (aead): bad length:", len(payload))
+		logger.Debug(hex.Dump(payload))
+		return []byte{}, errCannotDecrypt
 	}
 	// BUG: we should not attempt to decrypt payloads until we have initialized the key material
 	if len(d.state.hmacKeyRemote) == 0 {
-		log.Println("WARN decryptAEAD: not ready yet")
-		return []byte{}
+		logger.Errorf("decrypt (aead): not ready yet")
+		return []byte{}, errCannotDecrypt
 	}
 	packetID := payload[:4]
 	/* BUG: for some reason that I don't understand, this is not properly parsed
@@ -376,13 +377,13 @@ func (d *data) decryptAEAD(payload []byte) []byte {
 	ct, _ := hex.DecodeString(ctH)
 	tag, _ := hex.DecodeString(tagH)
 	reconstructed := append(ct, tag...)
+
 	plaintext, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], iv, reconstructed, packetID)
 
 	if err != nil {
-		log.Println("error", err.Error())
-		return []byte{}
+		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}
-	return plaintext
+	return plaintext, nil
 }
 
 func (d *data) ReadPacket(p *packet) ([]byte, error) {
@@ -391,11 +392,9 @@ func (d *data) ReadPacket(p *packet) ([]byte, error) {
 	}
 	panicIfFalse(p.isData(), "ReadPacket expects data packet")
 
-	// TODO get error instead of relying on len
-	plaintext := d.decrypt(p.payload)
-	if len(plaintext) == 0 {
-		log.Println("WARN handleIn: could not decrypt, skipped")
-		return []byte{}, errBadInput
+	plaintext, err := d.decrypt(p.payload)
+	if err != nil {
+		return []byte{}, err
 	}
 
 	// get plaintext payload from the decrypted plaintext
