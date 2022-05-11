@@ -111,7 +111,10 @@ func (txp *tlsTransport) ReadPacket() (*packet, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := newPacketFromBytes(buf)
+	p, err := newPacketFromBytes(buf)
+	if err != nil {
+		return &packet{}, err
+	}
 	if p.isACK() {
 		logger.Warn("tls: got ACK (ignored)")
 		return &packet{}, nil

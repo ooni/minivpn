@@ -359,7 +359,6 @@ func parseOption(o *Options, dir, key string, p []string) error {
 func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 	s := &Options{}
 
-	// TODO(ainghazal): be even more defensive
 	for _, l := range lines {
 		if strings.HasPrefix(l, "#") {
 			continue

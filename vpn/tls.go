@@ -1,8 +1,7 @@
 package vpn
 
-// TODO move to control.go
 //
-// TLS initialization and read/write wrappers
+// TLS initialization and read/write wrappers.
 //
 
 import (
@@ -28,7 +27,6 @@ var (
 )
 
 // InitTLS performs a TLS handshake over the control channel.
-// TODO(ainghazal): add checks for valid certificates etc on config time.
 // TODO(ainghazal): this method can be splitted into a config part, that returns a tlsConf,
 // and the tls-handshake part. This way we can invoke the tlsConf before dialing the connection,
 // and raise any certificate errors early on.

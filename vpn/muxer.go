@@ -207,16 +207,20 @@ func (m *muxer) handleIncomingPacket() bool {
 		logger.Error(err.Error())
 		return false
 	}
-	p := newPacketFromBytes(data)
+	p, err := newPacketFromBytes(data)
+	if err != nil {
+		logger.Error(err.Error())
+		return false
+	}
 	if p.isACK() {
 		logger.Warn("muxer: got ACK (ignored)")
 		return false
 	}
 	if p.isControl() {
 		logger.Infof("Got control packet: %d", len(data))
-		// TODO pass it to contronHandler.
 		// Here the server might be requesting us to reset, or to
 		// re-key (but I keep ignoring that case for now).
+		// we're doing nothing for now.
 		fmt.Println(hex.Dump(p.payload))
 		return false
 	}

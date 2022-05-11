@@ -65,7 +65,7 @@ type Client struct {
 
 	Log Logger
 
-	// TODO where does this belong?
+	// TODO move to config struct?
 	HandshakeTimeout int
 }
 

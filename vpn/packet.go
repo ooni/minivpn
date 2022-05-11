@@ -199,7 +199,6 @@ func newServerHardReset(b []byte) (*serverHardReset, error) {
 // error if we could not parse the message.
 func parseServerHardResetPacket(p *serverHardReset) (sessionID, error) {
 	s := sessionID{}
-	// TODO get the opcode from this, parse packet etc
 	// BUG: this function assumes keyID == 0
 	if p.payload[0] != 0x40 {
 		return s, fmt.Errorf("%w: %s", errBadReset, "bad header")
@@ -223,9 +222,9 @@ func encodePushRequestAsBytes() []byte {
 // packetFromBytes produces a packet after parsing the common header.
 // In TCP mode, it is assumed that the packet length (part of the header) has
 // already been stripped out.
-func newPacketFromBytes(buf []byte) *packet {
+func newPacketFromBytes(buf []byte) (*packet, error) {
 	if len(buf) < 2 {
-		return nil
+		return &packet{}, errBadInput
 	}
 	packet := &packet{
 		opcode: buf[0] >> 3,
@@ -233,8 +232,7 @@ func newPacketFromBytes(buf []byte) *packet {
 	}
 	packet.payload = make([]byte, len(buf)-1)
 	copy(packet.payload, buf[1:])
-	packet.parse()
-	return packet
+	return parsePacket(packet)
 }
 
 func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
@@ -246,61 +244,60 @@ func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
 	return packet
 }
 
-// TODO convert into a pure function
 // parse tries to parse the payload of the packet.
-func (p *packet) parse() error {
+func parsePacket(p *packet) (*packet, error) {
 	if p.isControl() {
-		p.parseControlPacket()
+		return parseControlPacket(p)
 	}
-	return nil
+	return p, nil
 }
 
-// TODO make parsers an interface
 // parseControlPacket parses the contents of a packet.
-func (p *packet) parseControlPacket() error {
+func parseControlPacket(p *packet) (*packet, error) {
 	if len(p.payload) == 0 {
-		return errEmptyPayload
+		return p, errEmptyPayload
 	}
-	// TODO assert this is indeed a control packet
+	if !p.isControl() {
+		return p, fmt.Errorf("%w:%s", errBadInput, "expected control packet")
+	}
 	buf := bytes.NewBuffer(p.payload)
 
 	// session id
 	_, err := io.ReadFull(buf, p.localSessionID[:])
 	if err != nil {
-		return err
+		return p, err
 	}
 	// ack array
 	code, err := buf.ReadByte()
 	if err != nil {
-		return err
+		return p, err
 	}
 
-	// TODO: come to terms with acks
 	nAcks := int(code)
 	p.acks = make([]uint32, nAcks)
 	for i := 0; i < nAcks; i++ {
 		p.acks[i], err = bufReadUint32(buf)
 		if err != nil {
-			return nil
+			return p, err
 		}
 	}
 	// local session id
 	if nAcks > 0 {
 		_, err = io.ReadFull(buf, p.remoteSessionID[:])
 		if err != nil {
-			return nil
+			return p, err
 		}
 	}
 	// packet id
 	if p.opcode != pACKV1 {
 		p.id, err = bufReadUint32(buf)
 		if err != nil {
-			return nil
+			return p, err
 		}
 	}
 	// payload
 	p.payload = buf.Bytes()
-	return nil
+	return p, nil
 }
 
 // Bytes returns a byte array that is ready to be sent on the wire.
