@@ -31,8 +31,8 @@ type session struct {
 	LocalSessionID  sessionID
 	keys            []*dataChannelKey
 	keyID           int
-	localPacketID   uint32
-	lastACK         uint32
+	localPacketID   packetID
+	lastACK         packetID
 	ackQueue        chan *packet
 	mu              sync.Mutex
 	Log             Logger
@@ -83,7 +83,7 @@ func (s *session) ActiveKey() (*dataChannelKey, error) {
 // localPacketID returns an unique Packet ID. It increments the counter.
 // In the future, this call could detect (or warn us) when we're approaching
 // the key end of life.
-func (s *session) LocalPacketID() (uint32, error) {
+func (s *session) LocalPacketID() (packetID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pid := s.localPacketID
@@ -97,16 +97,16 @@ func (s *session) LocalPacketID() (uint32, error) {
 
 // UpdateLastACK will update the internal variable for the last acknowledged
 // packet to the passed packetID, only if packetID is greater than the lastACK.
-func (s *session) UpdateLastACK(packetID uint32) error {
+func (s *session) UpdateLastACK(newPacketID packetID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.lastACK == math.MaxUint32 {
 		return errExpiredKey
 	}
-	if s.lastACK != 0 && packetID <= s.lastACK {
-		logger.Warnf("tried to write ack %d; last was %d", packetID, s.lastACK)
+	if s.lastACK != 0 && newPacketID <= s.lastACK {
+		logger.Warnf("tried to write ack %d; last was %d", newPacketID, s.lastACK)
 	}
-	s.lastACK = packetID
+	s.lastACK = newPacketID
 	return nil
 }
 
@@ -150,7 +150,7 @@ func (c *control) ReadControlMessage(b []byte) (*keySource, string, error) {
 	return readControlMessage(b)
 }
 
-func (c *control) SendACK(conn net.Conn, s *session, pid uint32) error {
+func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
 	return sendACK(conn, s, pid)
 }
 
@@ -177,7 +177,7 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 
 // sendACK builds an ACK control packet for the given packetID, and writes it
 // over the passed connection.
-func sendACK(conn net.Conn, s *session, pid uint32) error {
+func sendACK(conn net.Conn, s *session, pid packetID) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
 	p := newACKPacket(pid, s)

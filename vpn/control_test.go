@@ -86,33 +86,33 @@ func Test_session_LocalPacketID(t *testing.T) {
 		LocalSessionID  sessionID
 		keys            []*dataChannelKey
 		keyID           int
-		localPacketID   uint32
-		lastACK         uint32
+		localPacketID   packetID
+		lastACK         packetID
 		ackQueue        chan *packet
 	}
 
 	tests := []struct {
 		name    string
 		fields  fields
-		want    uint32
+		want    packetID
 		wantErr error
 	}{
 		{
 			"return arbitrary value",
-			fields{localPacketID: uint32(42)},
-			uint32(42),
+			fields{localPacketID: packetID(42)},
+			packetID(42),
 			nil,
 		},
 		{
 			"return zero",
-			fields{localPacketID: uint32(0)},
-			uint32(0),
+			fields{localPacketID: packetID(0)},
+			packetID(0),
 			nil,
 		},
 		{
 			"overflow",
 			fields{localPacketID: math.MaxUint32},
-			uint32(0),
+			packetID(0),
 			errExpiredKey,
 		},
 	}
@@ -128,8 +128,8 @@ func Test_session_LocalPacketID(t *testing.T) {
 	}
 
 	// increments
-	val := uint32(1000)
-	s := &session{localPacketID: uint32(1000)}
+	val := packetID(1000)
+	s := &session{localPacketID: packetID(1000)}
 
 	if got, _ := s.LocalPacketID(); got != val {
 		t.Errorf("session.LocalPacketID() = %v, want %v", got, val)
@@ -146,7 +146,7 @@ func Test_session_LocalPacketID(t *testing.T) {
 
 func Test_session_isNextPacket(t *testing.T) {
 	type fields struct {
-		lastACK uint32
+		lastACK packetID
 	}
 	type args struct {
 		p *packet
@@ -159,25 +159,25 @@ func Test_session_isNextPacket(t *testing.T) {
 	}{
 		{
 			"is next",
-			fields{lastACK: uint32(0)},
-			args{&packet{id: 1}},
+			fields{lastACK: packetID(0)},
+			args{&packet{id: packetID(1)}},
 			true,
 		},
 		{
 			"is two more",
-			fields{lastACK: uint32(0)},
-			args{&packet{id: 2}},
+			fields{lastACK: packetID(0)},
+			args{&packet{id: packetID(2)}},
 			false,
 		},
 		{
 			"is lesser",
-			fields{lastACK: uint32(100)},
-			args{&packet{id: 99}},
+			fields{lastACK: packetID(100)},
+			args{&packet{id: packetID(99)}},
 			false,
 		},
 		{
 			"is nil",
-			fields{lastACK: uint32(100)},
+			fields{lastACK: packetID(100)},
 			args{nil},
 			false,
 		},

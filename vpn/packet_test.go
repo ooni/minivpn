@@ -63,7 +63,7 @@ func Test_packet_Bytes(t *testing.T) {
 
 func Test_newACKPacket(t *testing.T) {
 	type args struct {
-		ackID uint32
+		ackID packetID
 		s     *session
 	}
 	tests := []struct {
@@ -73,7 +73,7 @@ func Test_newACKPacket(t *testing.T) {
 	}{
 		{"good_ack",
 			args{42, &session{}},
-			&packet{opcode: pACKV1, acks: []uint32{42}},
+			&packet{opcode: pACKV1, acks: []packetID{42}},
 		},
 	}
 	for _, tt := range tests {

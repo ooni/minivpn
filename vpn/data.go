@@ -5,6 +5,7 @@ package vpn
 //
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"encoding/binary"
 	"encoding/hex"
@@ -25,21 +26,14 @@ var (
 	errBadHMAC        = errors.New("bad hmac")
 )
 
+// keySlot holds the different local and remote keys.
 type keySlot [64]byte
-
-// data represents the data channel, that will encrypt and decrypt the tunnel payloads.
-// data implements the dataHandler interface.
-type data struct {
-	options *Options
-	session *session
-	state   *dataChannelState
-}
 
 // dataChannelState is the state of the data channel.
 type dataChannelState struct {
 	dataCipher      dataCipher
 	hmac            func() hash.Hash
-	remotePacketID  uint32
+	remotePacketID  packetID
 	cipherKeyLocal  keySlot
 	cipherKeyRemote keySlot
 	hmacKeyLocal    keySlot
@@ -48,14 +42,16 @@ type dataChannelState struct {
 	mu sync.Mutex
 }
 
-func (dcs *dataChannelState) SetRemotePacketID(id uint32) bool {
+// SetSetRemotePacketID stores the passed packetID internally.
+func (dcs *dataChannelState) SetRemotePacketID(id packetID) bool {
 	dcs.mu.Lock()
 	defer dcs.mu.Unlock()
-	dcs.remotePacketID = id
+	dcs.remotePacketID = packetID(id)
 	return true
 }
 
-func (dcs *dataChannelState) RemotePacketID() uint32 {
+// RemotePacketID returns the last known remote packetID.
+func (dcs *dataChannelState) RemotePacketID() packetID {
 	dcs.mu.Lock()
 	defer dcs.mu.Unlock()
 	return dcs.remotePacketID
@@ -102,11 +98,16 @@ type keySource struct {
 	preMaster []byte
 }
 
+// Bytes returns the byte representation of a keySource
 func (k *keySource) Bytes() []byte {
-	r := append(k.preMaster, k.r1...)
-	return append(r, k.r2...)
+	buf := &bytes.Buffer{}
+	buf.Write(k.preMaster)
+	buf.Write(k.r1)
+	buf.Write(k.r2)
+	return buf.Bytes()
 }
 
+// newKeySource returns a keySource and an error.
 func newKeySource() (*keySource, error) {
 	r1, err := randomFn(32)
 	if err != nil {
@@ -125,6 +126,14 @@ func newKeySource() (*keySource, error) {
 		r2:        r2,
 		preMaster: preMaster,
 	}, nil
+}
+
+// data represents the data "channel", that will encrypt and decrypt the tunnel payloads.
+// data implements the dataHandler interface.
+type data struct {
+	options *Options
+	session *session
+	state   *dataChannelState
 }
 
 // newDataFromOptions returns a new data object, initialized with the
@@ -206,7 +215,7 @@ func (d *data) encrypt(plaintext []byte) ([]byte, error) {
 	if d.state.dataCipher.isAEAD() {
 		packetID := make([]byte, 4)
 		localPacketID, _ := d.session.LocalPacketID()
-		binary.BigEndian.PutUint32(packetID, localPacketID)
+		binary.BigEndian.PutUint32(packetID, uint32(localPacketID))
 		iv := append(packetID, d.state.hmacKeyLocal[:8]...)
 
 		ct, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, packetID)
@@ -286,7 +295,7 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	if !d.state.dataCipher.isAEAD() {
 		packetID := make([]byte, 4)
 		localPacketID, _ := d.session.LocalPacketID()
-		binary.BigEndian.PutUint32(packetID, localPacketID)
+		binary.BigEndian.PutUint32(packetID, uint32(localPacketID))
 		buf = append(packetID[:], payload...)
 	} else {
 		buf = payload[:]
@@ -418,12 +427,12 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 			payload = b[:]
 		}
 	} else {
-		packetID := binary.BigEndian.Uint32(b[:4])
-		if int(packetID) <= int(st.RemotePacketID()) {
+		remotePacketID := packetID(binary.BigEndian.Uint32(b[:4]))
+		if remotePacketID <= st.RemotePacketID() {
 			logger.Errorf("possible replay attack")
 			return payload, errReplayAttack
 		}
-		st.SetRemotePacketID(packetID)
+		st.SetRemotePacketID(remotePacketID)
 		compr = b[4]
 		payload = b[5:]
 	}

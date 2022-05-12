@@ -55,23 +55,30 @@ var (
 	pingPayload          = []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
 )
 
+// sessionID is the session identifier.
 type sessionID [8]byte
-type ackArray []uint32
 
+// Bytes returns a slice with the sessionID value.
 func (s *sessionID) Bytes() []byte {
 	return s[:]
 }
 
+// packetID is a packet identifier.
+type packetID uint32
+
+// ackArray holds the identifiers of packets to ack.
+type ackArray []packetID
+
 type packet struct {
+	// id is the packet-id for replay protection (4 or 8 bytes, includes
+	// sequence number and optional time_t timestamp).
+	id packetID
 	// opcode is the packet message type (a P_* constant; high 5-bits of
 	// the first packet byte).
 	opcode byte
 	// The key_id refers to an already negotiated TLS session.
 	// This is the shortened version of the key-id (low 3-bits of the first packet byte).
 	keyID byte
-	// id is the packet-id for replay protection (4 or 8 bytes, includes
-	// sequence number and optional time_t timestamp).
-	id uint32
 	// The 64 bit form (of the key) is referred to as a session_id.
 	localSessionID  sessionID
 	remoteSessionID sessionID
@@ -271,12 +278,13 @@ func parseControlPacket(p *packet) (*packet, error) {
 	}
 
 	nAcks := int(code)
-	p.acks = make([]uint32, nAcks)
+	p.acks = make([]packetID, nAcks)
 	for i := 0; i < nAcks; i++ {
-		p.acks[i], err = bufReadUint32(buf)
+		val, err := bufReadUint32(buf)
 		if err != nil {
 			return p, err
 		}
+		p.acks[i] = packetID(val)
 	}
 	// local session id
 	if nAcks > 0 {
@@ -287,10 +295,11 @@ func parseControlPacket(p *packet) (*packet, error) {
 	}
 	// packet id
 	if p.opcode != pACKV1 {
-		p.id, err = bufReadUint32(buf)
+		val, err := bufReadUint32(buf)
 		if err != nil {
 			return p, err
 		}
+		p.id = packetID(val)
 	}
 	// payload
 	p.payload = buf.Bytes()
@@ -311,14 +320,14 @@ func (packet *packet) Bytes() []byte {
 	}
 	buf.WriteByte(byte(nAcks))
 	for i := 0; i < nAcks; i++ {
-		bufWriteUint32(buf, packet.acks[i])
+		bufWriteUint32(buf, uint32(packet.acks[i]))
 	}
 	//  remote session id
 	if len(packet.acks) > 0 {
 		buf.Write(packet.remoteSessionID[:])
 	}
 	if packet.opcode != pACKV1 {
-		bufWriteUint32(buf, packet.id)
+		bufWriteUint32(buf, uint32(packet.id))
 	}
 	//  payload
 	buf.Write(packet.payload)
@@ -326,8 +335,8 @@ func (packet *packet) Bytes() []byte {
 }
 
 // newACKPacket returns a packet with the P_ACK_V1 opcode.
-func newACKPacket(ackID uint32, s *session) *packet {
-	acks := []uint32{ackID}
+func newACKPacket(ackID packetID, s *session) *packet {
+	acks := []packetID{ackID}
 	p := &packet{
 		opcode:          pACKV1,
 		localSessionID:  s.LocalSessionID,
