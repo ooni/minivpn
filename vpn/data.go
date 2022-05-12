@@ -194,10 +194,12 @@ func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
 	d.state.cipherKeyRemote = keyRemote
 	d.state.hmacKeyRemote = hmacRemote
 
-	logger.Infof("Cipher key local:  %x", keyLocal)
-	logger.Infof("Cipher key remote: %x", keyRemote)
-	logger.Infof("Hmac key local:    %x", hmacLocal)
-	logger.Infof("Hmac key remote:   %x", hmacRemote)
+	logger.Debugf("Cipher key local:  %x", keyLocal)
+	logger.Debugf("Cipher key remote: %x", keyRemote)
+	logger.Debugf("Hmac key local:    %x", hmacLocal)
+	logger.Debugf("Hmac key remote:   %x", hmacRemote)
+
+	logger.Info("Key derivation OK")
 	return nil
 }
 

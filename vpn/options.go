@@ -106,7 +106,7 @@ func (o *Options) String() string {
 	} else if o.Compress == "lzo-no" {
 		s = s + ",lzo-comp no"
 	}
-	logger.Infof("Local opts:  %s", s)
+	logger.Debugf("Local opts:  %s", s)
 	return s
 }
 
