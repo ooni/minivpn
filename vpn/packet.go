@@ -69,16 +69,23 @@ type packetID uint32
 // ackArray holds the identifiers of packets to ack.
 type ackArray []packetID
 
+// packet represents a packet according to the OpenVPN protocol.
 type packet struct {
-	// id is the packet-id for replay protection (4 or 8 bytes, includes
-	// sequence number and optional time_t timestamp).
+
+	// id is the packet-id for replay protection.
+	// According to the spec: "4 or 8 bytes, includes sequence number and optional time_t timestamp".
+	// We do not use the timestamp.
 	id packetID
+
 	// opcode is the packet message type (a P_* constant; high 5-bits of
 	// the first packet byte).
 	opcode byte
+
 	// The key_id refers to an already negotiated TLS session.
-	// This is the shortened version of the key-id (low 3-bits of the first packet byte).
+	// This is the shortened version of the key-id (low 3-bits of the first
+	// packet byte).
 	keyID byte
+
 	// The 64 bit form (of the key) is referred to as a session_id.
 	localSessionID  sessionID
 	remoteSessionID sessionID
@@ -86,10 +93,67 @@ type packet struct {
 	acks            ackArray
 }
 
+// packetFromBytes produces a packet after parsing the common header.
+// In TCP mode, it is assumed that the packet length (part of the header) has
+// already been stripped out.
+func newPacketFromBytes(buf []byte) (*packet, error) {
+	if len(buf) < 2 {
+		return &packet{}, errBadInput
+	}
+	packet := &packet{
+		opcode: buf[0] >> 3,
+		keyID:  buf[0] & 0x07,
+	}
+	packet.payload = make([]byte, len(buf)-1)
+	copy(packet.payload, buf[1:])
+	return parsePacket(packet)
+}
+
+// newPacketFromPayload returns a packet from the passed arguments: opcode,
+// keyID and a byte array payload.
+func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
+	packet := &packet{
+		opcode:  opcode,
+		keyID:   keyID,
+		payload: payload,
+	}
+	return packet
+}
+
+// Bytes returns a byte array that is ready to be sent on the wire.
+func (packet *packet) Bytes() []byte {
+	buf := &bytes.Buffer{}
+	buf.WriteByte((packet.opcode << 3) | (packet.keyID & 0x07))
+	buf.Write(packet.localSessionID[:])
+	// we write a byte with the number of acks, and then
+	// serialize each ack.
+	nAcks := len(packet.acks)
+	if nAcks > 255 {
+		logger.Warnf("packet %d had too many acks (%d)", packet.id, nAcks)
+		nAcks = 255
+	}
+	buf.WriteByte(byte(nAcks))
+	for i := 0; i < nAcks; i++ {
+		bufWriteUint32(buf, uint32(packet.acks[i]))
+	}
+	//  remote session id
+	if len(packet.acks) > 0 {
+		buf.Write(packet.remoteSessionID[:])
+	}
+	if packet.opcode != pACKV1 {
+		bufWriteUint32(buf, uint32(packet.id))
+	}
+	//  payload
+	buf.Write(packet.payload)
+	return buf.Bytes()
+}
+
+// isACK returns true if the packet is an ACK packet.
 func (p *packet) isACK() bool {
 	return p.opcode == byte(pACKV1)
 }
 
+// isControl returns true if the packet is any of the control types.
 func (p *packet) isControl() bool {
 	switch p.opcode {
 	case byte(pControlHardResetServerV2), byte(pControlV1):
@@ -99,10 +163,12 @@ func (p *packet) isControl() bool {
 	}
 }
 
+// isControlV1 returns true if the packet is of the control v1 type.
 func (p *packet) isControlV1() bool {
 	return p.opcode == byte(pControlV1)
 }
 
+// isData returns true if the packet is of data type.
 func (p *packet) isData() bool {
 	switch p.opcode {
 	case byte(pDataV1):
@@ -112,7 +178,70 @@ func (p *packet) isData() bool {
 	}
 }
 
-func isPingPacket(b []byte) bool {
+// parse tries to parse the payload of the packet, and returns a packet and an
+// error. it does only parse control packets (for now - parsing of data packets
+// is done on the data handler methods).
+func parsePacket(p *packet) (*packet, error) {
+	if p.isControl() {
+		return parseControlPacket(p)
+	}
+	return p, nil
+}
+
+// parseControlPacket parses the contents of a control packet, and returns a
+// packet and an error.
+func parseControlPacket(p *packet) (*packet, error) {
+	if len(p.payload) == 0 {
+		return p, errEmptyPayload
+	}
+	if !p.isControl() {
+		return p, fmt.Errorf("%w:%s", errBadInput, "expected control packet")
+	}
+	buf := bytes.NewBuffer(p.payload)
+
+	// session id
+	_, err := io.ReadFull(buf, p.localSessionID[:])
+	if err != nil {
+		return p, err
+	}
+	// ack array
+	code, err := buf.ReadByte()
+	if err != nil {
+		return p, err
+	}
+
+	nAcks := int(code)
+	p.acks = make([]packetID, nAcks)
+	for i := 0; i < nAcks; i++ {
+		val, err := bufReadUint32(buf)
+		if err != nil {
+			return p, err
+		}
+		p.acks[i] = packetID(val)
+	}
+	// local session id
+	if nAcks > 0 {
+		_, err = io.ReadFull(buf, p.remoteSessionID[:])
+		if err != nil {
+			return p, err
+		}
+	}
+	// packet id
+	if p.opcode != pACKV1 {
+		val, err := bufReadUint32(buf)
+		if err != nil {
+			return p, err
+		}
+		p.id = packetID(val)
+	}
+	// payload
+	p.payload = buf.Bytes()
+	return p, nil
+}
+
+// isPingPacket returns true if the packet payload matches a hard-coded ping
+// payload.
+func isPing(b []byte) bool {
 	return bytes.Equal(b, pingPayload)
 }
 
@@ -123,10 +252,16 @@ type serverControlMessage struct {
 	payload []byte
 }
 
+// valid returns true if the packet has a control-message header.
 func (sc *serverControlMessage) valid() bool {
+	if len(sc.payload) < 4 {
+		return false
+	}
 	return bytes.Equal(sc.payload[:4], controlMessageHeader)
 }
 
+// newServerControlMessageFromBytes returns a server control message from the
+// passed byte array.
 func newServerControlMessageFromBytes(buf []byte) *serverControlMessage {
 	return &serverControlMessage{buf}
 }
@@ -187,10 +322,13 @@ func encodeClientControlMessageAsBytes(k *keySource, o *Options) ([]byte, error)
 	return out.Bytes(), nil
 }
 
+// serverHard reset contains the payload for a serverHardReset message type.
 type serverHardReset struct {
 	payload []byte
 }
 
+// newServerHardReset returns a serverHardReset message type, and an error if
+// the passed payload is empty.
 func newServerHardReset(b []byte) (*serverHardReset, error) {
 	if len(b) == 0 {
 		return nil, fmt.Errorf("%w: %s", errBadReset, "zero len")
@@ -221,117 +359,6 @@ func encodePushRequestAsBytes() []byte {
 	out.Write([]byte("PUSH_REQUEST"))
 	out.WriteByte(0x00)
 	return out.Bytes()
-}
-
-// packetFromBytes produces a packet after parsing the common header.
-// In TCP mode, it is assumed that the packet length (part of the header) has
-// already been stripped out.
-func newPacketFromBytes(buf []byte) (*packet, error) {
-	if len(buf) < 2 {
-		return &packet{}, errBadInput
-	}
-	packet := &packet{
-		opcode: buf[0] >> 3,
-		keyID:  buf[0] & 0x07,
-	}
-	packet.payload = make([]byte, len(buf)-1)
-	copy(packet.payload, buf[1:])
-	return parsePacket(packet)
-}
-
-func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
-	packet := &packet{
-		opcode:  opcode,
-		keyID:   keyID,
-		payload: payload,
-	}
-	return packet
-}
-
-// parse tries to parse the payload of the packet.
-func parsePacket(p *packet) (*packet, error) {
-	if p.isControl() {
-		return parseControlPacket(p)
-	}
-	return p, nil
-}
-
-// parseControlPacket parses the contents of a packet.
-func parseControlPacket(p *packet) (*packet, error) {
-	if len(p.payload) == 0 {
-		return p, errEmptyPayload
-	}
-	if !p.isControl() {
-		return p, fmt.Errorf("%w:%s", errBadInput, "expected control packet")
-	}
-	buf := bytes.NewBuffer(p.payload)
-
-	// session id
-	_, err := io.ReadFull(buf, p.localSessionID[:])
-	if err != nil {
-		return p, err
-	}
-	// ack array
-	code, err := buf.ReadByte()
-	if err != nil {
-		return p, err
-	}
-
-	nAcks := int(code)
-	p.acks = make([]packetID, nAcks)
-	for i := 0; i < nAcks; i++ {
-		val, err := bufReadUint32(buf)
-		if err != nil {
-			return p, err
-		}
-		p.acks[i] = packetID(val)
-	}
-	// local session id
-	if nAcks > 0 {
-		_, err = io.ReadFull(buf, p.remoteSessionID[:])
-		if err != nil {
-			return p, err
-		}
-	}
-	// packet id
-	if p.opcode != pACKV1 {
-		val, err := bufReadUint32(buf)
-		if err != nil {
-			return p, err
-		}
-		p.id = packetID(val)
-	}
-	// payload
-	p.payload = buf.Bytes()
-	return p, nil
-}
-
-// Bytes returns a byte array that is ready to be sent on the wire.
-func (packet *packet) Bytes() []byte {
-	buf := &bytes.Buffer{}
-	buf.WriteByte((packet.opcode << 3) | (packet.keyID & 0x07))
-	buf.Write(packet.localSessionID[:])
-	// we write a byte with the number of acks, and then
-	// serialize each ack.
-	nAcks := len(packet.acks)
-	if nAcks > 255 {
-		logger.Warnf("packet %d had too many acks (%d)", packet.id, nAcks)
-		nAcks = 255
-	}
-	buf.WriteByte(byte(nAcks))
-	for i := 0; i < nAcks; i++ {
-		bufWriteUint32(buf, uint32(packet.acks[i]))
-	}
-	//  remote session id
-	if len(packet.acks) > 0 {
-		buf.Write(packet.remoteSessionID[:])
-	}
-	if packet.opcode != pACKV1 {
-		bufWriteUint32(buf, uint32(packet.id))
-	}
-	//  payload
-	buf.Write(packet.payload)
-	return buf.Bytes()
 }
 
 // newACKPacket returns a packet with the P_ACK_V1 opcode.

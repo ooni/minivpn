@@ -242,7 +242,7 @@ func (m *muxer) handleIncomingPacket() bool {
 		fmt.Println(hex.Dump(data))
 		return false
 	}
-	if isPingPacket(data) {
+	if isPing(data) {
 		m.handleDataPing()
 		return false
 	}
