@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 )
 
 const (
@@ -285,12 +284,13 @@ func parseServerControlMessage(sc *serverControlMessage) (*keySource, string, er
 	r1 := sc.payload[5:37]
 	// second chunk of random bytes
 	r2 := sc.payload[37:69]
+
 	options, err := decodeOptionStringFromBytes(sc.payload[69:])
 	if err != nil {
-		log.Printf("ERROR server sent bad options string: %s\n", err.Error())
+		return nil, "", fmt.Errorf("%w:%s", errBadControlMessage, "bad options string")
 	}
 
-	logger.Infof("Remote opts: %s", options)
+	logger.Debugf("Remote opts: %s", options)
 	remoteKey := &keySource{r1: r1, r2: r2}
 	return remoteKey, options, nil
 }

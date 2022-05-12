@@ -306,7 +306,7 @@ func (m *muxer) readAndLoadRemoteKey() error {
 	}
 	key.addRemoteKey(remoteKey)
 
-	// Parse and store the useful parts of the remote optionh.
+	// Parse and store the useful parts of the remote options.
 	parseRemoteOptions(m.tunnel, opts)
 	return nil
 }
