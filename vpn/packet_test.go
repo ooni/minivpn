@@ -221,17 +221,6 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 	}
 }
 
-func Test_encodePushRequestAsBytes(t *testing.T) {
-	got := encodePushRequestAsBytes()
-	if !bytes.Equal(got[:len(got)-1], []byte("PUSH_REQUEST")) {
-		t.Errorf("encodePushRequestAsBytes() = %v", got)
-	}
-	if got[len(got)-1] != 0x00 {
-		t.Errorf("encodePushRequestAsBytes(): expected trailing null byte")
-	}
-
-}
-
 func Test_newPacketFromBytes(t *testing.T) {
 	type args struct {
 		buf []byte
@@ -258,4 +247,4 @@ func Test_newPacketFromBytes(t *testing.T) {
 	}
 }
 
-// --------------- adding
+// --------------- adding tests below, need to reorder ------------------------------ //

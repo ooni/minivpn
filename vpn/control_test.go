@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"bytes"
 	"math"
 	"net"
 	"reflect"
@@ -259,5 +260,16 @@ func Test_isControlMessage(t *testing.T) {
 				t.Errorf("isControlMessage() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_control_PushRequest(t *testing.T) {
+	c := &control{}
+	got := c.PushRequest()
+	if !bytes.Equal(got[:len(got)-1], []byte("PUSH_REQUEST")) {
+		t.Errorf("control_PushRequest() = %v", got)
+	}
+	if got[len(got)-1] != 0x00 {
+		t.Errorf("control_PushRequest(): expected trailing null byte")
 	}
 }

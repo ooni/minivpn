@@ -203,7 +203,7 @@ func (m *muxer) Reset() error {
 	// we assume id is 0, this is the first packet we ack.
 	// XXX I could parse the real packet id from server instead. this
 	// _might_ be important when re-keying?
-	sendACK(m.conn, m.session, packetID(0))
+	m.control.SendACK(m.conn, m.session, packetID(0))
 	return nil
 }
 

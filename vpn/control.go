@@ -125,33 +125,83 @@ func (s *session) isNextPacket(p *packet) bool {
 // Like true pirates, there is no state under control.
 type control struct{}
 
+// SendHardReset sends a control packet with the HardResetClientv2 header,
+// over the passed net.Conn.
 func (c *control) SendHardReset(conn net.Conn, s *session) {
 	sendControlPacket(conn, s, pControlHardResetClientV2, 0, []byte(""))
 }
 
+// ParseHardReset extracts the sessionID from a hard-reset server response, and
+// an error if the operation was not successful.
 func (c *control) ParseHardReset(b []byte) (sessionID, error) {
-	return parseHardReset(b)
+	p, err := newServerHardReset(b)
+	if err != nil {
+		return sessionID{}, err
+	}
+	return parseServerHardResetPacket(p)
 }
 
+// PushRequest returns a byte array with the PUSH_REQUEST command.
 func (c *control) PushRequest() []byte {
-	return encodePushRequestAsBytes()
+	var out bytes.Buffer
+	out.Write([]byte("PUSH_REQUEST"))
+	out.WriteByte(0x00)
+	return out.Bytes()
 }
 
+// ReadReadPushResponse reads a byte array returned from the server,
+// as the response to a Push Request, and returns a string containing the
+// tunnel IP.
+// For now, this is a single string containing _only_ the tunnel ip,
+// but we might want to pass a pointer to the tunnel struct in the
+// future.
 func (*control) ReadPushResponse(b []byte) string {
-	// this is a single string containing the tunnel ip
 	return parsePushedOptions(b)
 }
 
-func (c *control) ControlMessage(s *session, o *Options) ([]byte, error) {
-	return encodeControlMessage(s, o)
+// ControlMessage returns a byte array containing a message over the control
+// channel.
+// This is not a P_CONTROL, but a message over the TLS encrypted channel.
+func (c *control) ControlMessage(s *session, opt *Options) ([]byte, error) {
+	key, err := s.ActiveKey()
+	if err != nil {
+		return []byte{}, err
+	}
+	return encodeClientControlMessageAsBytes(key.local, opt)
 }
 
+// ReadControlMessage reads a control message with authentication result data.
+// it returns the remote key, remote options and an error if we cannot parse
+// the data.
 func (c *control) ReadControlMessage(b []byte) (*keySource, string, error) {
-	return readControlMessage(b)
+	cm := newServerControlMessageFromBytes(b)
+	return parseServerControlMessage(cm)
 }
 
+// SendACK builds an ACK control packet for the given packetID, and writes it
+// over the passed connection. It returns an error if the operation cannot be
+// completed successfully.
 func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
 	return sendACK(conn, s, pid)
+}
+
+// sendACK is used by controlHandler.SendACK() and by TLSConn.Read()
+func sendACK(conn net.Conn, s *session, pid packetID) error {
+	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
+
+	p := newACKPacket(pid, s)
+	payload := p.Bytes()
+	payload = maybeAddSizeFrame(conn, payload)
+
+	_, err := conn.Write(payload)
+	if err != nil {
+		return err
+	}
+
+	logger.Debug(fmt.Sprintln("write ack:", pid))
+	logger.Debug(fmt.Sprintln(hex.Dump(payload)))
+
+	return s.UpdateLastACK(pid)
 }
 
 var _ controlHandler = &control{} // Ensure that we implement controlHandler
@@ -173,55 +223,6 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	logger.Debug(fmt.Sprintf("control write: (%d bytes)\n", len(out)))
 	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 	return conn.Write(out)
-}
-
-// sendACK builds an ACK control packet for the given packetID, and writes it
-// over the passed connection.
-func sendACK(conn net.Conn, s *session, pid packetID) error {
-	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
-
-	p := newACKPacket(pid, s)
-	payload := p.Bytes()
-	payload = maybeAddSizeFrame(conn, payload)
-
-	_, err := conn.Write(payload)
-	if err != nil {
-		return err
-	}
-
-	logger.Debug(fmt.Sprintln("write ack:", pid))
-	logger.Debug(fmt.Sprintln(hex.Dump(payload)))
-
-	s.UpdateLastACK(pid)
-	return err
-}
-
-// parseHardReset extracts the sessionID from a hard-reset server response, and
-// an error if the operation was not successful.
-func parseHardReset(b []byte) (sessionID, error) {
-	p, err := newServerHardReset(b)
-	if err != nil {
-		return sessionID{}, err
-	}
-	return parseServerHardResetPacket(p)
-}
-
-// sendControlMessage sends a message over the control channel packet
-// (this is not a P_CONTROL, but a message over the TLS encrypted channel).
-func encodeControlMessage(s *session, opt *Options) ([]byte, error) {
-	key, err := s.ActiveKey()
-	if err != nil {
-		return []byte{}, err
-	}
-	return encodeClientControlMessageAsBytes(key.local, opt)
-}
-
-// readControlMessage reads a control message with authentication result data.
-// it returns the remote key, remote options and an error if we cannot parse
-// the data.
-func readControlMessage(b []byte) (*keySource, string, error) {
-	cm := newServerControlMessageFromBytes(b)
-	return parseServerControlMessage(cm)
 }
 
 // isControlMessage returns a boolean indicating whether the header of a

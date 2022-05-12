@@ -353,14 +353,6 @@ func parseServerHardResetPacket(p *serverHardReset) (sessionID, error) {
 	return rs, nil
 }
 
-// encodePushRequestAsBytes returns a byte array with the PUSH_REQUEST command.
-func encodePushRequestAsBytes() []byte {
-	var out bytes.Buffer
-	out.Write([]byte("PUSH_REQUEST"))
-	out.WriteByte(0x00)
-	return out.Bytes()
-}
-
 // newACKPacket returns a packet with the P_ACK_V1 opcode.
 func newACKPacket(ackID packetID, s *session) *packet {
 	acks := []packetID{ackID}
