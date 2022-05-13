@@ -195,6 +195,10 @@ func Test_parseServerControlMessage(t *testing.T) {
 }
 
 func Test_encodeClientControlMessageAsBytes(t *testing.T) {
+	manyA := bytes.Repeat([]byte{0x65}, 32)
+	manyB := bytes.Repeat([]byte{0x66}, 32)
+	manyC := bytes.Repeat([]byte{0x67}, 32)
+
 	type args struct {
 		k *keySource
 		o *Options
@@ -205,7 +209,49 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 		want    []byte
 		wantErr bool
 	}{
-		// TODO: Add test cases.
+		{
+			"empty options",
+			args{
+				&keySource{manyA, manyB, manyC},
+				&Options{},
+			},
+			func() []byte {
+				buf := []byte{0x00, 0x00, 0x00, 0x00, 0x02}
+				buf = append(buf, manyC...)
+				buf = append(buf, manyA...)
+				buf = append(buf, manyB...)
+				buf = append(buf, []byte{
+					// options, null-terminated
+					0x00, 0x01, 0x00,
+					// auth strings
+					0x00, 0x01, 0x00,
+					0x00, 0x01, 0x00}...)
+				return buf
+			}(),
+			false,
+		},
+		{
+			"good options",
+			args{
+				&keySource{manyA, manyB, manyC},
+				&Options{Cipher: "AES-128-CBC"},
+			},
+			func() []byte {
+				buf := []byte{0x00, 0x00, 0x00, 0x00, 0x02}
+				buf = append(buf, manyC...)
+				buf = append(buf, manyA...)
+				buf = append(buf, manyB...)
+				buf = append(buf, []byte{0x00, 0x74}...)
+				buf = append(buf, []byte("V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth ,keysize 128,key-method 2,tls-client")...)
+				// null-terminate + auth
+				buf = append(buf, []byte{
+					0x00,
+					0x00, 0x01, 0x00,
+					0x00, 0x01, 0x00}...)
+				return buf
+			}(),
+			false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -221,7 +267,7 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 	}
 }
 
-func Test_newPacketFromBytes(t *testing.T) {
+func Test_parsePacketFromBytes(t *testing.T) {
 	type args struct {
 		buf []byte
 	}
@@ -231,11 +277,42 @@ func Test_newPacketFromBytes(t *testing.T) {
 		want    *packet
 		wantErr bool
 	}{
-		// TODO: Add test cases.
+		{
+			"ack",
+			args{[]byte{0x28, 0xff, 0xff}},
+			&packet{
+				opcode: pACKV1, keyID: 0,
+				payload: []byte{0xff, 0xff}},
+			false,
+		},
+		{
+			"hard reset",
+			args{[]byte{0x8, 0xff, 0xff}},
+			&packet{
+				opcode:  pControlHardResetClientV1,
+				keyID:   0,
+				payload: []byte{0xff, 0xff}},
+			false,
+		},
+		{
+			"hard reset server",
+			args{[]byte{0x10, 0xff, 0xff}},
+			&packet{
+				opcode:  pControlHardResetServerV1,
+				keyID:   0,
+				payload: []byte{0xff, 0xff},
+			},
+			false},
+		{
+			"empty payload",
+			args{[]byte{0x28}},
+			&packet{},
+			true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newPacketFromBytes(tt.args.buf)
+			got, err := parsePacketFromBytes(tt.args.buf)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("newPacketFromBytes() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -248,3 +325,55 @@ func Test_newPacketFromBytes(t *testing.T) {
 }
 
 // --------------- adding tests below, need to reorder ------------------------------ //
+
+func Test_parseControlPacket(t *testing.T) {
+	raw1 := "5ad4a9517af8e7fe000000000296f517f943d32a11fc8463b8594ae7d3523b627d8c9444aac2def81a13bea2e037aecbd158bdf50ed16e800829a929cae2440999ff8a2c45277e195e6ddc6c3cda178ec7ae86b1f034bb45c23493efff526659c4170303004553d904ebd8d1fe7f9dd962770444e43e3f3b2e8e3eaf31478004748953b8c01bf420ba71e2484b29e7e2a907071ec23ba7de605dd72c370aee31412d194144bb6b32e469f8"
+	payload1, _ := hex.DecodeString(raw1)
+	data1, _ := hex.DecodeString(raw1[26:])
+	p1 := &packet{id: 2, opcode: 4, payload: payload1}
+	bls1, _ := hex.DecodeString("5ad4a9517af8e7fe")
+	var ls1 sessionID
+	copy(ls1[:], bls1)
+
+	type args struct {
+		p *packet
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *packet
+		wantErr bool
+	}{
+		{
+			"good control packet 1",
+			args{p1},
+			&packet{
+				id:              2,
+				keyID:           0,
+				opcode:          4,
+				localSessionID:  ls1,
+				remoteSessionID: sessionID{},
+				payload:         data1,
+			},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseControlPacket(tt.args.p)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseControlPacket() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got.payload, tt.want.payload) {
+				t.Errorf("parseControlPacket() = got %v, want %v", got.payload, tt.want.payload)
+			}
+			if !reflect.DeepEqual(got.localSessionID, tt.want.localSessionID) {
+				t.Errorf("parseControlPacket() = got %v, want %v", got.payload, tt.want.payload)
+			}
+			if !reflect.DeepEqual(got.remoteSessionID, tt.want.remoteSessionID) {
+				t.Errorf("parseControlPacket() = got %v, want %v", got.payload, tt.want.payload)
+			}
+		})
+	}
+}

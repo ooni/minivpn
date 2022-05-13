@@ -220,7 +220,7 @@ func (m *muxer) handleIncomingPacket() bool {
 		logger.Error(err.Error())
 		return false
 	}
-	p, err := newPacketFromBytes(data)
+	p, err := parsePacketFromBytes(data)
 	if err != nil {
 		logger.Error(err.Error())
 		return false

@@ -92,31 +92,30 @@ type packet struct {
 	acks            ackArray
 }
 
-// packetFromBytes produces a packet after parsing the common header.
+// parsePacketFromBytes produces a packet after parsing the common header.
 // In TCP mode, it is assumed that the packet length (part of the header) has
 // already been stripped out.
-func newPacketFromBytes(buf []byte) (*packet, error) {
+func parsePacketFromBytes(buf []byte) (*packet, error) {
 	if len(buf) < 2 {
 		return &packet{}, errBadInput
 	}
-	packet := &packet{
-		opcode: buf[0] >> 3,
-		keyID:  buf[0] & 0x07,
+	p := &packet{
+		opcode:  buf[0] >> 3,
+		keyID:   buf[0] & 0x07,
+		payload: buf[1:],
 	}
-	packet.payload = make([]byte, len(buf)-1)
-	copy(packet.payload, buf[1:])
-	return parsePacket(packet)
+	return parsePacket(p)
 }
 
 // newPacketFromPayload returns a packet from the passed arguments: opcode,
-// keyID and a byte array payload.
+// keyID and a raw byte array payload.
 func newPacketFromPayload(opcode uint8, keyID uint8, payload []byte) *packet {
-	packet := &packet{
+	p := &packet{
 		opcode:  opcode,
 		keyID:   keyID,
 		payload: payload,
 	}
-	return packet
+	return p
 }
 
 // Bytes returns a byte array that is ready to be sent on the wire.
@@ -196,6 +195,7 @@ func parseControlPacket(p *packet) (*packet, error) {
 	if !p.isControl() {
 		return p, fmt.Errorf("%w:%s", errBadInput, "expected control packet")
 	}
+
 	buf := bytes.NewBuffer(p.payload)
 
 	// session id
@@ -203,13 +203,14 @@ func parseControlPacket(p *packet) (*packet, error) {
 	if err != nil {
 		return p, err
 	}
+
 	// ack array
-	code, err := buf.ReadByte()
+	ackBuf, err := buf.ReadByte()
 	if err != nil {
 		return p, err
 	}
 
-	nAcks := int(code)
+	nAcks := int(ackBuf)
 	p.acks = make([]packetID, nAcks)
 	for i := 0; i < nAcks; i++ {
 		val, err := bufReadUint32(buf)

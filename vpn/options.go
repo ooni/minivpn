@@ -93,6 +93,9 @@ type Options struct {
 const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
 
 func (o *Options) String() string {
+	if o.Cipher == "" {
+		return ""
+	}
 	keysize := strings.Split(o.Cipher, "-")[1]
 	proto := strings.ToUpper(protoUDP.String())
 	if o.Proto == TCPMode {

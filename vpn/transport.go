@@ -110,7 +110,7 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 	if err != nil {
 		return nil, err
 	}
-	p, err := newPacketFromBytes(buf)
+	p, err := parsePacketFromBytes(buf)
 	if err != nil {
 		return &packet{}, err
 	}
