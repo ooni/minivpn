@@ -133,13 +133,14 @@ func newKeySource() (*keySource, error) {
 // data represents the data "channel", that will encrypt and decrypt the tunnel payloads.
 // data implements the dataHandler interface.
 type data struct {
-	options  *Options
-	session  *session
-	state    *dataChannelState
-	decodeFn func([]byte, *dataChannelState) (*encryptedData, error)
+	options         *Options
+	session         *session
+	state           *dataChannelState
+	decodeFn        func([]byte, *dataChannelState) (*encryptedData, error)
+	encryptEncodeFn func([]byte, *session, *dataChannelState) ([]byte, error)
 }
 
-var _ dataHandler = &data{} // Ensure that we implement controlHandler
+var _ dataHandler = &data{} // Ensure that we implement dataHandler
 
 // newDataFromOptions returns a new data object, initialized with the
 // options given. it also returns any error raised.
@@ -157,8 +158,10 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 	switch dataCipher.cipherMode() {
 	case cipherModeGCM:
 		data.decodeFn = decodeEncryptedPayloadAEAD
+		data.encryptEncodeFn = encryptAndEncodePayloadAEAD
 	default:
 		data.decodeFn = decodeEncryptedPayloadNonAEAD
+		data.encryptEncodeFn = encryptAndEncodePayloadNonAEAD
 	}
 
 	logger.Info(fmt.Sprintf("Auth:   %s", opt.Auth))
@@ -174,8 +177,7 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 
 // DecodeEncryptedPayload calls the corresponding function for AEAD or Non-AEAD decryption.
 func (d *data) DecodeEncryptedPayload(b []byte, dcs *dataChannelState) (*encryptedData, error) {
-	fn := d.decodeFn
-	return fn(b, dcs)
+	return d.decodeFn(b, dcs)
 }
 
 // SetSetupKeys performs the key expansion from the local and remote
@@ -225,54 +227,116 @@ func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
 // write + encrypt
 //
 
-func (d *data) encrypt(plaintext []byte) ([]byte, error) {
-	blockSize := d.state.dataCipher.blockSize()
+// encrypt calls the corresponding function for AEAD or Non-AEAD decryption.
+// Due to the particularities of the iv generation on each of the modes, encryption and encoding are
+// done together in the same function.
+// TODO accept state for symmetry
+func (d *data) EncryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
+	blockSize := dcs.dataCipher.blockSize()
 	padded, err := maybeAddCompressPadding(plaintext, d.options, blockSize)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 	}
 
-	if d.state.dataCipher.isAEAD() {
-		packetID := make([]byte, 4)
-		localPacketID, _ := d.session.LocalPacketID()
-		binary.BigEndian.PutUint32(packetID, uint32(localPacketID))
-		iv := append(packetID, d.state.hmacKeyLocal[:8]...)
+	encrypted, err := d.encryptEncodeFn(padded, d.session, d.state)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
+	}
+	return encrypted, nil
 
-		ct, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, packetID)
-		if err != nil {
-			return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
-		}
+}
 
-		// openvpn uses tag | payload
-		tag := ct[len(ct)-16:]
-		payload := ct[:len(ct)-16]
+// encryptFunc is the signature for the encryption function that is passed around.
+//type encryptFunc func(key, iv, plaintext, ad []byte) ([]byte, error)
 
-		p := append(packetID, tag...)
-		p = append(p, payload...)
-		return p, nil
+// encryptAndEncodePayloadAEAD peforms encryption and encoding of the payload in AEAD modes (i.e., AES-GCM).
+func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataChannelState) ([]byte, error) {
+	nextPacketID, err := session.LocalPacketID()
+	if err != nil {
+		return []byte{}, fmt.Errorf("bad packet id")
 	}
 
-	// non-aead (i.e., CBC encryption):
+	// we will pass packetID as the aead data to be authenticated
+	aead := &bytes.Buffer{}
+	bufWriteUint32(aead, uint32(nextPacketID))
+
+	// the iv is the packetID (again) concatenated with the 8 bytes of the
+	// key derived for local hmac (which we do not use for anything else in AEAD mode).
+	iv := &bytes.Buffer{}
+	bufWriteUint32(iv, uint32(nextPacketID))
+	iv.Write(state.hmacKeyLocal[:8])
+
+	data := &plaintextData{
+		iv:        iv.Bytes(),
+		plaintext: padded,
+		aead:      aead.Bytes(),
+	}
+
+	encryptFn := state.dataCipher.encrypt
+	encrypted, err := encryptFn(
+		state.cipherKeyLocal[:],
+		data.iv,
+		data.plaintext,
+		data.aead,
+	)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	// some reordering, because openvpn uses tag | payload
+	boundary := len(encrypted) - 16
+	tag := encrypted[boundary:]
+	ciphertext := encrypted[:boundary]
+
+	// we now write to the output buffer
+	out := bytes.Buffer{}
+	out.Write(data.aead) // the packet_id
+	out.Write(tag)
+	out.Write(ciphertext)
+	return out.Bytes(), nil
+
+}
+
+// encryptAndEncodePayloadNonAEAD peforms encryption and encoding of the payload in Non-AEAD modes (i.e., AES-CBC).
+func encryptAndEncodePayloadNonAEAD(padded []byte, session *session, state *dataChannelState) ([]byte, error) {
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
-	// OpenSSL RAND_bytes function. I guess this is good enough for our purposes, for now
+	// OpenSSL RAND_bytes function. I am assuming this is good enough for our current purposes.
+	blockSize := state.dataCipher.blockSize()
 	iv, err := genRandomBytes(blockSize)
 	if err != nil {
 		return []byte{}, err
 	}
-	ciphertext, err := d.state.dataCipher.encrypt(d.state.cipherKeyLocal[:], iv, padded, []byte(""))
+	data := &plaintextData{
+		iv:        iv,
+		plaintext: padded,
+		aead:      nil,
+	}
+
+	encryptFn := state.dataCipher.encrypt
+	ciphertext, err := encryptFn(
+		state.cipherKeyLocal[:],
+		data.iv,
+		data.plaintext,
+		data.aead,
+	)
 	if err != nil {
 		return []byte{}, err
 	}
 
-	hashLength := getHashLength(strings.ToLower(d.options.Auth))
-	key := d.state.hmacKeyLocal[:hashLength]
-	mac := hmac.New(d.state.hmac, key)
-	mac.Write(append(iv, ciphertext...))
-	calcMAC := mac.Sum(nil)
+	hashSize := state.hmacSize
+	key := state.hmacKeyLocal[:hashSize]
 
-	payload := append(calcMAC, iv...)
-	payload = append(payload, ciphertext...)
-	return payload, nil
+	// TODO reuse mac and Reset()
+	mac := hmac.New(state.hmac, key)
+	mac.Write(iv)
+	mac.Write(ciphertext)
+	computedMAC := mac.Sum(nil)
+
+	out := &bytes.Buffer{}
+	out.Write(computedMAC)
+	out.Write(iv)
+	out.Write(ciphertext)
+	return out.Bytes(), nil
 }
 
 // maybeAddCompressPadding does pkcs7 padding of the encryption payloads as
@@ -322,7 +386,7 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	}
 
 	plaintext := maybeAddCompressStub(buf, d.options)
-	encrypted, err := d.encrypt(plaintext)
+	encrypted, err := d.EncryptAndEncodePayload(plaintext, d.state)
 
 	if err != nil {
 		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
@@ -367,10 +431,19 @@ func (d *data) decrypt(encrypted []byte) ([]byte, error) {
 
 // encrypteData holds the different parts needed to decrypt an encrypted data
 // packet.
+// TODO(ainghazal): use this type as argument to dataCipher.decrypt
 type encryptedData struct {
 	iv         []byte
 	ciphertext []byte
 	aead       []byte
+}
+
+// plaintextData holds the different parts needed to encrypt a plaintext
+// payload (after padding).
+type plaintextData struct {
+	iv        []byte
+	plaintext []byte
+	aead      []byte
 }
 
 func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {

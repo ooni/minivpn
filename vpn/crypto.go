@@ -343,7 +343,7 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
 	}
 }
 
-// TODO this function is not needed if we use Hash.Size()
+// TODO(ainghazal): this function is not needed if we use Hash.Size()
 func getHashLength(s string) int {
 	switch s {
 	case "sha1":

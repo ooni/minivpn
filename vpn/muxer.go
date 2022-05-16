@@ -105,6 +105,7 @@ type dataHandler interface {
 	WritePacket(net.Conn, []byte) (int, error)
 	ReadPacket(*packet) ([]byte, error)
 	DecodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
+	EncryptAndEncodePayload([]byte, *dataChannelState) ([]byte, error)
 }
 
 //
