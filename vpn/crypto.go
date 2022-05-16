@@ -83,6 +83,9 @@ type dataCipher interface {
 	// decrypt is the opposite operation of encrypt. It takes in input the
 	// ciphertext and returns the plaintext of an error.
 	decrypt(key, iv, ciphertext, ad []byte) ([]byte, error)
+
+	// mode returns the cipherMode
+	cipherMode() cipherMode
 }
 
 // dataCipherAES implements dataCipher for AES.
@@ -176,6 +179,10 @@ func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) 
 	default:
 		return nil, errUnsupportedMode
 	}
+}
+
+func (a *dataCipherAES) cipherMode() cipherMode {
+	return a.mode
 }
 
 // encrypt implements dataCipher.encrypt
@@ -334,4 +341,17 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
 		h.Write(a)
 		a = h.Sum(nil)
 	}
+}
+
+// TODO this function is not needed if we use Hash.Size()
+func getHashLength(s string) int {
+	switch s {
+	case "sha1":
+		return 20
+	case "sha256":
+		return 32
+	case "sha512":
+		return 64
+	}
+	return 0
 }

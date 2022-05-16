@@ -151,18 +151,6 @@ func parsePushedOptions(pushedOptions []byte) string {
 	return ""
 }
 
-func getHashLength(s string) int {
-	switch s {
-	case "sha1":
-		return 20
-	case "sha256":
-		return 32
-	case "sha512":
-		return 64
-	}
-	return 0
-}
-
 // ParseConfigFile expects a path to a valid config file and returns an Option
 // object after parsing the file.
 func ParseConfigFile(filePath string) (*Options, error) {

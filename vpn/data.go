@@ -31,8 +31,10 @@ type keySlot [64]byte
 
 // dataChannelState is the state of the data channel.
 type dataChannelState struct {
-	dataCipher      dataCipher
-	hmac            func() hash.Hash
+	dataCipher dataCipher
+	hmac       func() hash.Hash
+	// TODO use Hash.Size() instead
+	hmacSize        int
 	remotePacketID  packetID
 	cipherKeyLocal  keySlot
 	cipherKeyRemote keySlot
@@ -131,10 +133,13 @@ func newKeySource() (*keySource, error) {
 // data represents the data "channel", that will encrypt and decrypt the tunnel payloads.
 // data implements the dataHandler interface.
 type data struct {
-	options *Options
-	session *session
-	state   *dataChannelState
+	options  *Options
+	session  *session
+	state    *dataChannelState
+	decodeFn func([]byte, *dataChannelState) (*encryptedData, error)
 }
+
+var _ dataHandler = &data{} // Ensure that we implement controlHandler
 
 // newDataFromOptions returns a new data object, initialized with the
 // options given. it also returns any error raised.
@@ -149,6 +154,12 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 		return data, err
 	}
 	data.state.dataCipher = dataCipher
+	switch dataCipher.cipherMode() {
+	case cipherModeGCM:
+		data.decodeFn = decodeEncryptedPayloadAEAD
+	default:
+		data.decodeFn = decodeEncryptedPayloadNonAEAD
+	}
 
 	logger.Info(fmt.Sprintf("Auth:   %s", opt.Auth))
 
@@ -157,7 +168,14 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 		return data, fmt.Errorf("%w:%s", errBadInput, "no such mac")
 	}
 	data.state.hmac = hmac
+	data.state.hmacSize = getHashLength(strings.ToLower(opt.Auth))
 	return data, nil
+}
+
+// DecodeEncryptedPayload calls the corresponding function for AEAD or Non-AEAD decryption.
+func (d *data) DecodeEncryptedPayload(b []byte, dcs *dataChannelState) (*encryptedData, error) {
+	fn := d.decodeFn
+	return fn(b, dcs)
 }
 
 // SetSetupKeys performs the key expansion from the local and remote
@@ -328,75 +346,99 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 //
 
 func (d *data) decrypt(encrypted []byte) ([]byte, error) {
-	if d.state.dataCipher.isAEAD() {
-		return d.decryptAEAD(encrypted)
+	if len(d.state.hmacKeyRemote) == 0 {
+		logger.Error("decrypt: not ready yet")
+		return []byte{}, errCannotDecrypt
 	}
-	return d.decryptV1(encrypted)
-}
-
-func (d *data) decryptV1(encrypted []byte) ([]byte, error) {
-	if len(encrypted) < 28 {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt,
-			fmt.Sprintf("packet too short: %d bytes\n", len(encrypted)))
+	encryptedData, err := d.DecodeEncryptedPayload(encrypted, d.state)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}
-	hashLength := getHashLength(strings.ToLower(d.options.Auth))
-	bs := d.state.dataCipher.blockSize()
-	recvMAC := encrypted[:hashLength]
-	iv := encrypted[hashLength : hashLength+bs]
-	cipherText := encrypted[hashLength+bs:]
-
-	key := d.state.hmacKeyRemote[:hashLength]
-	mac := hmac.New(d.state.hmac, key)
-	mac.Write(append(iv, cipherText...))
-	calcMAC := mac.Sum(nil)
-
-	if !hmac.Equal(calcMAC, recvMAC) {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, errBadHMAC)
-	}
-
-	plainText, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], iv, cipherText, []byte(""))
+	plainText, err := d.state.dataCipher.decrypt(
+		d.state.cipherKeyRemote[:],
+		encryptedData.iv,
+		encryptedData.ciphertext,
+		encryptedData.aead)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}
 	return plainText, nil
 }
 
-func (d *data) decryptAEAD(payload []byte) ([]byte, error) {
-	// Sample AES-GCM head: (V2 though)
+// encrypteData holds the different parts needed to decrypt an encrypted data
+// packet.
+type encryptedData struct {
+	iv         []byte
+	ciphertext []byte
+	aead       []byte
+}
+
+func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
+	// Sample AES-GCM head: (v1 though, we're doing v1 here. I'm not sure if there're differences)
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
 	//            [4-byte
 	//            IV head]
-	if len(payload) == 0 || len(payload) < 40 {
-		logger.Errorf("decrypt (aead): bad length: %d", len(payload))
-		logger.Debug(hex.Dump(payload))
-		return []byte{}, errCannotDecrypt
-	}
-	// BUG: we should not attempt to decrypt payloads until we have initialized the key material
-	if len(d.state.hmacKeyRemote) == 0 {
-		logger.Error("decrypt (aead): not ready yet")
-		return []byte{}, errCannotDecrypt
-	}
-	packetID := payload[:4]
-	/* BUG: for some reason that I don't understand, this is not properly parsed
-	   as bytes... the tag gets mangled. but it's good if I convert it to
-	   hex and back (which sorcery is this?)
-	*/
-	recvHex := hex.EncodeToString(payload[:])
-	tagH := recvHex[8:40]
-	ctH := recvHex[40:]
 
-	iv := append(packetID, d.state.hmacKeyRemote[:8]...)
-	ct, _ := hex.DecodeString(ctH)
-	tag, _ := hex.DecodeString(tagH)
-	reconstructed := append(ct, tag...)
+	// preconditions
 
-	plaintext, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], iv, reconstructed, packetID)
-
-	if err != nil {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
+	if len(buf) == 0 || len(buf) < 20 {
+		return &encryptedData{}, fmt.Errorf("too short: %d bytes", len(buf))
 	}
-	return plaintext, nil
+	if len(state.hmacKeyRemote) < 8 {
+		return &encryptedData{}, fmt.Errorf("bad remote hmac")
+	}
+	remoteHMAC := state.hmacKeyRemote[:8]
+	packet_id := buf[:4]
+
+	// we need to swap because decryption expects payload|tag
+	// but we've got tag | payload instead
+	payload := &bytes.Buffer{}
+	payload.Write(buf[20:])  // ciphertext
+	payload.Write(buf[4:20]) // tag
+
+	// iv := packetID | remoteHMAC
+	iv := &bytes.Buffer{}
+	iv.Write(packet_id)
+	iv.Write(remoteHMAC)
+
+	encrypted := &encryptedData{
+		iv:         iv.Bytes(),
+		ciphertext: payload.Bytes(),
+		aead:       packet_id,
+	}
+	return encrypted, nil
+}
+
+func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
+	if len(buf) < 28 {
+		return &encryptedData{}, fmt.Errorf("too short: %d bytes", len(buf))
+	}
+
+	hashSize := state.hmacSize
+	key := state.hmacKeyRemote[:hashSize]
+
+	blockSize := state.dataCipher.blockSize()
+	recvMAC := buf[:hashSize]
+	iv := buf[hashSize : hashSize+blockSize]
+	cipherText := buf[hashSize+blockSize:]
+
+	// TODO instead of instantiating it each time, we can call Reset()
+	mac := hmac.New(state.hmac, key)
+	mac.Write(iv)
+	mac.Write(cipherText)
+	calcMAC := mac.Sum(nil)
+
+	if !hmac.Equal(calcMAC, recvMAC) {
+		return &encryptedData{}, fmt.Errorf("%w:%s", errCannotDecrypt, errBadHMAC)
+	}
+
+	encrypted := &encryptedData{
+		iv:         iv,
+		ciphertext: cipherText,
+		aead:       []byte{},
+	}
+	return encrypted, nil
 }
 
 func (d *data) ReadPacket(p *packet) ([]byte, error) {

@@ -104,6 +104,7 @@ type dataHandler interface {
 	SetupKeys(*dataChannelKey, *session) error
 	WritePacket(net.Conn, []byte) (int, error)
 	ReadPacket(*packet) ([]byte, error)
+	DecodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
 }
 
 //
