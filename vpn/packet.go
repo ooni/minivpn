@@ -281,10 +281,11 @@ func parseServerControlMessage(sc *serverControlMessage) (*keySource, string, er
 		return nil, "", fmt.Errorf("%w: %d", errBadKeyMethod, keyMethod)
 
 	}
+	var random1, random2 [32]byte
 	// first chunk of random bytes
-	r1 := sc.payload[5:37]
+	copy(random1[:], sc.payload[5:37])
 	// second chunk of random bytes
-	r2 := sc.payload[37:69]
+	copy(random2[:], sc.payload[37:69])
 
 	options, err := decodeOptionStringFromBytes(sc.payload[69:])
 	if err != nil {
@@ -292,7 +293,7 @@ func parseServerControlMessage(sc *serverControlMessage) (*keySource, string, er
 	}
 
 	logger.Debugf("Remote opts: %s", options)
-	remoteKey := &keySource{r1: r1, r2: r2}
+	remoteKey := &keySource{r1: random1, r2: random2}
 	return remoteKey, options, nil
 }
 

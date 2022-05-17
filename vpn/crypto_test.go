@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"errors"
 	"hash"
+	"log"
 	"reflect"
 	"testing"
 )
@@ -162,8 +164,10 @@ func TestPrf(t *testing.T) {
 
 func Test_dataCipherAES_decrypt(t *testing.T) {
 	key := bytes.Repeat([]byte("A"), 64)
-	iv, _ := hex.DecodeString("000000006868686868686868")
-	ciphertext, _ := hex.DecodeString("a949df311c57ec762428a7ba98d1d0d8213134925bf1cd2cb4ab4ea9066c569b0579")
+	iv12, _ := hex.DecodeString("000000006868686868686868")
+	iv16, _ := hex.DecodeString("00000000686868686868686865656565")
+	ciphertextGCM, _ := hex.DecodeString("a949df311c57ec762428a7ba98d1d0d8213134925bf1cd2cb4ab4ea9066c569b0579")
+	ciphertextCBC, _ := hex.DecodeString("f908ff8dedbe4e2097c992c67e603d25606c76a460cd785503cf0a2a9e6ec961")
 
 	type fields struct {
 		ksb  int
@@ -178,26 +182,77 @@ func Test_dataCipherAES_decrypt(t *testing.T) {
 		fields  fields
 		args    args
 		want    []byte
-		wantErr bool
+		wantErr error
 	}{
 		{
-			"good decrypt gcm",
-			fields{
+			name: "good decrypt gcm",
+			fields: fields{
 				ksb:  16,
 				mode: cipherModeGCM,
 			},
-			args{
+			args: args{
 				key: key,
 				data: &encryptedData{
-					iv:         iv,
-					ciphertext: ciphertext,
+					iv:         iv12,
+					ciphertext: ciphertextGCM,
 					aead:       []byte{0x00, 0x01, 0x02, 0x03},
 				},
 			},
-			[]byte("this test is green"),
-			false,
+			want:    []byte("this test is green"),
+			wantErr: nil,
 		},
-		// TODO: Add moar test cases.
+		{
+			name: "iv too short gcm",
+			fields: fields{
+				ksb:  16,
+				mode: cipherModeGCM,
+			},
+			args: args{
+				key: key,
+				data: &encryptedData{
+					iv:         []byte{0x00},
+					ciphertext: ciphertextGCM,
+					aead:       []byte{0x00, 0x01, 0x02, 0x03},
+				},
+			},
+			want:    nil,
+			wantErr: errCannotDecrypt,
+		},
+		{
+			name: "good decrypt cbc",
+			fields: fields{
+				ksb:  16,
+				mode: cipherModeCBC,
+			},
+			args: args{
+				key: key,
+				data: &encryptedData{
+					iv:         iv16,
+					ciphertext: ciphertextCBC,
+					aead:       []byte{0x00, 0x01, 0x02, 0x03},
+				},
+			},
+			want:    []byte("this test is green"),
+			wantErr: nil,
+		},
+		{
+			name: "iv too short cbc",
+			fields: fields{
+				ksb:  16,
+				mode: cipherModeGCM,
+			},
+			args: args{
+				key: key,
+				data: &encryptedData{
+					iv:         []byte{0x00},
+					ciphertext: ciphertextGCM,
+					aead:       []byte{0x00, 0x01, 0x02, 0x03},
+				},
+			},
+			want:    []byte{},
+			wantErr: errCannotDecrypt,
+		},
+		// TODO: Add moar test cases, with failing.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -206,11 +261,11 @@ func Test_dataCipherAES_decrypt(t *testing.T) {
 				mode: tt.fields.mode,
 			}
 			got, err := a.decrypt(tt.args.key, tt.args.data)
-			if (err != nil) != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("dataCipherAES.decrypt() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
+			if !bytes.Equal(got, tt.want) {
 				t.Errorf("dataCipherAES.decrypt() = %v, want %v", got, tt.want)
 			}
 		})
@@ -243,15 +298,15 @@ func Test_dataCipherAES_encrypt(t *testing.T) {
 		fields  fields
 		args    args
 		want    []byte
-		wantErr bool
+		wantErr error
 	}{
 		{
-			"good encrypt aes-128-gcm",
-			fields{
+			name: "good encrypt aes-128-gcm",
+			fields: fields{
 				ksb:  16,
 				mode: cipherModeGCM,
 			},
-			args{
+			args: args{
 				key: key,
 				data: &plaintextData{
 					iv:        iv12,
@@ -259,56 +314,73 @@ func Test_dataCipherAES_encrypt(t *testing.T) {
 					aead:      []byte{0x00, 0x01, 0x02, 0x03},
 				},
 			},
-			ciphertextGCM,
-			false,
+			want:    ciphertextGCM,
+			wantErr: nil,
 		},
 		{
-			"iv too short aes-128-cbc",
-			fields{
+			name: "iv too short aes-128-gcm",
+			fields: fields{
+				ksb:  16,
+				mode: cipherModeGCM,
+			},
+			args: args{
+				key: key,
+				data: &plaintextData{
+					iv:        []byte{0x00},
+					plaintext: []byte("should fail"),
+					aead:      []byte{0x00, 0x01, 0x02, 0x03},
+				},
+			},
+			want:    []byte(""),
+			wantErr: errCannotEncrypt,
+		},
+		{
+			name: "iv too short aes-128-cbc",
+			fields: fields{
 				ksb:  16,
 				mode: cipherModeCBC,
 			},
-			args{
+			args: args{
 				key: key,
 				data: &plaintextData{
 					iv:        iv12,
 					plaintext: []byte("should fail"),
 				},
 			},
-			[]byte(""),
-			true,
+			want:    []byte(""),
+			wantErr: errCannotEncrypt,
 		},
 		{
-			"bad padding aes-128-cbc",
-			fields{
+			name: "bad padding aes-128-cbc",
+			fields: fields{
 				ksb:  16,
 				mode: cipherModeCBC,
 			},
-			args{
+			args: args{
 				key: key,
 				data: &plaintextData{
 					iv:        iv16,
 					plaintext: []byte("should fail"),
 				},
 			},
-			[]byte(""),
-			true,
+			want:    []byte(""),
+			wantErr: errCannotEncrypt,
 		},
 		{
-			"good encrypt aes-128-cbc",
-			fields{
+			name: "good encrypt aes-128-cbc",
+			fields: fields{
 				ksb:  16,
 				mode: cipherModeCBC,
 			},
-			args{
+			args: args{
 				key: key,
 				data: &plaintextData{
 					iv:        iv16,
 					plaintext: doPaddingForTest([]byte("this test is green"), 16),
 				},
 			},
-			ciphertextCBC,
-			false,
+			want:    ciphertextCBC,
+			wantErr: nil,
 		},
 		// TODO: Add moar test cases.
 	}
@@ -319,11 +391,13 @@ func Test_dataCipherAES_encrypt(t *testing.T) {
 				mode: tt.fields.mode,
 			}
 			got, err := a.encrypt(tt.args.key, tt.args.data)
-			if (err != nil) != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("dataCipherAES.encrypt() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
+				log.Println(hex.EncodeToString(got))
+
 				t.Errorf("dataCipherAES.encrypt() = %v, want %v", got, tt.want)
 			}
 		})

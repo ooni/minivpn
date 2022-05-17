@@ -12,7 +12,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
@@ -172,28 +171,32 @@ func (a *dataCipherAES) decrypt(key []byte, data *encryptedData) ([]byte, error)
 		// standard nonce size is 12. more is surely ok, but let's stick to it.
 		// https://github.com/golang/go/blob/master/src/crypto/aes/aes_gcm.go#L37
 		if len(data.iv) != 12 {
-			return nil, fmt.Errorf("%w: wrong size for iv: %v", errBadInput, len(data.iv))
+			return nil, fmt.Errorf("%w: wrong size for iv: %v", errCannotDecrypt, len(data.iv))
 		}
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
 		}
-		log.Println("DECRYPT --")
-		log.Println("iv", data.iv, len(data.iv))
-		log.Println("ciph", data.ciphertext, len(data.ciphertext))
-		log.Println("ciph", hex.EncodeToString(data.ciphertext), len(data.ciphertext))
-		log.Println("aead", data.aead, len(data.aead))
+		/*
+			log.Println("DECRYPT --")
+			log.Println("iv", data.iv, len(data.iv))
+			log.Println("ciph", data.ciphertext, len(data.ciphertext))
+			log.Println("ciph", hex.EncodeToString(data.ciphertext), len(data.ciphertext))
+			log.Println("aead", data.aead, len(data.aead))
+		*/
 
 		plaintext, err := aesGCM.Open(nil, data.iv, data.ciphertext, data.aead)
 		if err != nil {
 			log.Println("gdm decryption failed:", err.Error())
-			log.Println("dump begins----")
-			log.Println("len:", len(data.ciphertext))
-			log.Println("iv:", data.iv)
-			log.Printf("%v\n", data.ciphertext)
-			log.Printf("%x\n", data.ciphertext)
-			log.Printf("aead: %x\n", data.aead)
-			log.Println("dump ends------")
+			/*
+				log.Println("dump begins----")
+				log.Println("len:", len(data.ciphertext))
+				log.Println("iv:", data.iv)
+				log.Printf("%v\n", data.ciphertext)
+				log.Printf("%x\n", data.ciphertext)
+				log.Printf("aead: %x\n", data.aead)
+				log.Println("dump ends------")
+			*/
 			return nil, err
 		}
 		return plaintext, nil
@@ -219,14 +222,14 @@ func (a *dataCipherAES) encrypt(key []byte, data *plaintextData) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
+	blockSize := block.BlockSize()
 	switch a.mode {
 	case cipherModeCBC:
-		blockSize := block.BlockSize()
 		if len(data.iv) != blockSize {
 			return []byte{}, fmt.Errorf("%w: wrong size for iv: %v", errCannotEncrypt, len(data.iv))
 		}
 		if len(data.plaintext)%blockSize != 0 {
-			return []byte{}, fmt.Errorf("%w: wrong padding", errCannotEncrypt) //, len(data.iv))
+			return []byte{}, fmt.Errorf("%w: wrong padding", errCannotEncrypt)
 		}
 		mode := cipher.NewCBCEncrypter(block, data.iv)
 		ciphertext := make([]byte, len(data.plaintext))
@@ -234,6 +237,9 @@ func (a *dataCipherAES) encrypt(key []byte, data *plaintextData) ([]byte, error)
 		return ciphertext, nil
 
 	case cipherModeGCM:
+		if len(data.iv) != 12 {
+			return []byte{}, fmt.Errorf("%w: wrong size for iv: %v", errCannotEncrypt, len(data.iv))
+		}
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
@@ -373,6 +379,7 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
 }
 
 // TODO(ainghazal): this function is not needed if we use Hash.Size()
+// TODO: refactor, use hash.Reset() and create hash function in the constructor.
 func getHashLength(s string) int {
 	switch s {
 	case "sha1":

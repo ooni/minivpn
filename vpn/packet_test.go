@@ -186,18 +186,22 @@ func Test_parseServerControlMessage(t *testing.T) {
 	if wantOptions != gotOptions {
 		t.Errorf("parseServerControlMessage(). got options = %v, want options %v", gotOptions, wantOptions)
 	}
-	if !bytes.Equal(wantRandom1, gotKeySource.r1) {
+	if !bytes.Equal(wantRandom1, gotKeySource.r1[:]) {
 		t.Errorf("parseServerControlMessage(). got ks.r1 = %v, want ks.r1 %v", gotKeySource.r1, wantRandom1)
 	}
-	if !bytes.Equal(wantRandom2, gotKeySource.r2) {
+	if !bytes.Equal(wantRandom2, gotKeySource.r2[:]) {
 		t.Errorf("parseServerControlMessage(). got ks.r2 = %v, want ks.r2 %v", gotKeySource.r2, wantRandom2)
 	}
 }
 
 func Test_encodeClientControlMessageAsBytes(t *testing.T) {
-	manyA := bytes.Repeat([]byte{0x65}, 32)
-	manyB := bytes.Repeat([]byte{0x66}, 32)
-	manyC := bytes.Repeat([]byte{0x67}, 32)
+
+	var manyA, manyB [32]byte
+	var manyC [48]byte
+
+	copy(manyA[:], bytes.Repeat([]byte{0x65}, 32))
+	copy(manyB[:], bytes.Repeat([]byte{0x66}, 32))
+	copy(manyC[:], bytes.Repeat([]byte{0x67}, 48))
 
 	type args struct {
 		k *keySource
@@ -217,9 +221,9 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 			},
 			func() []byte {
 				buf := []byte{0x00, 0x00, 0x00, 0x00, 0x02}
-				buf = append(buf, manyC...)
-				buf = append(buf, manyA...)
-				buf = append(buf, manyB...)
+				buf = append(buf, manyC[:]...)
+				buf = append(buf, manyA[:]...)
+				buf = append(buf, manyB[:]...)
 				buf = append(buf, []byte{
 					// options, null-terminated
 					0x00, 0x01, 0x00,
@@ -238,9 +242,9 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 			},
 			func() []byte {
 				buf := []byte{0x00, 0x00, 0x00, 0x00, 0x02}
-				buf = append(buf, manyC...)
-				buf = append(buf, manyA...)
-				buf = append(buf, manyB...)
+				buf = append(buf, manyC[:]...)
+				buf = append(buf, manyA[:]...)
+				buf = append(buf, manyB[:]...)
 				buf = append(buf, []byte{0x00, 0x74}...)
 				buf = append(buf, []byte("V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth ,keysize 128,key-method 2,tls-client")...)
 				// null-terminate + auth

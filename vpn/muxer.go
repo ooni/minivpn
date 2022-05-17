@@ -101,7 +101,7 @@ type controlHandler interface {
 
 // dataHandler manages the data "channel".
 type dataHandler interface {
-	SetupKeys(*dataChannelKey, *session) error
+	SetupKeys(*dataChannelKey) error
 	WritePacket(net.Conn, []byte) (int, error)
 	ReadPacket(*packet) ([]byte, error)
 	DecodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
@@ -378,7 +378,7 @@ func (m *muxer) InitDataWithRemoteKey() error {
 		return err
 	}
 
-	err = m.data.SetupKeys(key0, m.session)
+	err = m.data.SetupKeys(key0) //, m.session) TODO session already in data
 	if err != nil {
 		return err
 	}

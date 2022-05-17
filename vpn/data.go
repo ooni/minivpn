@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"log"
 	"math"
 	"net"
 	"strings"
@@ -100,36 +101,44 @@ var (
 	errRandomBytes = errors.New("Error generating random bytes")
 )
 
-// random data to generate keys
+// keySource contains random data to generate keys.
 type keySource struct {
-	r1        []byte
-	r2        []byte
-	preMaster []byte
+	r1        [32]byte
+	r2        [32]byte
+	preMaster [48]byte
 }
 
-// Bytes returns the byte representation of a keySource
+// Bytes returns the byte representation of a keySource.
 func (k *keySource) Bytes() []byte {
 	buf := &bytes.Buffer{}
-	buf.Write(k.preMaster)
-	buf.Write(k.r1)
-	buf.Write(k.r2)
+	buf.Write(k.preMaster[:])
+	buf.Write(k.r1[:])
+	buf.Write(k.r2[:])
 	return buf.Bytes()
 }
 
 // newKeySource returns a keySource and an error.
 func newKeySource() (*keySource, error) {
-	r1, err := randomFn(32)
+	random1, err := randomFn(32)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", errRandomBytes, err.Error())
 	}
-	r2, err := randomFn(32)
+
+	var r1, r2 [32]byte
+	var preMaster [48]byte
+	copy(r1[:], random1)
+
+	random2, err := randomFn(32)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", errRandomBytes, err.Error())
 	}
-	preMaster, err := randomFn(48)
+	copy(r2[:], random2)
+
+	random3, err := randomFn(48)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", errRandomBytes, err.Error())
 	}
+	copy(preMaster[:], random3)
 	return &keySource{
 		r1:        r1,
 		r2:        r2,
@@ -152,6 +161,12 @@ var _ dataHandler = &data{} // Ensure that we implement dataHandler
 // newDataFromOptions returns a new data object, initialized with the
 // options given. it also returns any error raised.
 func newDataFromOptions(opt *Options, s *session) (*data, error) {
+	if opt == nil || s == nil {
+		return nil, fmt.Errorf("%w:%s", errBadInput, "found nil on init")
+	}
+	if len(opt.Cipher) == 0 || len(opt.Auth) == 0 {
+		return nil, fmt.Errorf("%w:%s", errBadInput, "empty options")
+	}
 	state := &dataChannelState{}
 	data := &data{options: opt, session: s, state: state}
 
@@ -189,27 +204,32 @@ func (d *data) DecodeEncryptedPayload(b []byte, dcs *dataChannelState) (*encrypt
 
 // SetSetupKeys performs the key expansion from the local and remote
 // keySources, initializing the data channel state.
-func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
-	// TODO precondition: check that local + remote keySlots are of the
-	// expected lenght
+func (d *data) SetupKeys(dck *dataChannelKey) error {
+	if dck == nil {
+		return fmt.Errorf("%w: %s", errBadInput, "nil args")
+	}
 	if !dck.ready {
 		return fmt.Errorf("%w: %s", errDataChannelKey, "key not ready")
 	}
 	master := prf(
-		dck.local.preMaster,
+		dck.local.preMaster[:],
 		[]byte("OpenVPN master secret"),
-		dck.local.r1,
-		dck.remote.r1,
+		dck.local.r1[:],
+		dck.remote.r1[:],
 		[]byte{}, []byte{},
 		48)
+
+	log.Println("master done")
 
 	keys := prf(
 		master,
 		[]byte("OpenVPN key expansion"),
-		dck.local.r2,
-		dck.remote.r2,
-		s.LocalSessionID.Bytes(), s.RemoteSessionID.Bytes(),
+		dck.local.r2[:],
+		dck.remote.r2[:],
+		d.session.LocalSessionID.Bytes(), d.session.RemoteSessionID.Bytes(),
 		256)
+
+	log.Println("keys done")
 
 	var keyLocal, hmacLocal, keyRemote, hmacRemote keySlot
 	copy(keyLocal[:], keys[0:64])
