@@ -407,10 +407,7 @@ func (m *muxer) Write(b []byte) (int, error) {
 // Read reads bytes after decrypting packets from the data channel. This is the
 // user-view of the VPN connection reads.
 func (m *muxer) Read(b []byte) (int, error) {
-	for {
-		if ok := m.handleIncomingPacket(); ok {
-			break
-		}
+	for !m.handleIncomingPacket() {
 	}
 	return m.bufReader.Read(b)
 }

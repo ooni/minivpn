@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"log"
 	"math"
 	"net"
 	"strings"
@@ -271,8 +270,6 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataCha
 	iv := &bytes.Buffer{}
 	bufWriteUint32(iv, uint32(nextPacketID))
 	iv.Write(state.hmacKeyLocal[:8])
-
-	log.Println("iv", iv)
 
 	data := &plaintextData{
 		iv:        iv.Bytes(),
