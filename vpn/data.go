@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"log"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -45,18 +47,24 @@ type dataChannelState struct {
 }
 
 // SetSetRemotePacketID stores the passed packetID internally.
-func (dcs *dataChannelState) SetRemotePacketID(id packetID) bool {
+func (dcs *dataChannelState) SetRemotePacketID(id packetID) {
 	dcs.mu.Lock()
 	defer dcs.mu.Unlock()
 	dcs.remotePacketID = packetID(id)
-	return true
 }
 
-// RemotePacketID returns the last known remote packetID.
-func (dcs *dataChannelState) RemotePacketID() packetID {
+// RemotePacketID returns the last known remote packetID. It returns an error
+// if the stored packet id has reached the maximum capacity of the packetID
+// type.
+func (dcs *dataChannelState) RemotePacketID() (packetID, error) {
 	dcs.mu.Lock()
 	defer dcs.mu.Unlock()
-	return dcs.remotePacketID
+	pid := dcs.remotePacketID
+	if pid == math.MaxUint32 {
+		// we reached the max packetID, increment will overflow
+		return 0, errExpiredKey
+	}
+	return pid, nil
 }
 
 // dataChannelKey represents a pair of key sources that have been negotiated
@@ -155,11 +163,11 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 		return data, err
 	}
 	data.state.dataCipher = dataCipher
-	switch dataCipher.cipherMode() {
-	case cipherModeGCM:
+	switch dataCipher.isAEAD() {
+	case true:
 		data.decodeFn = decodeEncryptedPayloadAEAD
 		data.encryptEncodeFn = encryptAndEncodePayloadAEAD
-	default:
+	case false:
 		data.decodeFn = decodeEncryptedPayloadNonAEAD
 		data.encryptEncodeFn = encryptAndEncodePayloadNonAEAD
 	}
@@ -183,9 +191,10 @@ func (d *data) DecodeEncryptedPayload(b []byte, dcs *dataChannelState) (*encrypt
 // SetSetupKeys performs the key expansion from the local and remote
 // keySources, initializing the data channel state.
 func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
+	// TODO precondition: check that local + remote keySlots are of the
+	// expected lenght
 	if !dck.ready {
 		return fmt.Errorf("%w: %s", errDataChannelKey, "key not ready")
-
 	}
 	master := prf(
 		dck.local.preMaster,
@@ -246,9 +255,6 @@ func (d *data) EncryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) 
 
 }
 
-// encryptFunc is the signature for the encryption function that is passed around.
-//type encryptFunc func(key, iv, plaintext, ad []byte) ([]byte, error)
-
 // encryptAndEncodePayloadAEAD peforms encryption and encoding of the payload in AEAD modes (i.e., AES-GCM).
 func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataChannelState) ([]byte, error) {
 	nextPacketID, err := session.LocalPacketID()
@@ -265,6 +271,8 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataCha
 	iv := &bytes.Buffer{}
 	bufWriteUint32(iv, uint32(nextPacketID))
 	iv.Write(state.hmacKeyLocal[:8])
+
+	log.Println("iv", iv)
 
 	data := &plaintextData{
 		iv:        iv.Bytes(),
@@ -440,6 +448,7 @@ type encryptedData struct {
 
 // plaintextData holds the different parts needed to encrypt a plaintext
 // payload (after padding).
+// TODO(ainghazal): use this type as argument to dataCipher.encrypt
 type plaintextData struct {
 	iv        []byte
 	plaintext []byte
@@ -509,7 +518,7 @@ func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryp
 	encrypted := &encryptedData{
 		iv:         iv,
 		ciphertext: cipherText,
-		aead:       []byte{},
+		aead:       []byte{}, // no AEAD data in this mode, leaving it empty to satisfy common interface
 	}
 	return encrypted, nil
 }
@@ -545,7 +554,11 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 		}
 	} else {
 		remotePacketID := packetID(binary.BigEndian.Uint32(b[:4]))
-		if remotePacketID <= st.RemotePacketID() {
+		lastKnownRemote, err := st.RemotePacketID()
+		if err != nil {
+			return payload, err
+		}
+		if remotePacketID <= lastKnownRemote {
 			logger.Errorf("possible replay attack")
 			return payload, errReplayAttack
 		}
