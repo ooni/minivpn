@@ -79,7 +79,7 @@ type dataCipher interface {
 	isAEAD() bool
 
 	// blockSize returns the expected block size.
-	blockSize() int
+	blockSize() uint8
 
 	// encrypt encripts a plaintext.
 	//
@@ -122,7 +122,7 @@ func (a *dataCipherAES) isAEAD() bool {
 }
 
 // blockSize implements dataCipher.BlockSize
-func (a *dataCipherAES) blockSize() int {
+func (a *dataCipherAES) blockSize() uint8 {
 	switch a.mode {
 	case cipherModeCBC, cipherModeGCM:
 		return 16
@@ -177,13 +177,6 @@ func (a *dataCipherAES) decrypt(key []byte, data *encryptedData) ([]byte, error)
 		if err != nil {
 			return nil, err
 		}
-		/*
-			log.Println("DECRYPT --")
-			log.Println("iv", data.iv, len(data.iv))
-			log.Println("ciph", data.ciphertext, len(data.ciphertext))
-			log.Println("ciph", hex.EncodeToString(data.ciphertext), len(data.ciphertext))
-			log.Println("aead", data.aead, len(data.aead))
-		*/
 
 		plaintext, err := aesGCM.Open(nil, data.iv, data.ciphertext, data.aead)
 		if err != nil {
@@ -380,7 +373,7 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
 
 // TODO(ainghazal): this function is not needed if we use Hash.Size()
 // TODO: refactor, use hash.Reset() and create hash function in the constructor.
-func getHashLength(s string) int {
+func getHashLength(s string) uint8 {
 	switch s {
 	case "sha1":
 		return 20

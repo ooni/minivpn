@@ -34,7 +34,7 @@ type keySlot [64]byte
 type dataChannelState struct {
 	dataCipher      dataCipher
 	hmac            func() hash.Hash
-	hmacSize        int
+	hmacSize        uint8
 	remotePacketID  packetID
 	cipherKeyLocal  keySlot
 	cipherKeyRemote keySlot
@@ -318,7 +318,7 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session, state *data
 	// OpenSSL RAND_bytes function. I am assuming this is good enough for our current purposes.
 	blockSize := state.dataCipher.blockSize()
 
-	iv, err := randomFn(blockSize)
+	iv, err := randomFn(int(blockSize))
 	if err != nil {
 		return []byte{}, err
 	}
@@ -375,13 +375,13 @@ func maybeAddCompressStub(b []byte, opt *Options) ([]byte, error) {
 // needed. if we're using the compression stub the padding is applied without taking the
 // traling bit into account. it returns the resulting byte array, and an error
 // if the operatio could not be completed.
-func maybeAddCompressPadding(b []byte, opt *Options, blockSize int) ([]byte, error) {
+func maybeAddCompressPadding(b []byte, opt *Options, blockSize uint8) ([]byte, error) {
 	if opt.Compress == "stub" {
 		// if we're using the compression stub
 		// we need to account for the trailing byte
 		// that we have appended in a previous step.
 		endByte := b[len(b)-1]
-		padded, err := bytesPadPKCS7(b[:len(b)-1], blockSize)
+		padded, err := bytesPadPKCS7(b[:len(b)-1], int(blockSize))
 
 		if err != nil {
 			return nil, err
@@ -389,7 +389,7 @@ func maybeAddCompressPadding(b []byte, opt *Options, blockSize int) ([]byte, err
 		padded[len(padded)-1] = endByte
 		return padded, nil
 	}
-	padded, err := bytesPadPKCS7(b, blockSize)
+	padded, err := bytesPadPKCS7(b, int(blockSize))
 	if err != nil {
 		return nil, err
 	}
