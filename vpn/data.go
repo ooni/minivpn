@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"log"
 	"math"
 	"net"
 	"strings"
@@ -33,9 +32,8 @@ type keySlot [64]byte
 
 // dataChannelState is the state of the data channel.
 type dataChannelState struct {
-	dataCipher dataCipher
-	hmac       func() hash.Hash
-	// TODO use Hash.Size() instead
+	dataCipher      dataCipher
+	hmac            func() hash.Hash
 	hmacSize        int
 	remotePacketID  packetID
 	cipherKeyLocal  keySlot
@@ -219,8 +217,6 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 		[]byte{}, []byte{},
 		48)
 
-	log.Println("master done")
-
 	keys := prf(
 		master,
 		[]byte("OpenVPN key expansion"),
@@ -228,8 +224,6 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 		dck.remote.r2[:],
 		d.session.LocalSessionID.Bytes(), d.session.RemoteSessionID.Bytes(),
 		256)
-
-	log.Println("keys done")
 
 	var keyLocal, hmacLocal, keyRemote, hmacRemote keySlot
 	copy(keyLocal[:], keys[0:64])
@@ -355,15 +349,39 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session, state *data
 	return out.Bytes(), nil
 }
 
+// maybeAddCompressStub adds compression bytes if needed by the passed compression options.
+// if the compression stub is on, it sends the first byte to the last position,
+// and it adds the compression preamble, according to the spec. compression
+// lzo-no also adds a preamble. It returns a byte array and an error if the
+// operation could not be completed.
+func maybeAddCompressStub(b []byte, opt *Options) ([]byte, error) {
+	if opt == nil {
+		return nil, fmt.Errorf("%w:%s", errBadInput, "passed nil opts")
+	}
+	switch opt.Compress {
+	case "stub":
+		// compresssion stub: send sfirst and last byte
+		b = append(b, b[0])
+		b[0] = 0xfb
+	case "lzo-no":
+		// old "comp-lzo no" option
+		b = append([]byte{0xfa}, b...)
+	}
+	return b, nil
+}
+
 // maybeAddCompressPadding does pkcs7 padding of the encryption payloads as
-// needed. in the case of AEAD mode, it swaps the first and last byte after
-// padding too, according to the spec.
+// needed. if we're using the compression stub the padding is applied without taking the
+// traling bit into account. it returns the resulting byte array, and an error
+// if the operatio could not be completed.
 func maybeAddCompressPadding(b []byte, opt *Options, blockSize int) ([]byte, error) {
 	if opt.Compress == "stub" {
-		// for the compression stub, we need to send the first byte to
-		// the last one, after padding
+		// if we're using the compression stub
+		// we need to account for the trailing byte
+		// that we have appended in a previous step.
 		endByte := b[len(b)-1]
 		padded, err := bytesPadPKCS7(b[:len(b)-1], blockSize)
+
 		if err != nil {
 			return nil, err
 		}
@@ -377,19 +395,6 @@ func maybeAddCompressPadding(b []byte, opt *Options, blockSize int) ([]byte, err
 	return padded, nil
 }
 
-// maybeAddCompressStub adds compression bytes if needed by the passed compression options.
-func maybeAddCompressStub(b []byte, opt *Options) []byte {
-	if opt.Compress == "stub" {
-		// compresssion stub
-		b = append(b, b[0])
-		b[0] = 0xfb
-	} else if opt.Compress == "lzo-no" {
-		// old "comp-lzo no" option
-		b = append([]byte{0xfa}, b...)
-	}
-	return b
-}
-
 func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	var buf []byte
 	if !d.state.dataCipher.isAEAD() {
@@ -401,7 +406,11 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 		buf = payload[:]
 	}
 
-	plaintext := maybeAddCompressStub(buf, d.options)
+	plaintext, err := maybeAddCompressStub(buf, d.options)
+	if err != nil {
+		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
+	}
+
 	encrypted, err := d.EncryptAndEncodePayload(plaintext, d.state)
 
 	if err != nil {
@@ -530,15 +539,18 @@ func (d *data) ReadPacket(p *packet) ([]byte, error) {
 func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, error) {
 	var compr byte // compression type
 	var payload []byte
-	if st.dataCipher.isAEAD() {
-		if opt.Compress == "stub" || opt.Compress == "lzo-no" {
+
+	switch st.dataCipher.isAEAD() {
+	case true:
+		switch opt.Compress {
+		case compressionStub, compressionLZONo:
 			compr = b[0]
 			payload = b[1:]
-		} else {
+		default:
 			compr = 0x00
 			payload = b[:]
 		}
-	} else {
+	default:
 		remotePacketID := packetID(binary.BigEndian.Uint32(b[:4]))
 		lastKnownRemote, err := st.RemotePacketID()
 		if err != nil {
@@ -552,6 +564,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 		compr = b[4]
 		payload = b[5:]
 	}
+
 	switch compr {
 	case 0xfb:
 		// compression stub swap:

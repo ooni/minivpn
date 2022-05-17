@@ -22,6 +22,22 @@ import (
 )
 
 type (
+	// compression describes a compression type (e.g., stub).
+	compression string
+)
+
+const (
+	// compressionStub adds the (empty) compression stub to the packets.
+	compressionStub = compression("stub")
+
+	// compressionEmpty is the empty compression.
+	compressionEmpty = compression("empty")
+
+	// compressionLZONo is lzo-no (another type of no-compression, older).
+	compressionLZONo = compression("lzo-no")
+)
+
+type (
 	// proto is the main vpn mode (e.g., TCP or UDP).
 	proto string
 )
@@ -81,7 +97,7 @@ type Options struct {
 	Ca        string
 	Cert      string
 	Key       string
-	Compress  string
+	Compress  compression
 	Cipher    string
 	Auth      string
 	TLSMaxVer string
@@ -104,7 +120,7 @@ func (o *Options) String() string {
 	s := fmt.Sprintf(
 		clientOptions,
 		proto, o.Cipher, o.Auth, keysize)
-	if o.Compress == "stub" {
+	if o.Compress == compressionStub {
 		s = s + ",compress stub"
 	} else if o.Compress == "lzo-no" {
 		s = s + ",lzo-comp no"
@@ -267,11 +283,11 @@ func parseCompress(p []string, o *Options) error {
 		return fmt.Errorf("%w:%s", errBadCfg, "compress: only empty/stub options supported")
 	}
 	if len(p) == 0 {
-		o.Compress = "empty"
+		o.Compress = compressionEmpty
 		return nil
 	}
 	if p[0] == "stub" {
-		o.Compress = "stub"
+		o.Compress = compressionStub
 		return nil
 	}
 	return fmt.Errorf("%w:%s", errBadCfg, "compress: only empty/stub options supported")

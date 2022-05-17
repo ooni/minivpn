@@ -56,7 +56,6 @@ func Test_newKeySource(t *testing.T) {
 	}
 
 	r1, r2, premaster := getTestKeyMaterial()
-
 	ks := &keySource{r1, r2, premaster}
 
 	tests := []struct {
@@ -152,9 +151,19 @@ func Test_newDataFromOptions(t *testing.T) {
 	}
 }
 
-// TODO pass something useful
 func testingDataChannelKey() *dataChannelKey {
-	return &dataChannelKey{}
+	rl1, rl2, preml := getTestKeyMaterial()
+	rr1, rr2, premr := getTestKeyMaterial()
+
+	ksLocal := &keySource{rl1, rl2, preml}
+	ksRemote := &keySource{rr1, rr2, premr}
+
+	dck := &dataChannelKey{
+		ready:  true,
+		local:  ksLocal,
+		remote: ksRemote,
+	}
+	return dck
 }
 
 func Test_data_SetupKeys(t *testing.T) {
@@ -198,12 +207,12 @@ func Test_data_SetupKeys(t *testing.T) {
 				state:   testingDataChannelState(),
 			},
 			args: args{
-				dck: &dataChannelKey{},
+				dck: testingDataChannelKey(),
 			},
-			wantErr: errDataChannelKey,
+			wantErr: nil,
+			// TODO(ainghazal): should write another test to verify the key derivation?
+			// but what that would be testing, if not the implementation?
 		},
-
-		// TODO: Add test cases.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -283,28 +292,6 @@ func Test_keySource_Bytes(t *testing.T) {
 			},
 			want: goodSerialized,
 		},
-		/*
-
-			these tests are obsolete, delete
-				{
-					"single byte",
-					fields{
-						[]byte{0xff},
-						[]byte{0xfe},
-						[]byte{0xfd}},
-					[]byte{0xfd, 0xff, 0xfe},
-				},
-				{
-					"two byte",
-					fields{[]byte{0xff, 0xfa}, []byte{0xfe, 0xea}, []byte{0xfd, 0xda}},
-					[]byte{0xfd, 0xda, 0xff, 0xfa, 0xfe, 0xea},
-				},
-				{
-					"empty bytes",
-					fields{[]byte{}, []byte{}, []byte{}},
-					[]byte(""),
-				},
-		*/
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -558,6 +545,136 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("encryptAndEncodePayloadNonAEAD() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_maybeAddCompressStub(t *testing.T) {
+	type args struct {
+		b   []byte
+		opt *Options
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []byte
+		wantErr error
+	}{
+		{
+			name:    "nil opts should fail",
+			args:    args{},
+			want:    nil,
+			wantErr: errBadInput,
+		},
+		{
+			name: "do nothing by default",
+			args: args{
+				b:   []byte{0xde, 0xad, 0xbe, 0xef},
+				opt: &Options{},
+			},
+			want:    []byte{0xde, 0xad, 0xbe, 0xef},
+			wantErr: nil,
+		},
+		{
+			name: "stub appends the first byte at the end",
+			args: args{
+				b: []byte{0xde, 0xad, 0xbe, 0xef},
+				opt: &Options{
+					Compress: "stub",
+				},
+			},
+			want:    []byte{0xfb, 0xad, 0xbe, 0xef, 0xde},
+			wantErr: nil,
+		},
+		{
+			name: "lzo-no adds 0xfa preamble",
+			args: args{
+				b: []byte{0xde, 0xad, 0xbe, 0xef},
+				opt: &Options{
+					Compress: "lzo-no",
+				},
+			},
+			want:    []byte{0xfa, 0xde, 0xad, 0xbe, 0xef},
+			wantErr: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := maybeAddCompressStub(tt.args.b, tt.args.opt)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("maybeAddCompressStub() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("maybeAddCompressStub() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_maybeAddCompressPadding(t *testing.T) {
+	type args struct {
+		b         []byte
+		opt       *Options
+		blockSize int
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []byte
+		wantErr error
+	}{
+		{
+			name: "add a whole padding block if len equal to block size, no padding stub",
+			args: args{
+				b:         []byte{0x00, 0x01, 0x02, 0x03},
+				opt:       &Options{},
+				blockSize: 4,
+			},
+			want:    []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x04, 0x04, 0x04},
+			wantErr: nil,
+		},
+		{
+			name: "compression stub with len == blocksize",
+			args: args{
+				b:         []byte{0x00, 0x01, 0x02, 0x03},
+				opt:       &Options{Compress: compressionStub},
+				blockSize: 4,
+			},
+			want:    []byte{0x00, 0x01, 0x02, 0x03},
+			wantErr: nil,
+		},
+		{
+			name: "compression stub with len < blocksize",
+			args: args{
+				b:         []byte{0x00, 0x01, 0xff},
+				opt:       &Options{Compress: compressionStub},
+				blockSize: 4,
+			},
+			want:    []byte{0x00, 0x01, 0x02, 0xff},
+			wantErr: nil,
+		},
+		{
+			name: "compression stub with len = blocksize + 1",
+			args: args{
+				b:         []byte{0x00, 0x01, 0x02, 0x03, 0xff},
+				opt:       &Options{Compress: compressionStub},
+				blockSize: 4,
+			},
+			want:    []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x04, 0x04, 0xff},
+			wantErr: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := maybeAddCompressPadding(tt.args.b, tt.args.opt, tt.args.blockSize)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("maybeAddCompressPadding() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("maybeAddCompressPadding() = %v, want %v", got, tt.want)
 			}
 		})
 	}
