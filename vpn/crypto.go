@@ -12,6 +12,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
@@ -54,6 +55,22 @@ var (
 	errBadInput = errors.New("bad input")
 )
 
+// encrypteData holds the different parts needed to decrypt an encrypted data
+// packet.
+type encryptedData struct {
+	iv         []byte
+	ciphertext []byte
+	aead       []byte
+}
+
+// plaintextData holds the different parts needed to encrypt a plaintext
+// payload (after padding).
+type plaintextData struct {
+	iv        []byte
+	plaintext []byte
+	aead      []byte
+}
+
 // dataCipher encrypts and decrypts OpenVPN data.
 type dataCipher interface {
 	// keySizeBytes returns the key size (in bytes).
@@ -71,18 +88,14 @@ type dataCipher interface {
 	//
 	// - key is the key, whose size must be consistent with the cipher;
 	//
-	// - iv is the initialization vector;
-	//
-	// - plaintext is the plaintext to encrypt;
-	//
-	// - ad contains the additional data (optional and only used for AEAD ciphers).
+	// - plaintextData is the data to be encrypted;
 	//
 	// Returns the ciphertext on success and an error on failure.
-	encrypt(key, iv, plaintext, ad []byte) ([]byte, error)
+	encrypt([]byte, *plaintextData) ([]byte, error)
 
 	// decrypt is the opposite operation of encrypt. It takes in input the
 	// ciphertext and returns the plaintext of an error.
-	decrypt(key, iv, ciphertext, ad []byte) ([]byte, error)
+	decrypt([]byte, *encryptedData) ([]byte, error)
 
 	// mode returns the cipherMode
 	cipherMode() cipherMode
@@ -122,10 +135,11 @@ func (a *dataCipherAES) blockSize() int {
 // decrypt implements dataCipher.decrypt.
 // Since key comes from a prf derivation, we only take as many bytes as we need to match
 // our key size.
-func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) {
+func (a *dataCipherAES) decrypt(key []byte, data *encryptedData) ([]byte, error) {
 	if len(key) < a.keySizeBytes() {
 		return nil, errInvalidKeySize
 	}
+
 	// they key material might be longer
 	k := key[:a.keySizeBytes()]
 	block, err := aes.NewCipher(k)
@@ -134,17 +148,17 @@ func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) 
 	}
 	switch a.mode {
 	case cipherModeCBC:
-		if len(iv) != block.BlockSize() {
-			return nil, fmt.Errorf("%w: wrong size for iv: %v", errBadInput, len(iv))
+		if len(data.iv) != block.BlockSize() {
+			return nil, fmt.Errorf("%w: wrong size for iv: %v", errCannotDecrypt, len(data.iv))
 		}
-		mode := cipher.NewCBCDecrypter(block, iv)
-		plaintext := make([]byte, len(ciphertext))
-		mode.CryptBlocks(plaintext, ciphertext)
+		mode := cipher.NewCBCDecrypter(block, data.iv)
+		plaintext := make([]byte, len(data.ciphertext))
+		mode.CryptBlocks(plaintext, data.ciphertext)
 		plaintext, err := bytesUnpadPKCS7(plaintext, block.BlockSize())
 		if err != nil {
 			return nil, err
 		}
-		padLen := len(ciphertext) - len(plaintext)
+		padLen := len(data.ciphertext) - len(plaintext)
 		if padLen > block.BlockSize() || padLen > len(plaintext) {
 			// TODO(bassosimone, ainghazal): discuss the cases in which
 			// this set of conditions actually occurs.
@@ -157,20 +171,28 @@ func (a *dataCipherAES) decrypt(key, iv, ciphertext, ad []byte) ([]byte, error) 
 	case cipherModeGCM:
 		// standard nonce size is 12. more is surely ok, but let's stick to it.
 		// https://github.com/golang/go/blob/master/src/crypto/aes/aes_gcm.go#L37
-		if len(iv) != 12 {
-			return nil, fmt.Errorf("%w: wrong size for iv: %v", errBadInput, len(iv))
+		if len(data.iv) != 12 {
+			return nil, fmt.Errorf("%w: wrong size for iv: %v", errBadInput, len(data.iv))
 		}
 		aesGCM, err := cipher.NewGCM(block)
 		if err != nil {
 			return nil, err
 		}
-		plaintext, err := aesGCM.Open(nil, iv, ciphertext, ad)
+		log.Println("DECRYPT --")
+		log.Println("iv", data.iv, len(data.iv))
+		log.Println("ciph", data.ciphertext, len(data.ciphertext))
+		log.Println("ciph", hex.EncodeToString(data.ciphertext), len(data.ciphertext))
+		log.Println("aead", data.aead, len(data.aead))
+
+		plaintext, err := aesGCM.Open(nil, data.iv, data.ciphertext, data.aead)
 		if err != nil {
 			log.Println("gdm decryption failed:", err.Error())
 			log.Println("dump begins----")
-			log.Printf("%x\n", ciphertext)
-			log.Println("len:", len(ciphertext))
-			log.Printf("ad: %x\n", ad)
+			log.Println("len:", len(data.ciphertext))
+			log.Println("iv:", data.iv)
+			log.Printf("%v\n", data.ciphertext)
+			log.Printf("%x\n", data.ciphertext)
+			log.Printf("aead: %x\n", data.aead)
 			log.Println("dump ends------")
 			return nil, err
 		}
@@ -188,7 +210,7 @@ func (a *dataCipherAES) cipherMode() cipherMode {
 // encrypt implements dataCipher.encrypt
 // Since key comes from a prf derivation, we only take as many bytes as we need to match
 // our key size.
-func (a *dataCipherAES) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
+func (a *dataCipherAES) encrypt(key []byte, data *plaintextData) ([]byte, error) {
 	if len(key) < a.keySizeBytes() {
 		return nil, errInvalidKeySize
 	}
@@ -199,9 +221,16 @@ func (a *dataCipherAES) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 	}
 	switch a.mode {
 	case cipherModeCBC:
-		mode := cipher.NewCBCEncrypter(block, iv) // Note: panics if len(block) != len(iv)
-		ciphertext := make([]byte, len(plaintext))
-		mode.CryptBlocks(ciphertext, plaintext)
+		blockSize := block.BlockSize()
+		if len(data.iv) != blockSize {
+			return []byte{}, fmt.Errorf("%w: wrong size for iv: %v", errCannotEncrypt, len(data.iv))
+		}
+		if len(data.plaintext)%blockSize != 0 {
+			return []byte{}, fmt.Errorf("%w: wrong padding", errCannotEncrypt) //, len(data.iv))
+		}
+		mode := cipher.NewCBCEncrypter(block, data.iv)
+		ciphertext := make([]byte, len(data.plaintext))
+		mode.CryptBlocks(ciphertext, data.plaintext)
 		return ciphertext, nil
 
 	case cipherModeGCM:
@@ -215,7 +244,7 @@ func (a *dataCipherAES) encrypt(key, iv, plaintext, ad []byte) ([]byte, error) {
 		// HMAC. The packet counter may not roll over within a single
 		// TLS session. This results in a unique IV for each packet, as
 		// required by GCM.
-		ciphertext := aesGCM.Seal(nil, iv, plaintext, ad)
+		ciphertext := aesGCM.Seal(nil, data.iv, data.plaintext, data.aead)
 		return ciphertext, nil
 
 	default:
@@ -256,11 +285,11 @@ func newDataCipher(name cipherName, bits int, mode cipherMode) (dataCipher, erro
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedMode, mode)
 	}
-	dcp := &dataCipherAES{
+	dc := &dataCipherAES{
 		ksb:  bits / 8,
 		mode: mode,
 	}
-	return dcp, nil
+	return dc, nil
 }
 
 // newHMACFactory accepts a label coming from an OpenVPN auth label, and returns two

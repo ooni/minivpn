@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"log"
 	"math"
 	"reflect"
 	"testing"
@@ -203,6 +204,10 @@ func testingDataChannelState() *dataChannelState {
 func Test_decodeEncryptedPayloadAEAD(t *testing.T) {
 
 	state := testingDataChannelState()
+
+	key := state.cipherKeyRemote[:]
+	log.Println("KEY", key, len(key))
+
 	goodEncryptedPayload, _ := hex.DecodeString("00000000b3653a842f2b8a148de26375218fb01d31278ff328ff2fc65c4dbf9eb8e67766")
 	goodDecodeIV, _ := hex.DecodeString("000000006868686868686868")
 	goodDecodeCipherText, _ := hex.DecodeString("31278ff328ff2fc65c4dbf9eb8e67766b3653a842f2b8a148de26375218fb01d")
@@ -325,6 +330,17 @@ func Test_encryptAndEncodePayloadAEAD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := encryptAndEncodePayloadAEAD(tt.args.padded, tt.args.session, tt.args.state)
+
+			// DEBUG --------------------------------
+			decoded, _ := decodeEncryptedPayloadAEAD(got, state)
+			log.Println("decoded")
+			log.Println(decoded.iv)
+			log.Println(hex.EncodeToString(decoded.iv))
+			log.Println(decoded)
+			log.Println(decoded.ciphertext)
+			log.Println(hex.EncodeToString(decoded.ciphertext))
+			// DEBUG --------------------------------
+
 			if (err != nil) != tt.wantErr {
 				t.Errorf("encryptAndEncodePayloadAEAD() error = %v, wantErr %v", err, tt.wantErr)
 				return

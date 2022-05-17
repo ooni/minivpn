@@ -222,6 +222,8 @@ func (d *RawDialer) Dial() (net.PacketConn, error) {
 	return packetConn{cl: d.c}, nil
 }
 
+// TODO use the client directly
+
 // packetConn is a packet-oriented network connection using an OpenVPN tunnel. It
 // implements the PacketConn interface.
 type packetConn struct {

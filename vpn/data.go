@@ -241,6 +241,7 @@ func (d *data) SetupKeys(dck *dataChannelKey, s *session) error {
 // TODO accept state for symmetry
 func (d *data) EncryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
 	blockSize := dcs.dataCipher.blockSize()
+
 	padded, err := maybeAddCompressPadding(plaintext, d.options, blockSize)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
@@ -278,12 +279,7 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataCha
 	}
 
 	encryptFn := state.dataCipher.encrypt
-	encrypted, err := encryptFn(
-		state.cipherKeyLocal[:],
-		data.iv,
-		data.plaintext,
-		data.aead,
-	)
+	encrypted, err := encryptFn(state.cipherKeyLocal[:], data)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -318,12 +314,7 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session, state *data
 	}
 
 	encryptFn := state.dataCipher.encrypt
-	ciphertext, err := encryptFn(
-		state.cipherKeyLocal[:],
-		data.iv,
-		data.plaintext,
-		data.aead,
-	)
+	ciphertext, err := encryptFn(state.cipherKeyLocal[:], data)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -423,33 +414,11 @@ func (d *data) decrypt(encrypted []byte) ([]byte, error) {
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}
-	plainText, err := d.state.dataCipher.decrypt(
-		d.state.cipherKeyRemote[:],
-		encryptedData.iv,
-		encryptedData.ciphertext,
-		encryptedData.aead)
+	plainText, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], encryptedData)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}
 	return plainText, nil
-}
-
-// encrypteData holds the different parts needed to decrypt an encrypted data
-// packet.
-// TODO(ainghazal): use this type as argument to dataCipher.decrypt
-type encryptedData struct {
-	iv         []byte
-	ciphertext []byte
-	aead       []byte
-}
-
-// plaintextData holds the different parts needed to encrypt a plaintext
-// payload (after padding).
-// TODO(ainghazal): use this type as argument to dataCipher.encrypt
-type plaintextData struct {
-	iv        []byte
-	plaintext []byte
-	aead      []byte
 }
 
 func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
