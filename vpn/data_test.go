@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	rnd16 = "0123456789012345"
 	rnd32 = "01234567890123456789012345678901"
 	rnd48 = "012345678901234567890123456789012345678901234567"
 )
@@ -346,8 +347,24 @@ func Test_dataChannelKey_addRemoteKey(t *testing.T) {
 		})
 	}
 }
+
 func testingDataChannelState() *dataChannelState {
 	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeGCM)
+	st := &dataChannelState{
+		hmacSize: 20,
+		hmac:     sha1.New,
+		// my linter doesn't like it, but this is the proper way of casting to keySlot
+		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
+		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
+		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
+		hmacKeyRemote:   *(*keySlot)(bytes.Repeat([]byte{0x68}, 64)),
+	}
+	st.dataCipher = dataCipher
+	return st
+}
+
+func testingDataChannelStateNonAEAD() *dataChannelState {
+	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeCBC)
 	st := &dataChannelState{
 		hmacSize: 20,
 		hmac:     sha1.New,
@@ -514,6 +531,19 @@ func Test_encryptAndEncodePayloadAEAD(t *testing.T) {
 
 func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 
+	padded16 := bytes.Repeat([]byte{0xff}, 16)
+	padded15 := bytes.Repeat([]byte{0xff}, 15)
+
+	goodEncrypted, _ := hex.DecodeString("fdf9b069b2e5a637fa7b5c9231166ea96307e4123031323334353637383930313233343581e4878c5eec602c2d2f5a95139c84af")
+	randomFn = func(i int) ([]byte, error) {
+		switch i {
+		case 16:
+			return []byte(rnd16), nil
+		default:
+			return []byte(rnd32), nil
+		}
+	}
+
 	type args struct {
 		padded  []byte
 		session *session
@@ -523,27 +553,35 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 		name    string
 		args    args
 		want    []byte
-		wantErr bool
+		wantErr error
 	}{
-		/*
-			{
-				"good encrypt",
-				args{padded, &session{}, state},
-				[]byte{},
-				false,
-			},
-		*/
-		// TODO: Add test cases.
-		// TODO test passing bad nonce length to encrypt (panics)
+		{
+			name: "good encrypt",
+			args: args{
+				padded:  padded16,
+				session: &session{},
+				state:   testingDataChannelStateNonAEAD()},
+			want:    goodEncrypted,
+			wantErr: nil,
+		},
+		{
+			name: "badly padded input should fail",
+			args: args{
+				padded:  padded15,
+				session: &session{},
+				state:   testingDataChannelStateNonAEAD()},
+			want:    nil,
+			wantErr: errCannotEncrypt,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := encryptAndEncodePayloadNonAEAD(tt.args.padded, tt.args.session, tt.args.state)
-			if (err != nil) != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("encryptAndEncodePayloadNonAEAD() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
+			if !bytes.Equal(got, tt.want) {
 				t.Errorf("encryptAndEncodePayloadNonAEAD() = %v, want %v", got, tt.want)
 			}
 		})

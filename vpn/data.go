@@ -317,7 +317,8 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session, state *data
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I am assuming this is good enough for our current purposes.
 	blockSize := state.dataCipher.blockSize()
-	iv, err := genRandomBytes(blockSize)
+
+	iv, err := randomFn(blockSize)
 	if err != nil {
 		return []byte{}, err
 	}
