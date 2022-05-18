@@ -23,7 +23,7 @@ func getTestKeyMaterial() ([32]byte, [32]byte, [48]byte) {
 	return r1, r2, r3
 }
 
-// getDeterministicRandomKeySize returns a sequence of integer in a deterministic sequence
+// getDeterministicRandomKeySize returns a sequence of integers
 // using the map in the closure. we use this to construct a deterministic
 // random function to replace the random function used in the real client.
 func getDeterministicRandomKeySize() func() int {
@@ -44,10 +44,10 @@ func getDeterministicRandomKeySize() func() int {
 func Test_newKeySource(t *testing.T) {
 
 	kgen := getDeterministicRandomKeySize()
+
+	// we replace the global random function used in the constructor
 	randomFn = func(int) ([]byte, error) {
 		switch kgen() {
-		case 32:
-			return []byte(rnd32), nil
 		case 48:
 			return []byte(rnd48), nil
 		default:
@@ -377,6 +377,21 @@ func testingDataChannelStateNonAEAD() *dataChannelState {
 	return st
 }
 
+func testingDataChannelStateNonAEADReversed() *dataChannelState {
+	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeCBC)
+	st := &dataChannelState{
+		hmacSize: 20,
+		hmac:     sha1.New,
+		// my linter doesn't like it, but this is the proper way of casting to keySlot
+		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
+		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
+		hmacKeyRemote:   *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
+		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x68}, 64)),
+	}
+	st.dataCipher = dataCipher
+	return st
+}
+
 func Test_decodeEncryptedPayloadAEAD(t *testing.T) {
 
 	state := testingDataChannelState()
@@ -435,6 +450,10 @@ func Test_decodeEncryptedPayloadAEAD(t *testing.T) {
 }
 
 func Test_decodeEncryptedPayloadNonAEAD(t *testing.T) {
+	goodInput, _ := hex.DecodeString("fdf9b069b2e5a637fa7b5c9231166ea96307e4123031323334353637383930313233343581e4878c5eec602c2d2f5a95139c84af")
+	iv, _ := hex.DecodeString("30313233343536373839303132333435")
+	ciphertext, _ := hex.DecodeString("81e4878c5eec602c2d2f5a95139c84af")
+
 	type args struct {
 		buf   []byte
 		state *dataChannelState
@@ -443,31 +462,54 @@ func Test_decodeEncryptedPayloadNonAEAD(t *testing.T) {
 		name    string
 		args    args
 		want    *encryptedData
-		wantErr bool
+		wantErr error
 	}{
 		{
-			"empty",
-			args{[]byte{}, &dataChannelState{}},
-			&encryptedData{},
-			true,
+			name:    "empty",
+			args:    args{[]byte{}, &dataChannelState{}},
+			want:    &encryptedData{},
+			wantErr: errBadInput,
 		},
 		{
-			"too short",
-			args{bytes.Repeat([]byte{0xff}, 27), &dataChannelState{}},
-			&encryptedData{},
-			true,
+			name:    "too short",
+			args:    args{bytes.Repeat([]byte{0xff}, 27), &dataChannelState{}},
+			want:    &encryptedData{},
+			wantErr: errBadInput,
 		},
-		// TODO: Add test cases.
+		{
+			name:    "nil state should fail",
+			args:    args{goodInput, nil},
+			want:    &encryptedData{},
+			wantErr: errBadInput,
+		},
+		{
+			name:    "empty state.dataCipher should fail",
+			args:    args{goodInput, &dataChannelState{}},
+			want:    &encryptedData{},
+			wantErr: errBadInput,
+		},
+		{
+			name: "good decode",
+			args: args{goodInput, testingDataChannelStateNonAEADReversed()},
+			want: &encryptedData{
+				iv:         iv,
+				ciphertext: ciphertext,
+			},
+			wantErr: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := decodeEncryptedPayloadNonAEAD(tt.args.buf, tt.args.state)
-			if (err != nil) != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("decodeEncryptedPayloadNonAEAD() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("decodeEncryptedPayloadNonAEAD() = %v, want %v", got, tt.want)
+			if !bytes.Equal(got.iv, tt.want.iv) {
+				t.Errorf("decodeEncryptedPayloadNonAEAD().iv = %v, want %v", got.iv, tt.want.iv)
+			}
+			if !bytes.Equal(got.ciphertext, tt.want.ciphertext) {
+				t.Errorf("decodeEncryptedPayloadNonAEAD().iv = %v, want %v", got.iv, tt.want.iv)
 			}
 		})
 	}
@@ -520,6 +562,8 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 	padded15 := bytes.Repeat([]byte{0xff}, 15)
 
 	goodEncrypted, _ := hex.DecodeString("fdf9b069b2e5a637fa7b5c9231166ea96307e4123031323334353637383930313233343581e4878c5eec602c2d2f5a95139c84af")
+
+	// we replace the global random function that is used for the iv in, e.g., CBC mode.
 	randomFn = func(i int) ([]byte, error) {
 		switch i {
 		case 16:
@@ -698,6 +742,170 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("maybeAddCompressPadding() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_maybeDecompress(t *testing.T) {
+
+	getStateForDecompressTestNonAEAD := func() *dataChannelState {
+		st := testingDataChannelStateNonAEAD()
+		st.remotePacketID = packetID(0x42)
+		return st
+	}
+
+	type args struct {
+		b   []byte
+		st  *dataChannelState
+		opt *Options
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []byte
+		wantErr error
+	}{
+		{
+			name: "nil state should fail",
+			args: args{
+				b:   []byte{},
+				st:  nil,
+				opt: &Options{},
+			},
+			want:    []byte{},
+			wantErr: errBadInput,
+		},
+		{
+			name: "nil options should fail",
+			args: args{
+				b:   []byte{},
+				st:  testingDataChannelState(),
+				opt: nil,
+			},
+			want:    []byte{},
+			wantErr: errBadInput,
+		},
+		{
+			name: "aead cipher, no compression",
+			args: args{
+				b:   []byte{0xaa, 0xbb, 0xcc},
+				st:  testingDataChannelState(),
+				opt: &Options{},
+			},
+			want:    []byte{0xaa, 0xbb, 0xcc},
+			wantErr: nil,
+		},
+		{
+			name: "aead cipher, no compr",
+			args: args{
+				b:   []byte{0xfa, 0xbb, 0xcc},
+				st:  testingDataChannelState(),
+				opt: &Options{Compress: "stub"},
+			},
+			want:    []byte{0xbb, 0xcc},
+			wantErr: nil,
+		},
+		{
+			name: "aead cipher, stub on options and stub on header",
+			args: args{
+				b:   []byte{0xfb, 0xbb, 0xcc, 0xdd},
+				st:  testingDataChannelState(),
+				opt: &Options{Compress: "stub"},
+			},
+			want:    []byte{0xdd, 0xbb, 0xcc},
+			wantErr: nil,
+		},
+		{
+			name: "aead cipher, stub, unsupported compression",
+			args: args{
+				b:   []byte{0xff, 0xbb, 0xcc},
+				st:  testingDataChannelState(),
+				opt: &Options{Compress: "stub"},
+			},
+			want:    []byte{},
+			wantErr: errBadCompression,
+		},
+		{
+			name: "aead cipher, lzo-no",
+			args: args{
+				b:   []byte{0xfa, 0xbb, 0xcc},
+				st:  testingDataChannelState(),
+				opt: &Options{Compress: "lzo-no"},
+			},
+			want:    []byte{0xbb, 0xcc},
+			wantErr: nil,
+		},
+		{
+			name: "aead cipher, compress-no",
+			args: args{
+				b:   []byte{0x00, 0xbb, 0xcc},
+				st:  testingDataChannelState(),
+				opt: &Options{Compress: "no"},
+			},
+			want:    []byte{0x00, 0xbb, 0xcc},
+			wantErr: nil,
+		},
+		{
+			name: "non-aead cipher, stub",
+			args: args{
+				b:   []byte{0x00, 0x00, 0x00, 0x43, 0x00, 0xbb, 0xcc},
+				st:  getStateForDecompressTestNonAEAD(),
+				opt: &Options{Compress: "stub"},
+			},
+			want:    []byte{0xbb, 0xcc},
+			wantErr: nil,
+		},
+		{
+			name: "non-aead cipher, stub, unsupported compression",
+			args: args{
+				b:   []byte{0x00, 0x00, 0x00, 0x43, 0x0ff, 0xbb, 0xcc},
+				st:  getStateForDecompressTestNonAEAD(),
+				opt: &Options{Compress: "stub"},
+			},
+			want:    []byte{},
+			wantErr: errBadCompression,
+		},
+		{
+			name: "non-aead cipher, compress-no",
+			args: args{
+				b:   []byte{0x00, 0x00, 0x00, 0x43, 0x00, 0xbb, 0xcc},
+				st:  getStateForDecompressTestNonAEAD(),
+				opt: &Options{Compress: "no"},
+			},
+			want:    []byte{0xbb, 0xcc},
+			wantErr: nil,
+		},
+		{
+			name: "non-aead cipher, replay detected (equal remote packetID)",
+			args: args{
+				b:   []byte{0x00, 0x00, 0x00, 0x42, 0x00, 0xbb, 0xcc},
+				st:  getStateForDecompressTestNonAEAD(),
+				opt: &Options{Compress: "stub"},
+			},
+			want:    []byte{},
+			wantErr: errReplayAttack,
+		},
+		{
+			name: "non-aead cipher, replay detected (lesser remote packetID)",
+			args: args{
+				b:   []byte{0x00, 0x00, 0x00, 0x42, 0x00, 0xbb, 0xcc},
+				st:  getStateForDecompressTestNonAEAD(),
+				opt: &Options{Compress: "stub"},
+			},
+			want:    []byte{},
+			wantErr: errReplayAttack,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := maybeDecompress(tt.args.b, tt.args.st, tt.args.opt)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("maybeDecompress() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("maybeDecompress() = %v, want %v", got, tt.want)
 			}
 		})
 	}

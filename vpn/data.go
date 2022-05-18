@@ -490,7 +490,10 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encrypted
 
 func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
 	if len(buf) < 28 {
-		return &encryptedData{}, fmt.Errorf("too short: %d bytes", len(buf))
+		return &encryptedData{}, fmt.Errorf("%w: too short (%d bytes)", errBadInput, len(buf))
+	}
+	if state == nil || state.dataCipher == nil {
+		return &encryptedData{}, fmt.Errorf("%w: bad state", errBadInput)
 	}
 
 	hashSize := state.hmacSize
@@ -502,12 +505,14 @@ func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryp
 	cipherText := buf[hashSize+blockSize:]
 
 	// TODO instead of instantiating it each time, we can call Reset()
+
 	mac := hmac.New(state.hmac, key)
 	mac.Write(iv)
 	mac.Write(cipherText)
 	calcMAC := mac.Sum(nil)
 
 	if !hmac.Equal(calcMAC, recvMAC) {
+		logger.Errorf("expected: %x, got: %x", calcMAC, recvMAC)
 		return &encryptedData{}, fmt.Errorf("%w:%s", errCannotDecrypt, errBadHMAC)
 	}
 
@@ -534,10 +539,19 @@ func (d *data) ReadPacket(p *packet) ([]byte, error) {
 	return maybeDecompress(plaintext, d.state, d.options)
 }
 
-// decompress de-serializes the data from the payload according to the framing
+// maybeDecompress de-serializes the data from the payload according to the framing
 // given by different compression methods. only the different no-compression
-// modes are supported at the moment.
+// modes are supported at the moment, so no real decompression is done. It
+// returns a byte array, and an error if the operation could not be completed
+// successfully.
 func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, error) {
+	if st == nil || st.dataCipher == nil {
+		return []byte{}, fmt.Errorf("%w:%s", errBadInput, "bad state")
+	}
+	if opt == nil {
+		return []byte{}, fmt.Errorf("%w:%s", errBadInput, "bad options")
+	}
+
 	var compr byte // compression type
 	var payload []byte
 
@@ -558,8 +572,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 			return payload, err
 		}
 		if remotePacketID <= lastKnownRemote {
-			logger.Errorf("possible replay attack")
-			return payload, errReplayAttack
+			return []byte{}, errReplayAttack
 		}
 		st.SetRemotePacketID(remotePacketID)
 		compr = b[4]
