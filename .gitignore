@@ -1,7 +1,7 @@
-minivpn
-obfs4vpn
-ping
-geturl
+./minivpn
+./obfs4vpn
+./vpnping
+./geturl
 ndt7
 *.swp
 *.swo

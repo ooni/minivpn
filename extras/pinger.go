@@ -27,12 +27,12 @@ const (
 // NewPinger returns a pointer to a Pinger struct configured to handle data from a
 // vpn.Client. It needs host and count as parameters, and also accepts a done
 // channel in which termination of the measurement series will be notified.
-func NewPinger(raw *vpn.RawDialer, host string, count int) *Pinger {
+func NewPinger(vpnDialer *vpn.VPNDialer, host string, count int) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
 	ts := make(map[int]int64)
 	return &Pinger{
-		raw:      raw,
+		vpn:      vpnDialer,
 		host:     host,
 		ts:       ts,
 		Count:    int(count),
@@ -58,7 +58,7 @@ func (s st) TTL() uint8 {
 
 // Pinger holds all the needed info to ping a target.
 type Pinger struct {
-	raw *vpn.RawDialer
+	vpn *vpn.VPNDialer
 	st  []st
 	// stats mutex
 	// mu sync.Mutex
@@ -107,7 +107,7 @@ func (p *Pinger) printStats() {
 }
 
 func (p *Pinger) Run() error {
-	pc, err := p.raw.Dial()
+	conn, err := p.vpn.Dial()
 	if err != nil {
 		log.Println("Error while dialing a VPN connection:", err.Error())
 		return err
@@ -115,17 +115,17 @@ func (p *Pinger) Run() error {
 
 	for i := 0; i < p.Count; i++ {
 		// TODO go back to different send/receive routines, here the send/receive delays are interfering.
-		src := pc.LocalAddr().String()
+		src := conn.LocalAddr().String()
 		srcIP := net.ParseIP(src)
 		dstIP := net.ParseIP(p.host)
 		start := time.Now()
 		ipck := newIcmpData(&srcIP, &dstIP, 8, p.ttl, i, p.ID)
-		pc.WriteTo(ipck, nil)
+		conn.Write(ipck)
 		p.packetsSent++
 
 		// TODO add timeout to this read
 		buf := make([]byte, 1500)
-		pc.ReadFrom(buf)
+		conn.Read(buf)
 		p.packetsRecv++
 
 		// TODO this is the naive way of doing timestamps, equivalent to "ping -U",
@@ -134,7 +134,7 @@ func (p *Pinger) Run() error {
 		// in case we do see that load produces instability.
 		// https://coroot.com/blog/how-to-ping
 		end := time.Now()
-		p.parseEchoReply(buf, pc.LocalAddr().String(), start, end)
+		p.parseEchoReply(buf, conn.LocalAddr().String(), start, end)
 		time.Sleep(1 * time.Second)
 	}
 	return nil

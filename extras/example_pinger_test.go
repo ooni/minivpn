@@ -17,7 +17,7 @@ func ExampleRunPinger() {
 	if err != nil {
 		os.Exit(1)
 	}
-	raw := vpn.NewRawDialer(opts)
-	pinger := NewPinger(raw, target, count)
+	vpnDialer := vpn.NewVPNDialer(opts)
+	pinger := NewPinger(vpnDialer, target, count)
 	pinger.Run()
 }

@@ -5,21 +5,35 @@ package vpn
 //
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
 	// ErrDialError is a generic error while dialing
-	ErrDialError = "dial error"
+	ErrDialError = errors.New("dial error")
+
+	// ErrAlreadyStarted is returned when trying to start the tunnel more than once
+	ErrAlreadyStarted = errors.New("tunnel already started")
 
 	handshakeTimeout    = 30
 	handshakeTimeoutEnv = "HANDSHAKE_TIMEOUT"
 )
+
+type DialFunc func(string, string) (net.Conn, error)
+
+// tunnel holds state about the VPN tunnel that has longer duration than a
+// given session.
+type tunnel struct {
+	ip  string
+	mtu int
+}
 
 // Client implements the OpenVPN protocol. If you're just interested in writing
 // to and reading from the tunnel you should use the dialer methods instead.
@@ -41,6 +55,8 @@ type Client struct {
 	// XXX move into another type
 	HandshakeTimeout int
 }
+
+var _ net.Conn = &Client{} // Ensure that we implement net.Conn
 
 // NewClientFromSettings returns a Client configured with the given Options.
 func NewClientFromSettings(opt *Options) *Client {
@@ -65,17 +81,12 @@ func NewClientFromSettings(opt *Options) *Client {
 	}
 }
 
-type DialFunc func(string, string) (net.Conn, error)
-
-// tunnel holds state about the VPN tunnel that has longer duration than a
-// given session.
-type tunnel struct {
-	ip  string
-	mtu int
-}
-
-// Run starts the OpenVPN tunnel.
-func (c *Client) Run() error {
+// Start starts the OpenVPN tunnel.
+func (c *Client) Start() error {
+	if c.mux != nil {
+		// TODO(ainghazal): test for multiple start/stop cycles
+		return ErrAlreadyStarted
+	}
 	conn, err := c.Dial()
 	if err != nil {
 		return err
@@ -94,6 +105,13 @@ func (c *Client) Run() error {
 	return nil
 }
 
+// Stop stops the OpenVPN tunnel.
+func (c *Client) Stop() error {
+	c.conn.Close()
+	c.mux = nil
+	return nil
+}
+
 // Dial opens a TCP/UDP socket against the remote, and creates an internal
 // data channel. It is the second step in an OpenVPN connection (out of five).
 // (In UDP mode no network connection is done at this step).
@@ -108,7 +126,7 @@ func (c *Client) Dial() (net.Conn, error) {
 	conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ErrDialError, err)
+		return nil, fmt.Errorf("%w: %s", ErrDialError, err)
 	}
 	return conn, nil
 }
@@ -128,14 +146,31 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// TunnelIP returns the local IP that the server assigned us.
-func (m *muxer) TunnelIP() string {
-	return m.tunnel.ip
+// LocalLocalAddr returns the local address on the tunnel virtual device.
+func (c *Client) LocalAddr() net.Addr {
+	if c.mux == nil || c.mux.tunnel == nil {
+		addr, _ := net.ResolveIPAddr("ip", "")
+		return addr
+	}
+	addr, _ := net.ResolveIPAddr("ip", c.mux.tunnel.ip)
+	return addr
 }
 
-// TunMTU returns the tun-mtu value that the remote advertises.
-func (m *muxer) TunMTU() int {
-	return m.tunnel.mtu
+// TODO(ainghazal): should get the remote _tunnel_ ip addr somehow
+func (c *Client) RemoteAddr() net.Addr {
+	return nil
+}
+
+func (c *Client) SetDeadline(t time.Time) error {
+	return c.conn.SetDeadline(t)
+}
+
+func (c *Client) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+
+func (c *Client) SetWriteDeadline(t time.Time) error {
+	return c.conn.SetWriteDeadline(t)
 }
 
 // Logger is compatible with github.com/apex/log
