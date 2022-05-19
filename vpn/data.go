@@ -25,6 +25,7 @@ var (
 	errCannotEncrypt  = errors.New("cannot encrypt")
 	errCannotDecrypt  = errors.New("cannot decrypt")
 	errBadHMAC        = errors.New("bad hmac")
+	errInitError      = errors.New("improperly initialized")
 )
 
 // keySlot holds the different local and remote keys.
@@ -152,6 +153,7 @@ type data struct {
 	state           *dataChannelState
 	decodeFn        func([]byte, *dataChannelState) (*encryptedData, error)
 	encryptEncodeFn func([]byte, *session, *dataChannelState) ([]byte, error)
+	decryptFn       func([]byte, *encryptedData) ([]byte, error)
 }
 
 var _ dataHandler = &data{} // Ensure that we implement dataHandler
@@ -192,6 +194,9 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 	}
 	data.state.hmac = hmac
 	data.state.hmacSize = getHashLength(strings.ToLower(opt.Auth))
+
+	data.decryptFn = state.dataCipher.decrypt
+
 	return data, nil
 }
 
@@ -256,7 +261,7 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 func (d *data) EncryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
 	blockSize := dcs.dataCipher.blockSize()
 
-	padded, err := maybeAddCompressPadding(plaintext, d.options, blockSize)
+	padded, err := maybeAddCompressPadding(plaintext, d.options.Compress, blockSize)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 	}
@@ -270,6 +275,7 @@ func (d *data) EncryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) 
 }
 
 // encryptAndEncodePayloadAEAD peforms encryption and encoding of the payload in AEAD modes (i.e., AES-GCM).
+// TODO for testing we can pass both the state object and the encryptFn FIXME refactor...
 func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataChannelState) ([]byte, error) {
 	nextPacketID, err := session.LocalPacketID()
 	if err != nil {
@@ -375,8 +381,8 @@ func maybeAddCompressStub(b []byte, opt *Options) ([]byte, error) {
 // needed. if we're using the compression stub the padding is applied without taking the
 // traling bit into account. it returns the resulting byte array, and an error
 // if the operatio could not be completed.
-func maybeAddCompressPadding(b []byte, opt *Options, blockSize uint8) ([]byte, error) {
-	if opt.Compress == "stub" {
+func maybeAddCompressPadding(b []byte, compress compression, blockSize uint8) ([]byte, error) {
+	if compress == "stub" {
 		// if we're using the compression stub
 		// we need to account for the trailing byte
 		// that we have appended in a previous step.
@@ -397,38 +403,44 @@ func maybeAddCompressPadding(b []byte, opt *Options, blockSize uint8) ([]byte, e
 }
 
 func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
-	var buf []byte
-	if !d.state.dataCipher.isAEAD() {
+	buf := bytes.Buffer{}
+	switch d.state.dataCipher.isAEAD() {
+	case true:
+		buf.Write(payload)
+	case false:
 		packetID := make([]byte, 4)
 		localPacketID, _ := d.session.LocalPacketID()
 		binary.BigEndian.PutUint32(packetID, uint32(localPacketID))
-		buf = append(packetID[:], payload...)
-	} else {
-		buf = payload[:]
+		buf.Write(packetID[:])
+		buf.Write(payload)
 	}
 
-	plaintext, err := maybeAddCompressStub(buf, d.options)
+	// TODO(ainghazal): maybeAddCompressStub should receive a compression type, not options
+	plaintext, err := maybeAddCompressStub(buf.Bytes(), d.options)
 	if err != nil {
 		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 	}
-
 	encrypted, err := d.EncryptAndEncodePayload(plaintext, d.state)
 
 	if err != nil {
 		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 	}
 
+	bufOut := bytes.Buffer{}
 	// eventually we'll need to write the keyID here too, from session.
 	keyID := 0
 	header := byte((pDataV1 << 3) | (keyID & 0x07))
 	panicIfFalse(header == byte(0x30), "expected header == 0x30")
-	buf = append([]byte{header}, encrypted...)
-	buf = maybeAddSizeFrame(conn, buf)
+
+	bufOut.WriteByte(header)
+	bufOut.Write(encrypted)
+
+	out := maybeAddSizeFrame(conn, bufOut.Bytes())
 
 	logger.Debug("data: write packet")
-	logger.Debugf(hex.Dump(buf))
+	logger.Debugf(hex.Dump(out))
 
-	return conn.Write(buf)
+	return conn.Write(out)
 }
 
 //
@@ -436,15 +448,19 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 //
 
 func (d *data) decrypt(encrypted []byte) ([]byte, error) {
+	if d.decryptFn == nil {
+		return []byte{}, errInitError
+	}
 	if len(d.state.hmacKeyRemote) == 0 {
 		logger.Error("decrypt: not ready yet")
 		return []byte{}, errCannotDecrypt
 	}
 	encryptedData, err := d.DecodeEncryptedPayload(encrypted, d.state)
+
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}
-	plainText, err := d.state.dataCipher.decrypt(d.state.cipherKeyRemote[:], encryptedData)
+	plainText, err := d.decryptFn(d.state.cipherKeyRemote[:], encryptedData)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
 	}

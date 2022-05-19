@@ -6,8 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
+	"net"
 	"reflect"
 	"testing"
+
+	"github.com/ainghazal/minivpn/vpn/mocks"
 )
 
 const (
@@ -26,7 +29,7 @@ func getTestKeyMaterial() ([32]byte, [32]byte, [48]byte) {
 // getDeterministicRandomKeySize returns a sequence of integers
 // using the map in the closure. we use this to construct a deterministic
 // random function to replace the random function used in the real client.
-func getDeterministicRandomKeySize() func() int {
+func getDeterministicRandomKeySizeFn() func() int {
 	var rndSeq = map[int]int{
 		1: 32,
 		2: 32,
@@ -43,11 +46,11 @@ func getDeterministicRandomKeySize() func() int {
 
 func Test_newKeySource(t *testing.T) {
 
-	kgen := getDeterministicRandomKeySize()
+	genKeySizeFn := getDeterministicRandomKeySizeFn()
 
 	// we replace the global random function used in the constructor
 	randomFn = func(int) ([]byte, error) {
-		switch kgen() {
+		switch genKeySizeFn() {
 		case 48:
 			return []byte(rnd48), nil
 		default:
@@ -227,6 +230,104 @@ func Test_data_SetupKeys(t *testing.T) {
 	}
 }
 
+func Test_data_EncryptAndEncodePayload(t *testing.T) {
+
+	opt := &Options{}
+
+	type fields struct {
+		options         *Options
+		session         *session
+		state           *dataChannelState
+		decodeFn        func([]byte, *dataChannelState) (*encryptedData, error)
+		encryptEncodeFn func([]byte, *session, *dataChannelState) ([]byte, error)
+	}
+	type args struct {
+		plaintext []byte
+		dcs       *dataChannelState
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    []byte
+		wantErr error
+	}{
+		{
+			name: "dummy encryptEncodeFn does not fail",
+			fields: fields{
+				options:  opt,
+				session:  testingSession(),
+				state:    testingDataChannelState(),
+				decodeFn: nil,
+				encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
+					return []byte{}, nil
+				},
+			},
+			args: args{
+				plaintext: []byte("hello"),
+				dcs:       testingDataChannelState(),
+			},
+			want:    []byte{},
+			wantErr: nil,
+		},
+		{
+			name: "empty plaintext does not fail",
+			fields: fields{
+				options:  opt,
+				session:  testingSession(),
+				state:    testingDataChannelState(),
+				decodeFn: nil,
+				encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
+					return []byte{}, nil
+				},
+			},
+			args: args{
+				plaintext: []byte{},
+				dcs:       testingDataChannelState(),
+			},
+			want:    []byte{},
+			wantErr: nil,
+		},
+		{
+			name: "error on encryptEncodeFn gets propagated",
+			fields: fields{
+				options:  opt,
+				session:  testingSession(),
+				state:    testingDataChannelState(),
+				decodeFn: nil,
+				encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
+					return []byte{}, errors.New("dummyTestError")
+				},
+			},
+			args: args{
+				plaintext: []byte{},
+				dcs:       testingDataChannelState(),
+			},
+			want:    []byte{},
+			wantErr: errCannotEncrypt,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &data{
+				options:         tt.fields.options,
+				session:         tt.fields.session,
+				state:           tt.fields.state,
+				decodeFn:        tt.fields.decodeFn,
+				encryptEncodeFn: tt.fields.encryptEncodeFn,
+			}
+			got, err := d.EncryptAndEncodePayload(tt.args.plaintext, tt.args.dcs)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("data.EncryptAndEncodePayload() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("data.EncryptAndEncodePayload() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_dataChannelState_RemotePacketID(t *testing.T) {
 	type fields struct {
 		remotePacketID packetID
@@ -392,6 +493,135 @@ func testingDataChannelStateNonAEADReversed() *dataChannelState {
 	return st
 }
 
+func Test_data_decrypt(t *testing.T) {
+
+	goodMockDecryptFn := func([]byte, *encryptedData) ([]byte, error) {
+		return []byte("alles ist gut"), nil
+	}
+
+	failingMockDecryptFn := func([]byte, *encryptedData) ([]byte, error) {
+		return []byte{}, errCannotDecrypt
+	}
+
+	opt := &Options{}
+
+	type fields struct {
+		options         *Options
+		session         *session
+		state           *dataChannelState
+		decodeFn        func([]byte, *dataChannelState) (*encryptedData, error)
+		encryptEncodeFn func([]byte, *session, *dataChannelState) ([]byte, error)
+		decryptFn       func([]byte, *encryptedData) ([]byte, error)
+	}
+	type args struct {
+		encrypted []byte
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    []byte
+		wantErr error
+	}{
+		{
+			name: "empty output in decodeFn does fail",
+			fields: fields{
+				options: opt,
+				session: testingSession(),
+				state:   testingDataChannelState(),
+				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
+					return &encryptedData{}, nil
+				},
+				encryptEncodeFn: nil,
+				decryptFn:       testingDataChannelState().dataCipher.decrypt,
+			},
+			args: args{
+				encrypted: bytes.Repeat([]byte{0x0a}, 20),
+			},
+			want:    []byte{},
+			wantErr: errCannotDecrypt,
+		},
+		{
+			name: "empty encrypted input does fail",
+			fields: fields{
+				options: opt,
+				session: testingSession(),
+				state:   testingDataChannelState(),
+				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
+					return &encryptedData{}, nil
+				},
+				encryptEncodeFn: nil,
+				decryptFn:       testingDataChannelState().dataCipher.decrypt,
+			},
+			args: args{
+				encrypted: []byte{},
+			},
+			want:    []byte{},
+			wantErr: errCannotDecrypt,
+		},
+		{
+			name: "error in decrypt propagates",
+			fields: fields{
+				options: opt,
+				session: testingSession(),
+				state:   testingDataChannelState(),
+				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
+					return &encryptedData{}, nil
+				},
+				encryptEncodeFn: nil,
+				decryptFn:       failingMockDecryptFn,
+			},
+			args: args{
+				encrypted: []byte{},
+			},
+			want:    []byte{},
+			wantErr: errCannotDecrypt,
+		},
+		{
+			name: "good decrypt returns expected output",
+			fields: fields{
+				options: opt,
+				session: testingSession(),
+				state:   testingDataChannelState(),
+				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
+					return &encryptedData{}, nil
+				},
+				encryptEncodeFn: nil,
+				decryptFn:       goodMockDecryptFn,
+			},
+			args: args{
+				encrypted: []byte{},
+			},
+			want:    []byte("alles ist gut"),
+			wantErr: nil,
+		},
+		// TODO we already are testing decrypt + encrypt in the crypto module
+		// so we can mock the decrypt here in the state.
+		// TODO empty ciphertext raises error
+		// TODO: Add moar test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &data{
+				options:         tt.fields.options,
+				session:         tt.fields.session,
+				state:           tt.fields.state,
+				decodeFn:        tt.fields.decodeFn,
+				encryptEncodeFn: tt.fields.encryptEncodeFn,
+				decryptFn:       tt.fields.decryptFn,
+			}
+			got, err := d.decrypt(tt.args.encrypted)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("data.decrypt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("data.decrypt() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_decodeEncryptedPayloadAEAD(t *testing.T) {
 
 	state := testingDataChannelState()
@@ -450,6 +680,7 @@ func Test_decodeEncryptedPayloadAEAD(t *testing.T) {
 }
 
 func Test_decodeEncryptedPayloadNonAEAD(t *testing.T) {
+
 	goodInput, _ := hex.DecodeString("fdf9b069b2e5a637fa7b5c9231166ea96307e4123031323334353637383930313233343581e4878c5eec602c2d2f5a95139c84af")
 	iv, _ := hex.DecodeString("30313233343536373839303132333435")
 	ciphertext, _ := hex.DecodeString("81e4878c5eec602c2d2f5a95139c84af")
@@ -517,9 +748,8 @@ func Test_decodeEncryptedPayloadNonAEAD(t *testing.T) {
 
 func Test_encryptAndEncodePayloadAEAD(t *testing.T) {
 
-	options := &Options{Cipher: "AES-128-GCM"}
 	state := testingDataChannelState()
-	padded, _ := maybeAddCompressPadding([]byte("hello go tests"), options, state.dataCipher.blockSize())
+	padded, _ := maybeAddCompressPadding([]byte("hello go tests"), "", state.dataCipher.blockSize())
 
 	goodEncryptedPayload, _ := hex.DecodeString("00000000b3653a842f2b8a148de26375218fb01d31278ff328ff2fc65c4dbf9eb8e67766")
 
@@ -683,7 +913,7 @@ func Test_maybeAddCompressStub(t *testing.T) {
 func Test_maybeAddCompressPadding(t *testing.T) {
 	type args struct {
 		b         []byte
-		opt       *Options
+		compress  compression
 		blockSize uint8
 	}
 	tests := []struct {
@@ -696,7 +926,7 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 			name: "add a whole padding block if len equal to block size, no padding stub",
 			args: args{
 				b:         []byte{0x00, 0x01, 0x02, 0x03},
-				opt:       &Options{},
+				compress:  compression(""),
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x04, 0x04, 0x04},
@@ -706,7 +936,7 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 			name: "compression stub with len == blocksize",
 			args: args{
 				b:         []byte{0x00, 0x01, 0x02, 0x03},
-				opt:       &Options{Compress: compressionStub},
+				compress:  compressionStub,
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0x03},
@@ -716,7 +946,7 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 			name: "compression stub with len < blocksize",
 			args: args{
 				b:         []byte{0x00, 0x01, 0xff},
-				opt:       &Options{Compress: compressionStub},
+				compress:  compressionStub,
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0xff},
@@ -726,7 +956,7 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 			name: "compression stub with len = blocksize + 1",
 			args: args{
 				b:         []byte{0x00, 0x01, 0x02, 0x03, 0xff},
-				opt:       &Options{Compress: compressionStub},
+				compress:  compressionStub,
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x04, 0x04, 0xff},
@@ -735,7 +965,7 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := maybeAddCompressPadding(tt.args.b, tt.args.opt, tt.args.blockSize)
+			got, err := maybeAddCompressPadding(tt.args.b, tt.args.compress, tt.args.blockSize)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("maybeAddCompressPadding() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -906,6 +1136,161 @@ func Test_maybeDecompress(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("maybeDecompress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_data_ReadPacket(t *testing.T) {
+
+	goodMockDecodeFn := func([]byte, *dataChannelState) (*encryptedData, error) {
+		d := &encryptedData{
+			iv:         []byte{0xee},
+			ciphertext: []byte("garbledpayload"),
+			aead:       []byte{0xff},
+		}
+		return d, nil
+	}
+
+	goodMockDecryptFn := func([]byte, *encryptedData) ([]byte, error) {
+		return []byte("alles ist gut"), nil
+	}
+
+	type fields struct {
+		options   *Options
+		state     *dataChannelState
+		decryptFn func([]byte, *encryptedData) ([]byte, error)
+		decodeFn  func([]byte, *dataChannelState) (*encryptedData, error)
+	}
+	type args struct {
+		p *packet
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    []byte
+		wantErr error
+	}{
+		{
+			name: "good decrypt using mocked decrypt fn and decode fn",
+			fields: fields{
+				options:   testingOptions("AES-128-GCM", "sha1"),
+				state:     testingDataChannelState(),
+				decryptFn: goodMockDecryptFn,
+				decodeFn:  goodMockDecodeFn,
+			},
+			args: args{&packet{
+				opcode:  pDataV1,
+				payload: []byte("garbled")},
+			},
+			want:    []byte("alles ist gut"),
+			wantErr: nil,
+		},
+		// TODO panic when call to DecodeEncryptedPayload
+		// TODO error if empty payload
+		// TODO make sure decompress fn is called?
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &data{
+				options:   tt.fields.options,
+				state:     tt.fields.state,
+				decryptFn: tt.fields.decryptFn,
+				decodeFn:  tt.fields.decodeFn,
+				//session:         tt.fields.session,
+			}
+			got, err := d.ReadPacket(tt.args.p)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("data.ReadPacket() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("data.ReadPacket() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// we'll use a mocked net.Conn for WritePacket
+
+func testingConn(network, addr string, n int) net.Conn {
+	mockAddr := &mocks.Addr{}
+	mockAddr.MockString = func() string {
+		return addr
+	}
+	mockAddr.MockNetwork = func() string {
+		return network
+	}
+
+	mockConn := &mocks.Conn{}
+	mockConn.MockLocalAddr = func() net.Addr {
+		return mockAddr
+	}
+	mockConn.MockWrite = func([]byte) (int, error) {
+		return n, nil
+	}
+	return mockConn
+}
+
+func Test_data_WritePacket(t *testing.T) {
+	opt := &Options{}
+
+	goodMockEncodedEncryptFn := func([]byte, *session, *dataChannelState) ([]byte, error) {
+		return []byte("alles ist garbled gut"), nil
+	}
+
+	type fields struct {
+		options *Options
+		// session is only used for NonAEAD encryption
+		session         *session
+		state           *dataChannelState
+		encryptEncodeFn func([]byte, *session, *dataChannelState) ([]byte, error)
+	}
+	type args struct {
+		conn    net.Conn
+		payload []byte
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    int
+		wantErr error
+	}{
+		{
+			name: "good write, aead encryption",
+			fields: fields{
+				options:         opt,
+				session:         nil,
+				state:           testingDataChannelState(),
+				encryptEncodeFn: goodMockEncodedEncryptFn,
+			},
+			args: args{
+				conn:    testingConn("udp", "10.0.42.1", 42),
+				payload: []byte("hello test"),
+			},
+			want:    42,
+			wantErr: nil,
+		},
+
+		// TODO: Add moar test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &data{
+				options:         tt.fields.options,
+				session:         tt.fields.session,
+				state:           tt.fields.state,
+				encryptEncodeFn: tt.fields.encryptEncodeFn,
+			}
+			got, err := d.WritePacket(tt.args.conn, tt.args.payload)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("data.WritePacket() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("data.WritePacket() = %v, want %v", got, tt.want)
 			}
 		})
 	}
