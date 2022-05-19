@@ -1,11 +1,11 @@
 package vpn
 
-// this file exercises the options parsing.
-
 import (
+	"errors"
 	"fmt"
 	"os"
 	fp "path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -158,5 +158,219 @@ func TestGetOptionsComment(t *testing.T) {
 	}
 	if o.Cipher != "AES-256-GCM" {
 		t.Errorf("Expected cipher: AES-256-GCM")
+	}
+}
+
+func Test_parseRemoteOptions(t *testing.T) {
+	type args struct {
+		tunnel     *tunnel
+		remoteOpts string
+	}
+	tests := []struct {
+		name string
+		args args
+		want *tunnel
+	}{
+		{
+			name: "parse good tun-mtu",
+			args: args{
+				tunnel:     &tunnel{},
+				remoteOpts: "foo bar,tun-mtu 1500",
+			},
+			want: &tunnel{
+				mtu: 1500,
+			},
+		},
+		{
+			name: "empty string",
+			args: args{
+				tunnel:     &tunnel{mtu: 1500},
+				remoteOpts: "",
+			},
+			want: &tunnel{
+				mtu: 1500,
+			},
+		},
+		{
+			name: "update value",
+			args: args{
+				tunnel:     &tunnel{mtu: 1500},
+				remoteOpts: "tun-mtu 1200",
+			},
+			want: &tunnel{
+				mtu: 1200,
+			},
+		},
+		{
+			name: "empty field",
+			args: args{
+				tunnel:     &tunnel{mtu: 1500},
+				remoteOpts: "tun-mtu 1200,,",
+			},
+			want: &tunnel{
+				mtu: 1200,
+			},
+		},
+		{
+			name: "extra space",
+			args: args{
+				tunnel:     &tunnel{mtu: 1500},
+				remoteOpts: "tun-mtu  1200",
+			},
+			want: &tunnel{
+				mtu: 1500,
+			},
+		},
+		{
+			name: "mtu not an int",
+			args: args{
+				tunnel:     &tunnel{mtu: 1500},
+				remoteOpts: "tun-mtu aaa",
+			},
+			want: &tunnel{
+				mtu: 1500,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseRemoteOptions(tt.args.tunnel, tt.args.remoteOpts); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseRemoteOptions() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_parsePushedOptions(t *testing.T) {
+	type args struct {
+		pushedOptions []byte
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "do parse tunnel ip",
+			// TODO I'm not sure about what the trailing bit should it be null?)
+			args: args{[]byte("foo bar,ifconfig 10.0.0.3,")},
+			want: "10.0.0.3",
+		},
+		{
+			name: "empty string",
+			args: args{[]byte{}},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parsePushedOptions(tt.args.pushedOptions); got != tt.want {
+				t.Errorf("parsePushedOptions() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_parseAuth(t *testing.T) {
+	type args struct {
+		p []string
+		o *Options
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr error
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := parseAuthUser(tt.args.p, tt.args.o); !errors.Is(err, tt.wantErr) {
+				t.Errorf("parseAuth() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+		})
+	}
+}
+
+func Test_parseAuthUser(t *testing.T) {
+	f, err := os.CreateTemp("", "tmpfile-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeCreds := []byte("foo\nbar\n")
+	if _, err := f.Write(fakeCreds); err != nil {
+		t.Fatal(err)
+	}
+
+	defer f.Close()
+	defer os.Remove(f.Name())
+
+	type args struct {
+		p []string
+		o *Options
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr error
+	}{
+		{
+			name: "parse good auth",
+			args: args{
+				p: []string{f.Name()},
+				o: &Options{},
+			},
+			wantErr: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := parseAuthUser(tt.args.p, tt.args.o); !errors.Is(err, tt.wantErr) {
+				t.Errorf("parseAuthUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TODO return options object so that it's testable too
+func Test_parseTLSVerMax(t *testing.T) {
+	type args struct {
+		p []string
+		o *Options
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr error
+	}{
+		{
+			name:    "nil options should fail",
+			args:    args{},
+			wantErr: errBadInput,
+		},
+		{
+			name:    "default",
+			args:    args{o: &Options{}},
+			wantErr: nil,
+		},
+		{
+			name:    "default with good tls opt",
+			args:    args{p: []string{"1.2"}, o: &Options{}},
+			wantErr: nil,
+		},
+		{
+			// FIXME this case should probably fail
+			name:    "default with too many parts",
+			args:    args{p: []string{"1.2", "1.3"}, o: &Options{}},
+			wantErr: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := parseTLSVerMax(tt.args.p, tt.args.o); !errors.Is(err, tt.wantErr) {
+				t.Errorf("parseTLSVerMax() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

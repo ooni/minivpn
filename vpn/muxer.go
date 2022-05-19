@@ -309,7 +309,7 @@ func (m *muxer) readAndLoadRemoteKey() error {
 	key.addRemoteKey(remoteKey)
 
 	// Parse and store the useful parts of the remote options.
-	parseRemoteOptions(m.tunnel, opts)
+	m.tunnel = parseRemoteOptions(m.tunnel, opts)
 	return nil
 }
 
@@ -328,6 +328,8 @@ func (m *muxer) readPushReply() error {
 		return err
 	}
 
+	logger.Info("Server pushed options")
+
 	if isBadAuthReply(resp) {
 		return errBadAuth
 	}
@@ -338,6 +340,7 @@ func (m *muxer) readPushReply() error {
 
 	ip := m.control.ReadPushResponse(resp)
 	m.tunnel.ip = ip
+	logger.Infof("Tunnel IP: %s", ip)
 	return nil
 }
 

@@ -130,8 +130,8 @@ func (o *Options) String() string {
 }
 
 // parseRemoteOptions parses the options returned or pushed by server. it
-// updates the needed fields in the passed tunnel object.
-func parseRemoteOptions(tunnel *tunnel, remoteOpts string) {
+// returns the tunnel object where the needed fields have been updated.
+func parseRemoteOptions(tunnel *tunnel, remoteOpts string) *tunnel {
 	opts := strings.Split(remoteOpts, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
@@ -145,6 +145,7 @@ func parseRemoteOptions(tunnel *tunnel, remoteOpts string) {
 			tunnel.mtu = mtu
 		}
 	}
+	return tunnel
 }
 
 // I don't think I want to do much with the pushed options for now, other
@@ -153,14 +154,16 @@ func parseRemoteOptions(tunnel *tunnel, remoteOpts string) {
 // XXX right now this only returns the ip. we could accept a tunnel struct and
 // write to it.
 func parsePushedOptions(pushedOptions []byte) string {
-	logger.Info("Server pushed options")
+	if pushedOptions == nil || len(pushedOptions) == 0 {
+		return ""
+	}
 	optStr := string(pushedOptions[:len(pushedOptions)-1])
 	opts := strings.Split(optStr, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
+
 		k, v := vals[0], vals[1:]
 		if k == "ifconfig" {
-			logger.Infof("Tunnel IP: %s", v[0])
 			return v[0]
 		}
 	}
@@ -194,6 +197,8 @@ func parseProto(p []string, o *Options) error {
 	}
 	return nil
 }
+
+// TODO(ainghazal): all these little functions can be better tested if we return the options object too
 
 func parseRemote(p []string, o *Options) error {
 	if len(p) != 2 {
@@ -302,6 +307,9 @@ func parseCompLZO(p []string, o *Options) error {
 }
 
 func parseTLSVerMax(p []string, o *Options) error {
+	if o == nil {
+		return errBadInput
+	}
 	if len(p) == 0 {
 		o.TLSMaxVer = "1.3"
 		return nil
