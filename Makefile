@@ -26,7 +26,7 @@ test-coverage:
 	go test -coverprofile=coverage.out ./vpn
 
 test-short:
-	go test -short -v ./...
+	go test -race -short -v ./...
 
 test-ping:
 	HANDSHAKE_TIMEOUT=${TIMEOUT} ./minivpn -c data/${PROVIDER}/config -t ${TARGET} -n ${COUNT} ping
