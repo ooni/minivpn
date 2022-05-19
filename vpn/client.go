@@ -10,7 +10,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -21,9 +20,6 @@ var (
 
 	// ErrAlreadyStarted is returned when trying to start the tunnel more than once
 	ErrAlreadyStarted = errors.New("tunnel already started")
-
-	handshakeTimeout    = 30
-	handshakeTimeoutEnv = "HANDSHAKE_TIMEOUT"
 )
 
 type DialFunc func(string, string) (net.Conn, error)
@@ -44,40 +40,24 @@ type Client struct {
 	Opts   *Options
 	DialFn DialFunc
 
+	conn   net.Conn
 	mux    *muxer
-	data   *data
 	tunnel *tunnel
 
-	conn net.Conn
-
 	Log Logger
-
-	// XXX move into another type
-	HandshakeTimeout int
 }
 
 var _ net.Conn = &Client{} // Ensure that we implement net.Conn
 
 // NewClientFromSettings returns a Client configured with the given Options.
 func NewClientFromSettings(opt *Options) *Client {
-	timeout := handshakeTimeout
-	tenv := os.Getenv(handshakeTimeoutEnv)
-	if tenv != "" {
-		ti, err := strconv.Atoi(tenv)
-		if err == nil {
-			timeout = ti
-		} else {
-			log.Println("Cannot set timeot from env:", os.Getenv(handshakeTimeoutEnv))
-		}
-	}
 	if opt.Log != nil {
 		logger = opt.Log
 	}
 	return &Client{
-		Opts:             opt,
-		tunnel:           &tunnel{},
-		DialFn:           net.Dial,
-		HandshakeTimeout: timeout,
+		Opts:   opt,
+		tunnel: &tunnel{},
+		DialFn: net.Dial,
 	}
 }
 
