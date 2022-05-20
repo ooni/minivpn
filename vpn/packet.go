@@ -39,10 +39,6 @@ const (
 	TCPMode
 )
 
-func isTCP(mode int) bool {
-	return mode == TCPMode
-}
-
 var (
 	errEmptyPayload      = errors.New("empty payload")
 	errBadKeyMethod      = errors.New("unsupported key method")
@@ -56,11 +52,6 @@ var (
 
 // sessionID is the session identifier.
 type sessionID [8]byte
-
-// Bytes returns a slice with the sessionID value.
-func (s *sessionID) Bytes() []byte {
-	return s[:]
-}
 
 // packetID is a packet identifier.
 type packetID uint32
@@ -342,13 +333,12 @@ func newServerHardReset(b []byte) (*serverHardReset, error) {
 // parseServerHardResetPacket returns the sessionID received from the server, or an
 // error if we could not parse the message.
 func parseServerHardResetPacket(p *serverHardReset) (sessionID, error) {
-	s := sessionID{}
 	// BUG: this function assumes keyID == 0
 	if p.payload[0] != 0x40 {
-		return s, fmt.Errorf("%w: %s", errBadReset, "bad header")
+		return sessionID{}, fmt.Errorf("%w: %s", errBadReset, "bad header")
 	}
 	if len(p.payload) < 10 {
-		return s, fmt.Errorf("%w: %s", errBadReset, "not enough bytes")
+		return sessionID{}, fmt.Errorf("%w: %s", errBadReset, "not enough bytes")
 	}
 	var rs sessionID
 	copy(rs[:], p.payload[1:9])

@@ -94,9 +94,15 @@ func (c *Client) Stop() error {
 // data channel. It is the second step in an OpenVPN connection (out of five).
 // (In UDP mode no network connection is done at this step).
 func (c *Client) Dial() (net.Conn, error) {
-	proto := protoUDP.String()
-	if isTCP(c.Opts.Proto) {
+	var proto string
+	switch c.Opts.Proto {
+	case UDPMode:
+		proto = protoUDP.String()
+	case TCPMode:
 		proto = protoTCP.String()
+	default:
+		return nil, fmt.Errorf("%w: unknown proto %d", errBadInput, c.Opts.Proto)
+
 	}
 	msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
 		c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))

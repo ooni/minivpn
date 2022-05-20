@@ -227,7 +227,7 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 		[]byte("OpenVPN key expansion"),
 		dck.local.r2[:],
 		dck.remote.r2[:],
-		d.session.LocalSessionID.Bytes(), d.session.RemoteSessionID.Bytes(),
+		d.session.LocalSessionID[:], d.session.RemoteSessionID[:],
 		256)
 
 	var keyLocal, hmacLocal, keyRemote, hmacRemote keySlot

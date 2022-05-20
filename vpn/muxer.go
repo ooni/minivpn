@@ -210,8 +210,8 @@ func (m *muxer) Reset() error {
 	}
 	m.session.RemoteSessionID = remoteSessionID
 
-	logger.Infof("Remote session ID: %x", m.session.RemoteSessionID.Bytes())
-	logger.Infof("Local session ID:  %x", m.session.LocalSessionID.Bytes())
+	logger.Infof("Remote session ID: %x", m.session.RemoteSessionID)
+	logger.Infof("Local session ID:  %x", m.session.LocalSessionID)
 
 	// we assume id is 0, this is the first packet we ack.
 	// XXX I could parse the real packet id from server instead. this

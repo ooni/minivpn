@@ -51,14 +51,14 @@ func Test_newMuxerFromOptions(t *testing.T) {
 				t.Errorf("newMuxerFromOptions() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !bytes.Equal(got.session.RemoteSessionID.Bytes(), tt.want.session.RemoteSessionID.Bytes()) {
+			if !bytes.Equal(got.session.RemoteSessionID[:], tt.want.session.RemoteSessionID[:]) {
 				t.Errorf("newMuxerFromOptions() session = %v, want %v", got, tt.want)
 			}
-			if !bytes.Equal(got.session.LocalSessionID.Bytes(), tt.want.session.LocalSessionID.Bytes()) {
+			if !bytes.Equal(got.session.LocalSessionID[:], tt.want.session.LocalSessionID[:]) {
 				t.Errorf(
 					"newMuxerFromOptions() session. = %v, want %v",
-					got.session.LocalSessionID.Bytes(),
-					tt.want.session.LocalSessionID.Bytes(),
+					got.session.LocalSessionID[:],
+					tt.want.session.LocalSessionID[:],
 				)
 			}
 			if !reflect.DeepEqual(got.options, tt.want.options) {

@@ -3,56 +3,10 @@ package vpn
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"reflect"
 	"testing"
 )
-
-/*
-func Test_isControlOpcode(t *testing.T) {
-	type args struct {
-		b byte
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{"hardResetServer", args{byte(pControlHardResetServerV2)}, true},
-		{"control1", args{byte(pControlV1)}, true},
-		{"zero", args{0}, false},
-		{"ones", args{255}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isControlOpcode(tt.args.b); got != tt.want {
-				t.Errorf("isControlOpcode() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_isDataOpcode(t *testing.T) {
-	type args struct {
-		b byte
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{"data", args{byte(pDataV1)}, true},
-		{"zero", args{byte(0)}, false},
-		{"ones", args{byte(255)}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isDataOpcode(tt.args.b); got != tt.want {
-				t.Errorf("isDataOpcode() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-*/
 
 func Test_packet_Bytes(t *testing.T) {
 	got := (&packet{opcode: pACKV1}).Bytes()
@@ -61,6 +15,41 @@ func Test_packet_Bytes(t *testing.T) {
 		t.Errorf("newPacketFromBytes() = %v, want %v", got, want)
 	}
 
+}
+
+func Test_newPacketFromPayload(t *testing.T) {
+	type args struct {
+		opcode  uint8
+		keyID   uint8
+		payload []byte
+	}
+	tests := []struct {
+		name string
+		args args
+		want *packet
+	}{
+		{
+			name: "get packet ok",
+			args: args{
+				opcode:  1,
+				keyID:   10,
+				payload: []byte("this is not a payload"),
+			},
+			want: &packet{
+				opcode:  1,
+				keyID:   10,
+				payload: []byte("this is not a payload"),
+			},
+		},
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := newPacketFromPayload(tt.args.opcode, tt.args.keyID, tt.args.payload); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("newPacketFromPayload() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func Test_newACKPacket(t *testing.T) {
@@ -87,19 +76,38 @@ func Test_newACKPacket(t *testing.T) {
 	}
 }
 
-func Test_sessionID_Bytes(t *testing.T) {
-	// TODO this test is stupid
+func Test_packet_isACK(t *testing.T) {
+	type fields struct {
+		opcode byte
+	}
 	tests := []struct {
-		name string
-		s    *sessionID
-		want []byte
+		name   string
+		fields fields
+		want   bool
 	}{
-		// TODO: Add test cases.
+		{
+			name:   "ack is good",
+			fields: fields{0x05},
+			want:   true,
+		},
+		{
+			name:   "not ack",
+			fields: fields{0x01},
+			want:   false,
+		},
+		{
+			name:   "also not ack",
+			fields: fields{0x06},
+			want:   false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.s.Bytes(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("sessionID.Bytes() = %v, want %v", got, tt.want)
+			p := &packet{
+				opcode: tt.fields.opcode,
+			}
+			if got := p.isACK(); got != tt.want {
+				t.Errorf("packet.isACK() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -328,8 +336,6 @@ func Test_parsePacketFromBytes(t *testing.T) {
 	}
 }
 
-// --------------- adding tests below, need to reorder ------------------------------ //
-
 func Test_parseControlPacket(t *testing.T) {
 	raw1 := "5ad4a9517af8e7fe000000000296f517f943d32a11fc8463b8594ae7d3523b627d8c9444aac2def81a13bea2e037aecbd158bdf50ed16e800829a929cae2440999ff8a2c45277e195e6ddc6c3cda178ec7ae86b1f034bb45c23493efff526659c4170303004553d904ebd8d1fe7f9dd962770444e43e3f3b2e8e3eaf31478004748953b8c01bf420ba71e2484b29e7e2a907071ec23ba7de605dd72c370aee31412d194144bb6b32e469f8"
 	payload1, _ := hex.DecodeString(raw1)
@@ -377,6 +383,104 @@ func Test_parseControlPacket(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got.remoteSessionID, tt.want.remoteSessionID) {
 				t.Errorf("parseControlPacket() = got %v, want %v", got.payload, tt.want.payload)
+			}
+		})
+	}
+}
+
+func Test_newServerHardReset(t *testing.T) {
+	type args struct {
+		b []byte
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *serverHardReset
+		wantErr error
+	}{
+		{
+			name:    "good payload",
+			args:    args{[]byte("not a payload")},
+			want:    &serverHardReset{[]byte("not a payload")},
+			wantErr: nil,
+		},
+		{
+			name:    "empty",
+			args:    args{[]byte{}},
+			want:    nil,
+			wantErr: errBadReset,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := newServerHardReset(tt.args.b)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("newServerHardReset() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("newServerHardReset() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_parseServerHardResetPacket(t *testing.T) {
+
+	var goodSessionID sessionID
+	goodPayload := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	shortPayload := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+	copy(goodSessionID[:], goodPayload)
+
+	type args struct {
+		p *serverHardReset
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    sessionID
+		wantErr error
+	}{
+		{
+			name: "good server hard reset",
+			args: args{
+				&serverHardReset{
+					payload: append([]byte{0x40}, goodPayload...),
+				},
+			},
+			want:    goodSessionID,
+			wantErr: nil,
+		},
+		{
+			name: "payload too short should fail",
+			args: args{
+				&serverHardReset{
+					payload: append([]byte{0x40}, shortPayload...),
+				},
+			},
+			want:    sessionID{},
+			wantErr: errBadReset,
+		},
+		{
+			name: "bad header should fail",
+			args: args{
+				&serverHardReset{
+					payload: append([]byte{0x41}, goodPayload...),
+				},
+			},
+			want:    sessionID{},
+			wantErr: errBadReset,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseServerHardResetPacket(tt.args.p)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("parseServerHardResetPacket() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseServerHardResetPacket() = %v, want %v", got, tt.want)
 			}
 		})
 	}
