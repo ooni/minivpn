@@ -19,7 +19,7 @@ const (
 	rnd48 = "012345678901234567890123456789012345678901234567"
 )
 
-func getTestKeyMaterial() ([32]byte, [32]byte, [48]byte) {
+func makeTestKeys() ([32]byte, [32]byte, [48]byte) {
 	r1 := *(*[32]byte)([]byte(rnd32))
 	r2 := *(*[32]byte)([]byte(rnd32))
 	r3 := *(*[48]byte)([]byte(rnd48))
@@ -58,7 +58,7 @@ func Test_newKeySource(t *testing.T) {
 		}
 	}
 
-	r1, r2, premaster := getTestKeyMaterial()
+	r1, r2, premaster := makeTestKeys()
 	ks := &keySource{r1, r2, premaster}
 
 	tests := []struct {
@@ -79,14 +79,14 @@ func Test_newKeySource(t *testing.T) {
 	}
 }
 
-func testingSession() *session {
+func makeTestingSession() *session {
 	s := &session{
 		RemoteSessionID: sessionID{0x01},
 		LocalSessionID:  sessionID{0x02}}
 	return s
 }
 
-func testingOptions(cipher, auth string) *Options {
+func makeTestingOptions(cipher, auth string) *Options {
 	opt := &Options{
 		Cipher: cipher,
 		Auth:   auth,
@@ -116,7 +116,7 @@ func Test_newDataFromOptions(t *testing.T) {
 			name: "empty Options should fail",
 			args: args{
 				opt: &Options{},
-				s:   testingSession(),
+				s:   makeTestingSession(),
 			},
 			want:    nil,
 			wantErr: errBadInput,
@@ -124,8 +124,8 @@ func Test_newDataFromOptions(t *testing.T) {
 		{
 			name: "bad auth in Options should fail",
 			args: args{
-				opt: testingOptions("AES-128-GCM", "shabad"),
-				s:   testingSession(),
+				opt: makeTestingOptions("AES-128-GCM", "shabad"),
+				s:   makeTestingSession(),
 			},
 			wantWhatever: true,
 			wantErr:      errBadInput,
@@ -133,7 +133,7 @@ func Test_newDataFromOptions(t *testing.T) {
 		{
 			name: "empty session should not fail",
 			args: args{
-				opt: testingOptions("AES-128-GCM", "sha512"),
+				opt: makeTestingOptions("AES-128-GCM", "sha512"),
 				s:   &session{},
 			},
 			wantWhatever: true,
@@ -154,9 +154,9 @@ func Test_newDataFromOptions(t *testing.T) {
 	}
 }
 
-func testingDataChannelKey() *dataChannelKey {
-	rl1, rl2, preml := getTestKeyMaterial()
-	rr1, rr2, premr := getTestKeyMaterial()
+func makeTestingDataChannelKey() *dataChannelKey {
+	rl1, rl2, preml := makeTestKeys()
+	rr1, rr2, premr := makeTestKeys()
 
 	ksLocal := &keySource{rl1, rl2, preml}
 	ksRemote := &keySource{rr1, rr2, premr}
@@ -186,8 +186,8 @@ func Test_data_SetupKeys(t *testing.T) {
 		{
 			name: "nil in arguments should fail",
 			fields: fields{
-				session: testingSession(),
-				state:   testingDataChannelState(),
+				session: makeTestingSession(),
+				state:   makeTestingState(),
 			},
 			args:    args{},
 			wantErr: errBadInput,
@@ -195,8 +195,8 @@ func Test_data_SetupKeys(t *testing.T) {
 		{
 			name: "dataChannelKey not ready",
 			fields: fields{
-				session: testingSession(),
-				state:   testingDataChannelState(),
+				session: makeTestingSession(),
+				state:   makeTestingState(),
 			},
 			args: args{
 				dck: &dataChannelKey{},
@@ -206,11 +206,11 @@ func Test_data_SetupKeys(t *testing.T) {
 		{
 			name: "good setup",
 			fields: fields{
-				session: testingSession(),
-				state:   testingDataChannelState(),
+				session: makeTestingSession(),
+				state:   makeTestingState(),
 			},
 			args: args{
-				dck: testingDataChannelKey(),
+				dck: makeTestingDataChannelKey(),
 			},
 			wantErr: nil,
 			// TODO(ainghazal): should write another test to verify the key derivation?
@@ -256,8 +256,8 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 			name: "dummy encryptEncodeFn does not fail",
 			fields: fields{
 				options:  opt,
-				session:  testingSession(),
-				state:    testingDataChannelState(),
+				session:  makeTestingSession(),
+				state:    makeTestingState(),
 				decodeFn: nil,
 				encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
 					return []byte{}, nil
@@ -265,7 +265,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 			},
 			args: args{
 				plaintext: []byte("hello"),
-				dcs:       testingDataChannelState(),
+				dcs:       makeTestingState(),
 			},
 			want:    []byte{},
 			wantErr: nil,
@@ -274,8 +274,8 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 			name: "empty plaintext does not fail",
 			fields: fields{
 				options:  opt,
-				session:  testingSession(),
-				state:    testingDataChannelState(),
+				session:  makeTestingSession(),
+				state:    makeTestingState(),
 				decodeFn: nil,
 				encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
 					return []byte{}, nil
@@ -283,7 +283,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 			},
 			args: args{
 				plaintext: []byte{},
-				dcs:       testingDataChannelState(),
+				dcs:       makeTestingState(),
 			},
 			want:    []byte{},
 			wantErr: nil,
@@ -292,8 +292,8 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 			name: "error on encryptEncodeFn gets propagated",
 			fields: fields{
 				options:  opt,
-				session:  testingSession(),
-				state:    testingDataChannelState(),
+				session:  makeTestingSession(),
+				state:    makeTestingState(),
 				decodeFn: nil,
 				encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
 					return []byte{}, errors.New("dummyTestError")
@@ -301,7 +301,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 			},
 			args: args{
 				plaintext: []byte{},
-				dcs:       testingDataChannelState(),
+				dcs:       makeTestingState(),
 			},
 			want:    []byte{},
 			wantErr: errCannotEncrypt,
@@ -370,7 +370,7 @@ func Test_dataChannelState_RemotePacketID(t *testing.T) {
 }
 
 func Test_keySource_Bytes(t *testing.T) {
-	r1, r2, premaster := getTestKeyMaterial()
+	r1, r2, premaster := makeTestKeys()
 	goodSerialized := append(premaster[:], r1[:]...)
 	goodSerialized = append(goodSerialized, r2[:]...)
 
@@ -448,7 +448,7 @@ func Test_dataChannelKey_addRemoteKey(t *testing.T) {
 	}
 }
 
-func testingDataChannelState() *dataChannelState {
+func makeTestingState() *dataChannelState {
 	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeGCM)
 	st := &dataChannelState{
 		hmacSize: 20,
@@ -463,7 +463,7 @@ func testingDataChannelState() *dataChannelState {
 	return st
 }
 
-func testingDataChannelStateNonAEAD() *dataChannelState {
+func makeTestingStateNonAEAD() *dataChannelState {
 	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeCBC)
 	st := &dataChannelState{
 		hmacSize: 20,
@@ -478,7 +478,7 @@ func testingDataChannelStateNonAEAD() *dataChannelState {
 	return st
 }
 
-func testingDataChannelStateNonAEADReversed() *dataChannelState {
+func makeTestingStateNonAEADReversed() *dataChannelState {
 	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeCBC)
 	st := &dataChannelState{
 		hmacSize: 20,
@@ -527,13 +527,13 @@ func Test_data_decrypt(t *testing.T) {
 			name: "empty output in decodeFn does fail",
 			fields: fields{
 				options: opt,
-				session: testingSession(),
-				state:   testingDataChannelState(),
+				session: makeTestingSession(),
+				state:   makeTestingState(),
 				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
 					return &encryptedData{}, nil
 				},
 				encryptEncodeFn: nil,
-				decryptFn:       testingDataChannelState().dataCipher.decrypt,
+				decryptFn:       makeTestingState().dataCipher.decrypt,
 			},
 			args: args{
 				encrypted: bytes.Repeat([]byte{0x0a}, 20),
@@ -545,13 +545,13 @@ func Test_data_decrypt(t *testing.T) {
 			name: "empty encrypted input does fail",
 			fields: fields{
 				options: opt,
-				session: testingSession(),
-				state:   testingDataChannelState(),
+				session: makeTestingSession(),
+				state:   makeTestingState(),
 				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
 					return &encryptedData{}, nil
 				},
 				encryptEncodeFn: nil,
-				decryptFn:       testingDataChannelState().dataCipher.decrypt,
+				decryptFn:       makeTestingState().dataCipher.decrypt,
 			},
 			args: args{
 				encrypted: []byte{},
@@ -563,8 +563,8 @@ func Test_data_decrypt(t *testing.T) {
 			name: "error in decrypt propagates",
 			fields: fields{
 				options: opt,
-				session: testingSession(),
-				state:   testingDataChannelState(),
+				session: makeTestingSession(),
+				state:   makeTestingState(),
 				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
 					return &encryptedData{}, nil
 				},
@@ -581,8 +581,8 @@ func Test_data_decrypt(t *testing.T) {
 			name: "good decrypt returns expected output",
 			fields: fields{
 				options: opt,
-				session: testingSession(),
-				state:   testingDataChannelState(),
+				session: makeTestingSession(),
+				state:   makeTestingState(),
 				decodeFn: func(b []byte, st *dataChannelState) (*encryptedData, error) {
 					return &encryptedData{}, nil
 				},
@@ -624,7 +624,7 @@ func Test_data_decrypt(t *testing.T) {
 
 func Test_decodeEncryptedPayloadAEAD(t *testing.T) {
 
-	state := testingDataChannelState()
+	state := makeTestingState()
 
 	goodEncryptedPayload, _ := hex.DecodeString("00000000b3653a842f2b8a148de26375218fb01d31278ff328ff2fc65c4dbf9eb8e67766")
 	goodDecodeIV, _ := hex.DecodeString("000000006868686868686868")
@@ -721,7 +721,7 @@ func Test_decodeEncryptedPayloadNonAEAD(t *testing.T) {
 		},
 		{
 			name: "good decode",
-			args: args{goodInput, testingDataChannelStateNonAEADReversed()},
+			args: args{goodInput, makeTestingStateNonAEADReversed()},
 			want: &encryptedData{
 				iv:         iv,
 				ciphertext: ciphertext,
@@ -748,7 +748,7 @@ func Test_decodeEncryptedPayloadNonAEAD(t *testing.T) {
 
 func Test_encryptAndEncodePayloadAEAD(t *testing.T) {
 
-	state := testingDataChannelState()
+	state := makeTestingState()
 	padded, _ := maybeAddCompressPadding([]byte("hello go tests"), "", state.dataCipher.blockSize())
 
 	goodEncryptedPayload, _ := hex.DecodeString("00000000b3653a842f2b8a148de26375218fb01d31278ff328ff2fc65c4dbf9eb8e67766")
@@ -819,7 +819,7 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 			args: args{
 				padded:  padded16,
 				session: &session{},
-				state:   testingDataChannelStateNonAEAD()},
+				state:   makeTestingStateNonAEAD()},
 			want:    goodEncrypted,
 			wantErr: nil,
 		},
@@ -828,7 +828,7 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 			args: args{
 				padded:  padded15,
 				session: &session{},
-				state:   testingDataChannelStateNonAEAD()},
+				state:   makeTestingStateNonAEAD()},
 			want:    nil,
 			wantErr: errCannotEncrypt,
 		},
@@ -980,7 +980,7 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 func Test_maybeDecompress(t *testing.T) {
 
 	getStateForDecompressTestNonAEAD := func() *dataChannelState {
-		st := testingDataChannelStateNonAEAD()
+		st := makeTestingStateNonAEAD()
 		st.remotePacketID = packetID(0x42)
 		return st
 	}
@@ -1010,7 +1010,7 @@ func Test_maybeDecompress(t *testing.T) {
 			name: "nil options should fail",
 			args: args{
 				b:   []byte{},
-				st:  testingDataChannelState(),
+				st:  makeTestingState(),
 				opt: nil,
 			},
 			want:    []byte{},
@@ -1020,7 +1020,7 @@ func Test_maybeDecompress(t *testing.T) {
 			name: "aead cipher, no compression",
 			args: args{
 				b:   []byte{0xaa, 0xbb, 0xcc},
-				st:  testingDataChannelState(),
+				st:  makeTestingState(),
 				opt: &Options{},
 			},
 			want:    []byte{0xaa, 0xbb, 0xcc},
@@ -1030,7 +1030,7 @@ func Test_maybeDecompress(t *testing.T) {
 			name: "aead cipher, no compr",
 			args: args{
 				b:   []byte{0xfa, 0xbb, 0xcc},
-				st:  testingDataChannelState(),
+				st:  makeTestingState(),
 				opt: &Options{Compress: "stub"},
 			},
 			want:    []byte{0xbb, 0xcc},
@@ -1040,7 +1040,7 @@ func Test_maybeDecompress(t *testing.T) {
 			name: "aead cipher, stub on options and stub on header",
 			args: args{
 				b:   []byte{0xfb, 0xbb, 0xcc, 0xdd},
-				st:  testingDataChannelState(),
+				st:  makeTestingState(),
 				opt: &Options{Compress: "stub"},
 			},
 			want:    []byte{0xdd, 0xbb, 0xcc},
@@ -1050,7 +1050,7 @@ func Test_maybeDecompress(t *testing.T) {
 			name: "aead cipher, stub, unsupported compression",
 			args: args{
 				b:   []byte{0xff, 0xbb, 0xcc},
-				st:  testingDataChannelState(),
+				st:  makeTestingState(),
 				opt: &Options{Compress: "stub"},
 			},
 			want:    []byte{},
@@ -1060,7 +1060,7 @@ func Test_maybeDecompress(t *testing.T) {
 			name: "aead cipher, lzo-no",
 			args: args{
 				b:   []byte{0xfa, 0xbb, 0xcc},
-				st:  testingDataChannelState(),
+				st:  makeTestingState(),
 				opt: &Options{Compress: "lzo-no"},
 			},
 			want:    []byte{0xbb, 0xcc},
@@ -1070,7 +1070,7 @@ func Test_maybeDecompress(t *testing.T) {
 			name: "aead cipher, compress-no",
 			args: args{
 				b:   []byte{0x00, 0xbb, 0xcc},
-				st:  testingDataChannelState(),
+				st:  makeTestingState(),
 				opt: &Options{Compress: "no"},
 			},
 			want:    []byte{0x00, 0xbb, 0xcc},
@@ -1175,8 +1175,8 @@ func Test_data_ReadPacket(t *testing.T) {
 		{
 			name: "good decrypt using mocked decrypt fn and decode fn",
 			fields: fields{
-				options:   testingOptions("AES-128-GCM", "sha1"),
-				state:     testingDataChannelState(),
+				options:   makeTestingOptions("AES-128-GCM", "sha1"),
+				state:     makeTestingState(),
 				decryptFn: goodMockDecryptFn,
 				decodeFn:  goodMockDecodeFn,
 			},
@@ -1214,7 +1214,7 @@ func Test_data_ReadPacket(t *testing.T) {
 
 // we'll use a mocked net.Conn for WritePacket
 
-func testingConn(network, addr string, n int) net.Conn {
+func makeTestingConn(network, addr string, n int) net.Conn {
 	mockAddr := &mocks.Addr{}
 	mockAddr.MockString = func() string {
 		return addr
@@ -1263,11 +1263,11 @@ func Test_data_WritePacket(t *testing.T) {
 			fields: fields{
 				options:         opt,
 				session:         nil,
-				state:           testingDataChannelState(),
+				state:           makeTestingState(),
 				encryptEncodeFn: goodMockEncodedEncryptFn,
 			},
 			args: args{
-				conn:    testingConn("udp", "10.0.42.1", 42),
+				conn:    makeTestingConn("udp", "10.0.42.1", 42),
 				payload: []byte("hello test"),
 			},
 			want:    42,

@@ -24,6 +24,9 @@ var (
 
 // initTLS returns a tls.Config matching the VPN options.
 func initTLS(session *session, opt *Options) (*tls.Config, error) {
+	if session == nil || opt == nil {
+		return nil, fmt.Errorf("%w:%s", errBadInput, "nil args")
+	}
 	max := tls.VersionTLS13
 	if opt.TLSMaxVer == "1.2" {
 		max = tls.VersionTLS12
@@ -35,15 +38,17 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 		MaxVersion:         uint16(max),
 	}
 
-	// XXX we assume a non-empty cert means we've got also a valid ca and key,
-	// but should check
+	// TODO(ainghazal): we assume a non-empty cert means we've got also a
+	// valid ca and key, but we need a validation function that accepts an Options object.
 	if opt.Cert != "" {
 		ca := x509.NewCertPool()
 		caData, err := ioutil.ReadFile(opt.Ca)
+
 		if err != nil {
 			return nil, fmt.Errorf("%s %w", ErrBadCA, err)
 		}
 		ca.AppendCertsFromPEM(caData)
+
 		cert, err := tls.LoadX509KeyPair(opt.Cert, opt.Key)
 		if err != nil {
 			return nil, fmt.Errorf("%s %w", ErrBadKeypair, err)

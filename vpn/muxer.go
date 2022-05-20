@@ -83,6 +83,8 @@ type muxer struct {
 	options *Options
 }
 
+var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
+
 //
 // Interfaces we depend on (we could make muxer an interface too).
 //
@@ -106,6 +108,15 @@ type dataHandler interface {
 	ReadPacket(*packet) ([]byte, error)
 	DecodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
 	EncryptAndEncodePayload([]byte, *dataChannelState) ([]byte, error)
+}
+
+// vpnMuxer contains all the behavior expected by the muxer.
+type vpnMuxer interface {
+	Handshake() error
+	Reset() error
+	InitDataWithRemoteKey() error
+	Write([]byte) (int, error)
+	Read([]byte) (int, error)
 }
 
 //

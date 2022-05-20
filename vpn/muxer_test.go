@@ -28,15 +28,15 @@ func Test_newMuxerFromOptions(t *testing.T) {
 		{
 			name: "get muxer ok",
 			args: args{
-				conn:    testingConn("udp", "10.0.42.2", 42),
-				options: testingOptions("AES-128-GCM", "sha1"),
+				conn:    makeTestingConn("udp", "10.0.42.2", 42),
+				options: makeTestingOptions("AES-128-GCM", "sha1"),
 				tunnel:  &tunnel{},
 			},
 			want: &muxer{
-				conn:    testingConn("udp", "10.0.42.2", 42),
+				conn:    makeTestingConn("udp", "10.0.42.2", 42),
 				control: &control{},
 				session: testSession,
-				options: testingOptions("AES-128-GCM", "sha1"),
+				options: makeTestingOptions("AES-128-GCM", "sha1"),
 			},
 			wantErr: nil,
 		},
