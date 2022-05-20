@@ -98,7 +98,7 @@ func (r runner) doRunTest(
 // It expects a vpn Dialer and a server string (ip:port).
 // If the direct parameter is set to true, the vpn Dialer will not be used and
 // a direct connection will be used instead.
-func RunMeasurement(d vpn.Dialer, ndt7Server string, mode string, direct bool) {
+func RunMeasurement(d vpn.TunDialer, ndt7Server string, mode string, direct bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 	var r runner

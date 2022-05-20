@@ -49,8 +49,8 @@ type Client struct {
 
 var _ net.Conn = &Client{} // Ensure that we implement net.Conn
 
-// NewClientFromSettings returns a Client configured with the given Options.
-func NewClientFromSettings(opt *Options) *Client {
+// NewClientFromOptions returns a Client configured with the given Options.
+func NewClientFromOptions(opt *Options) *Client {
 	if opt.Log != nil {
 		logger = opt.Log
 	}

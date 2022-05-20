@@ -26,7 +26,7 @@ func printUsage() {
 // RunPinger takes an Option object, gets a Dialer, and runs a Pinger against
 // the passed target, for count packets.
 func RunPinger(opt *vpn.Options, target string, count uint32) error {
-	conn := vpn.NewVPNDialer(opt)
+	conn := vpn.NewRawDialer(opt)
 	pinger := extras.NewPinger(conn, target, int(count))
 	err := pinger.Run()
 	if err != nil {

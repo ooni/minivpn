@@ -75,7 +75,7 @@ func main() {
 		log.Println("Run:", i)
 		log.Println()
 		if *optExp == "all" || *optExp == "download" {
-			dialer := vpn.NewDialerFromOptions(opts)
+			dialer := vpn.NewTunDialerFromOptions(opts)
 			if opts.ProxyOBFS4 != "" {
 				if direct {
 					log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")
@@ -91,11 +91,10 @@ func main() {
 			}
 			extras.RunMeasurement(dialer, ndt7Server, "download", direct)
 			wait(c) // is the pasta ready?
-			dialer.Stop()
 
 		}
 		if *optExp == "all" || *optExp == "upload" {
-			dialer := vpn.NewDialerFromOptions(opts)
+			dialer := vpn.NewTunDialerFromOptions(opts)
 			if opts.ProxyOBFS4 != "" {
 				if direct {
 					log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")
@@ -111,7 +110,6 @@ func main() {
 			}
 			extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
 			wait(c) // is the pasta ready?
-			dialer.Stop()
 		}
 	}
 }

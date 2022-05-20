@@ -34,7 +34,7 @@ func main() {
 	obfs4.Obfs4ClientInit(node)
 	dialFn := obfs4.Dialer(node.Addr)
 
-	dialer := vpn.NewDialerFromOptions(opts)
+	dialer := vpn.NewTunDialerFromOptions(opts)
 	dialer.DialFn = vpn.DialFunc(dialFn)
 
 	client := http.Client{

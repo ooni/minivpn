@@ -27,12 +27,12 @@ const (
 // NewPinger returns a pointer to a Pinger struct configured to handle data from a
 // vpn.Client. It needs host and count as parameters, and also accepts a done
 // channel in which termination of the measurement series will be notified.
-func NewPinger(vpnDialer *vpn.VPNDialer, host string, count int) *Pinger {
+func NewPinger(rawDialer *vpn.RawDialer, host string, count int) *Pinger {
 	// TODO validate host ip / domain
 	id := os.Getpid() & 0xffff
 	ts := make(map[int]int64)
 	return &Pinger{
-		vpn:      vpnDialer,
+		raw:      rawDialer,
 		host:     host,
 		ts:       ts,
 		Count:    int(count),
@@ -58,7 +58,7 @@ func (s st) TTL() uint8 {
 
 // Pinger holds all the needed info to ping a target.
 type Pinger struct {
-	vpn *vpn.VPNDialer
+	raw *vpn.RawDialer
 	st  []st
 	// stats mutex
 	// mu sync.Mutex
@@ -107,7 +107,7 @@ func (p *Pinger) printStats() {
 }
 
 func (p *Pinger) Run() error {
-	conn, err := p.vpn.Dial()
+	conn, err := p.raw.Dial()
 	if err != nil {
 		log.Println("Error while dialing a VPN connection:", err.Error())
 		return err
@@ -205,7 +205,6 @@ func (p *Pinger) parseEchoReply(d []byte, dst string, start, end time.Time) {
 				log.Println("warn: icmp response with wrong src")
 				return
 			}
-		//case layers.LayerTypeUDP:
 		case layers.LayerTypeICMPv4:
 			if icmp.Id != uint16(p.ID) {
 				log.Println("warn: icmp response with wrong ID")
