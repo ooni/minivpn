@@ -3,6 +3,7 @@ TARGET ?= "1.1.1.1"
 COUNT ?= 3
 TIMEOUT ?= 10
 LOCAL_TARGET := $(shell ip -4 addr show docker0 | grep 'inet ' | awk '{print $$2}' | cut -f 1 -d /)
+COVERAGE_THRESHOLD := 60
 
 build:
 	@go build
@@ -24,6 +25,10 @@ test:
 
 test-coverage:
 	go test -coverprofile=coverage.out ./vpn
+
+test-coverage-threshold:
+	go test --short -coverprofile=cov-threshold.out ./vpn
+	./scripts/go-coverage-check.sh cov-threshold.out ${COVERAGE_THRESHOLD}
 
 test-short:
 	go test -race -short -v ./...

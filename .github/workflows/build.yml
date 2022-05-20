@@ -14,6 +14,17 @@ jobs:
     - name: Run short tests
       run: go test --short -cover ./vpn
 
+  coverage-threshold:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.17'
+    - name: Ensure coverage threshold
+      run: make test-coverage-threshold
+
   integration:
     runs-on: ubuntu-latest
     steps:
@@ -24,3 +35,4 @@ jobs:
           go-version: '1.17'
       - name: run all tests
         run: go test -v ./...
+

@@ -10,3 +10,4 @@ ndt7
 data/*
 measurements/*
 coverage.out
+cov-threshold.out
