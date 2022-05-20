@@ -47,7 +47,7 @@ func newSession() (*session, error) {
 		ackQueue: ackQueue,
 	}
 
-	randomBytes, err := genRandomBytes(8)
+	randomBytes, err := randomFn(8)
 	if err != nil {
 		return session, err
 	}
