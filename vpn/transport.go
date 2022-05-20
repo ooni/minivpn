@@ -30,9 +30,9 @@ var (
 
 func readPacket(conn net.Conn) ([]byte, error) {
 	switch network := conn.LocalAddr().Network(); network {
-	case protoTCP.String(), "tcp4", "tcp6":
+	case "tcp", "tcp4", "tcp6":
 		return readPacketFromTCP(conn)
-	case protoUDP.String(), "udp4", "upd6":
+	case "udp", "udp4", "upd6":
 		// for UDP we don't need to parse size frames
 		return readPacketFromUDP(conn)
 	default:

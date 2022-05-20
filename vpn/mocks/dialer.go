@@ -24,6 +24,7 @@ func (d *Dialer) CloseIdleConnections() {
 
 // Conn is a mockable net.Conn.
 type Conn struct {
+	Count                int
 	MockRead             func(b []byte) (int, error)
 	MockWrite            func(b []byte) (int, error)
 	MockClose            func() error
