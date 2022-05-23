@@ -201,7 +201,9 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 
 	}
 
-	sendACK(t.conn, t.session, pa.id)
+	if err := sendACK(t.conn, t.session, pa.id); err != nil {
+		return 0, err
+	}
 	t.bufReader.Write(pa.payload)
 	return t.bufReader.Read(b)
 }

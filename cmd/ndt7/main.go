@@ -85,7 +85,10 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				obfs4.Obfs4ClientInit(node)
+				err = obfs4.Obfs4ClientInit(node)
+				if err != nil {
+					log.Fatal(err)
+				}
 				dialFn := obfs4.Dialer(node.Addr)
 				dialer.DialFn = vpn.DialFunc(dialFn)
 			}
@@ -104,7 +107,10 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				obfs4.Obfs4ClientInit(node)
+				err = obfs4.Obfs4ClientInit(node)
+				if err != nil {
+					log.Fatal(err)
+				}
 				dialFn := obfs4.Dialer(node.Addr)
 				dialer.DialFn = vpn.DialFunc(dialFn)
 			}

@@ -85,7 +85,9 @@ func (c *Client) Start() error {
 
 // Stop stops the OpenVPN tunnel.
 func (c *Client) Stop() error {
-	c.conn.Close()
+	if err := c.conn.Close(); err != nil {
+		return err
+	}
 	c.mux = nil
 	return nil
 }

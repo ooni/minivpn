@@ -91,7 +91,7 @@ var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
 
 // controlHandler manages the control "channel".
 type controlHandler interface {
-	SendHardReset(net.Conn, *session)
+	SendHardReset(net.Conn, *session) error
 	ParseHardReset([]byte) (sessionID, error)
 	SendACK(net.Conn, *session, packetID) error
 	PushRequest() []byte
@@ -195,7 +195,9 @@ func (m *muxer) Handshake() error {
 // Reset sends a hard-reset packet to the server, and awaits the server
 // confirmation.
 func (m *muxer) Reset() error {
-	m.control.SendHardReset(m.conn, m.session)
+	if err := m.control.SendHardReset(m.conn, m.session); err != nil {
+		return err
+	}
 	resp, err := readPacket(m.conn)
 	if err != nil {
 		return err
@@ -216,8 +218,7 @@ func (m *muxer) Reset() error {
 	// we assume id is 0, this is the first packet we ack.
 	// XXX I could parse the real packet id from server instead. this
 	// _might_ be important when re-keying?
-	m.control.SendACK(m.conn, m.session, packetID(0))
-	return nil
+	return m.control.SendACK(m.conn, m.session, packetID(0))
 }
 
 //
@@ -256,7 +257,10 @@ func (m *muxer) handleIncomingPacket() bool {
 		return false
 	}
 	if isPing(data) {
-		m.handleDataPing()
+		err = m.handleDataPing()
+		if err != nil {
+			logger.Errorf("cannot handle ping: %s", err.Error())
+		}
 		return false
 	}
 
@@ -280,8 +284,8 @@ func (m *muxer) handleIncomingPacket() bool {
 // handleDataPing replies to an openvpn-ping with a canned response.
 func (m *muxer) handleDataPing() error {
 	log.Println("openvpn-ping, sending reply")
-	m.data.WritePacket(m.conn, pingPayload)
-	return nil
+	_, err := m.data.WritePacket(m.conn, pingPayload)
+	return err
 }
 
 // readTLSPacket reads a packet over the TLS connection.
@@ -317,7 +321,11 @@ func (m *muxer) readAndLoadRemoteKey() error {
 		logger.Errorf("cannot get active key")
 		return fmt.Errorf("%w:%s", ErrBadHandshake, err)
 	}
-	key.addRemoteKey(remoteKey)
+	err = key.addRemoteKey(remoteKey)
+	if err != nil {
+		logger.Errorf("cannot add remote key")
+		return fmt.Errorf("%w:%s", ErrBadHandshake, err)
+	}
 
 	// Parse and store the useful parts of the remote options.
 	m.tunnel = parseRemoteOptions(m.tunnel, opts)

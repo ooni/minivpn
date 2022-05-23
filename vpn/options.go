@@ -410,11 +410,16 @@ func existsFile(path string) bool {
 }
 
 func getLinesFromFile(path string) ([]string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //#nosec G304
+	//defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			logger.Errorf("Error closing file: %s\n", err)
+		}
+	}()
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
 	lines := make([]string, 0)
 	scanner := bufio.NewScanner(f)

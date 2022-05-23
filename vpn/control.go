@@ -127,8 +127,9 @@ type control struct{}
 
 // SendHardReset sends a control packet with the HardResetClientv2 header,
 // over the passed net.Conn.
-func (c *control) SendHardReset(conn net.Conn, s *session) {
-	sendControlPacket(conn, s, pControlHardResetClientV2, 0, []byte(""))
+func (c *control) SendHardReset(conn net.Conn, s *session) error {
+	_, err := sendControlPacket(conn, s, pControlHardResetClientV2, 0, []byte(""))
+	return err
 }
 
 // ParseHardReset extracts the sessionID from a hard-reset server response, and

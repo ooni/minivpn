@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/ainghazal/minivpn/extras"
 	"github.com/ainghazal/minivpn/vpn"
 )
@@ -12,6 +14,8 @@ func main() {
 	}
 	raw := vpn.NewRawDialer(opts)
 	p := extras.NewPinger(raw, "8.8.8.8", 3)
-	p.Run()
-	p.Stop()
+	err = p.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

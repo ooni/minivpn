@@ -75,7 +75,7 @@ func (r runner) doRunTest(
 ) int {
 	ch, err := start(ctx)
 	if err != nil {
-		r.emitter.OnError(test, err)
+		_ = r.emitter.OnError(test, err)
 		return 1
 	}
 	err = r.emitter.OnConnected(test, r.client.FQDN)
@@ -103,9 +103,18 @@ func RunMeasurement(d vpn.TunDialer, ndt7Server string, mode string, direct bool
 	defer cancel()
 	var r runner
 
-	vpnDialer := websocket.Dialer{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	insecureTLS := false
+	if os.Getenv("TLS_NOVERIFY") == "1" {
+		insecureTLS = true
 	}
+
+	vpnDialer := websocket.Dialer{
+		// TODO(ainghazal): pass a config flag to force the InsecureSkipVerify config,
+		// this should not be used in production.
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: insecureTLS,
+		},
+	} //#nosec G402
 	if direct == false {
 		vpnDialer.NetDialContext = d.DialContext
 	} else {

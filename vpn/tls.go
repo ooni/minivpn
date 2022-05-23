@@ -33,10 +33,16 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 	}
 
 	tlsConf := &tls.Config{
+		// TODO(ainghazal): make sure I end up verifying the peer
+		// certificate correctly. We cannot use name verification, since
+		// the ServerName is not known a priory. Probably must pass a
+		// VerifyConnection or VerifyPeercertificate callback?
+		// ServerName:         "vpnserver",
+		// VerifyPeerCertificate: ...,
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS12,
 		MaxVersion:         uint16(max),
-	}
+	} //#nosec G402
 
 	// TODO(ainghazal): we assume a non-empty cert means we've got also a
 	// valid ca and key, but we need a validation function that accepts an Options object.

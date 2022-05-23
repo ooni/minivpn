@@ -120,12 +120,18 @@ func (p *Pinger) Run() error {
 		dstIP := net.ParseIP(p.host)
 		start := time.Now()
 		ipck := newIcmpData(&srcIP, &dstIP, 8, p.ttl, i, p.ID)
-		conn.Write(ipck)
+		_, err = conn.Write(ipck)
+		if err != nil {
+			return err
+		}
 		p.packetsSent++
 
 		// TODO add timeout to this read
 		buf := make([]byte, 1500)
-		conn.Read(buf)
+		_, err = conn.Read(buf)
+		if err != nil {
+			return err
+		}
 		p.packetsRecv++
 
 		// TODO this is the naive way of doing timestamps, equivalent to "ping -U",
@@ -175,7 +181,10 @@ func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int) (data []byte) {
 	binary.LittleEndian.PutUint64(payload, uint64(now))
 
 	buf := gopacket.NewSerializeBuffer()
-	gopacket.SerializeLayers(buf, opts, ip, icmp, gopacket.Payload(payload))
+	err := gopacket.SerializeLayers(buf, opts, ip, icmp, gopacket.Payload(payload))
+	if err != nil {
+		log.Println("error:", err)
+	}
 
 	return buf.Bytes()
 }

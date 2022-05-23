@@ -31,7 +31,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	obfs4.Obfs4ClientInit(node)
+	err = obfs4.Obfs4ClientInit(node)
+	if err != nil {
+		log.Fatal(err)
+	}
 	dialFn := obfs4.Dialer(node.Addr)
 
 	dialer := vpn.NewTunDialerFromOptions(opts)

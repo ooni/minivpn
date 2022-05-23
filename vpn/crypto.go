@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"hash"
 	"log"
-)
+) //#nosec G501,G505
 
 // TODO(ainghazal,bassosimone): see if it's feasible to use stdlib
 // functionality rather than using the code below.

@@ -87,8 +87,8 @@ func (td TunDialer) DialTimeout(network, address string, timeout time.Duration) 
 	if err != nil {
 		return nil, err
 	}
-	conn.SetReadDeadline(time.Now().Add(timeout))
-	return conn, nil
+	err = conn.SetReadDeadline(time.Now().Add(timeout))
+	return conn, err
 }
 
 // DialContext connects to the address on the named network using
@@ -153,7 +153,12 @@ func (d *device) Up() {
 				logger.Errorf("tun read error: %v", err)
 				break
 			}
-			d.vpn.Write(b[0:n])
+			_, err = d.vpn.Write(b[0:n])
+			if err != nil {
+				logger.Errorf("vpn write error: %v", err)
+				break
+			}
+
 		}
 	}()
 	go func() {
@@ -161,10 +166,14 @@ func (d *device) Up() {
 		for {
 			n, err := d.vpn.Read(b)
 			if err != nil {
-				logger.Errorf("raw read error: %v", err)
+				logger.Errorf("vpn read error: %v", err)
 				break
 			}
-			d.tun.Write(b[0:n], 0) // zero offset
+			_, err = d.tun.Write(b[0:n], 0) // zero offset
+			if err != nil {
+				logger.Errorf("tun write error: %v", err)
+				break
+			}
 		}
 	}()
 }

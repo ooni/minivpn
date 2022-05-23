@@ -88,8 +88,12 @@ func main() {
 
 	switch args[0] {
 	case "ping":
-		RunPinger(opts, *optTarget, *optCount)
+		err = RunPinger(opts, *optTarget, *optCount)
+		if err != nil {
+			logger.Error(err.Error())
+		}
 	case "proxy":
+		// not actively tested at the moment
 		ListenAndServeSocks(opts)
 	default:
 		printUsage()
