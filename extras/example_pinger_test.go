@@ -12,7 +12,7 @@ var (
 	count  = 3
 )
 
-func ExampleRunPinger() {
+func ExamplePinger() {
 	opts, err := vpn.ParseConfigFile(cfg)
 	if err != nil {
 		os.Exit(1)

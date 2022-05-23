@@ -79,5 +79,17 @@ netns-shell:
 	# see https://github.com/slingamn/namespaced-openvpn
 	sudo ip netns exec protected sudo -u `whoami` -i
 
+.PHONY: lint
+lint: go-fmt go-vet go-sec
+
+go-fmt:
+	gofmt -s -l .
+
+go-vet:
+	go vet ./...
+
+go-sec:
+	gosec ./...
+
 clean:
 	@rm -f coverage.out
