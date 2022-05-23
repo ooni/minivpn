@@ -1214,7 +1214,7 @@ func Test_data_ReadPacket(t *testing.T) {
 
 // we'll use a mocked net.Conn for WritePacket
 
-func makeTestingConn(network, addr string, n int) net.Conn {
+func makeTestingConnForWrite(network, addr string, n int) net.Conn {
 	mockAddr := &mocks.Addr{}
 	mockAddr.MockString = func() string {
 		return addr
@@ -1267,7 +1267,7 @@ func Test_data_WritePacket(t *testing.T) {
 				encryptEncodeFn: goodMockEncodedEncryptFn,
 			},
 			args: args{
-				conn:    makeTestingConn("udp", "10.0.42.1", 42),
+				conn:    makeTestingConnForWrite("udp", "10.0.42.1", 42),
 				payload: []byte("hello test"),
 			},
 			want:    42,

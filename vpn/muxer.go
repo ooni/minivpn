@@ -229,6 +229,7 @@ func (m *muxer) Reset() error {
 // socket. It returns true if the packet was a data packet; otherwise it will
 // process it but return false.
 func (m *muxer) handleIncomingPacket() bool {
+
 	data, err := readPacket(m.conn)
 	if err != nil {
 		logger.Error(err.Error())
@@ -417,17 +418,19 @@ func (m *muxer) InitDataWithRemoteKey() error {
 	return nil
 }
 
-// TODO(ainghazal, bassosimone): it probably makes sense to return an error
-// from read/write if the data channel is not initialized. Another option would
-// be to read from a channel and block if there's nothing.
-
-// Write sends user bytes as encrypted packets in the data channel.
+// Write sends user bytes as encrypted packets in the data channel. It returns
+// the number of written bytes, and an error if the operation could not succeed.
 func (m *muxer) Write(b []byte) (int, error) {
+	if m.data == nil {
+		return 0, fmt.Errorf("%w:%s", errBadInput, "data not initialized")
+
+	}
 	return m.data.WritePacket(m.conn, b)
 }
 
 // Read reads bytes after decrypting packets from the data channel. This is the
-// user-view of the VPN connection reads.
+// user-view of the VPN connection reads. It returns the number of bytes read,
+// and an error if the operation could not succeed.
 func (m *muxer) Read(b []byte) (int, error) {
 	for !m.handleIncomingPacket() {
 	}
