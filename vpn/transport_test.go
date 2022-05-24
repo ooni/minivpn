@@ -247,7 +247,155 @@ func makeTestingTLSConn() (*TLSConn, *MockTLSConn) {
 	return t, c
 }
 
-func Test_TLSConn_Close(t *testing.T) {
+func TestTLSConn_doReadFromConn(t *testing.T) {
+	type fields struct {
+		conn      net.Conn
+		session   *session
+		transport TLSModeTransporter
+		bufReader *bytes.Buffer
+	}
+	type args struct {
+		b []byte
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    bool
+		want1   int
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr := &TLSConn{
+				conn:      tt.fields.conn,
+				session:   tt.fields.session,
+				transport: tt.fields.transport,
+				bufReader: tt.fields.bufReader,
+			}
+			got, got1, err := tr.doReadFromConn(tt.args.b)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("TLSConn.doReadFromConn() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("TLSConn.doReadFromConn() got = %v, want %v", got, tt.want)
+			}
+			if got1 != tt.want1 {
+				t.Errorf("TLSConn.doReadFromConn() got1 = %v, want %v", got1, tt.want1)
+			}
+		})
+	}
+}
+
+func TestTLSConn_doReadFromQueue(t *testing.T) {
+	type fields struct {
+		conn      net.Conn
+		session   *session
+		transport TLSModeTransporter
+		bufReader *bytes.Buffer
+	}
+	type args struct {
+		b []byte
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    bool
+		want1   int
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr := &TLSConn{
+				conn:      tt.fields.conn,
+				session:   tt.fields.session,
+				transport: tt.fields.transport,
+				bufReader: tt.fields.bufReader,
+			}
+			got, got1, err := tr.doReadFromQueue(tt.args.b)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("TLSConn.doReadFromQueue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("TLSConn.doReadFromQueue() got = %v, want %v", got, tt.want)
+			}
+			if got1 != tt.want1 {
+				t.Errorf("TLSConn.doReadFromQueue() got1 = %v, want %v", got1, tt.want1)
+			}
+		})
+	}
+}
+
+func TestTLSConn_doRead(t *testing.T) {
+	tt, _ := makeTestingTLSTransport()
+	tc := &TLSConn{
+		transport: tt,
+	}
+	_, err := tc.doRead()
+	if err != nil {
+		t.Errorf("TLSConn.doRead() expected nil error")
+	}
+}
+
+func TestTLSConn_canRead(t *testing.T) {
+	tc := &TLSConn{
+		session: makeTestingSession(),
+	}
+	canRead := tc.canRead(nil)
+	if canRead {
+		t.Errorf("TLSConn.canRead() should return false with nil packet")
+	}
+
+	pNext := &packet{id: 1}
+	canRead = tc.canRead(pNext)
+	if !canRead {
+		t.Errorf("TLSConn.canRead() should be able to read pID = 1")
+	}
+
+	pEq := &packet{id: 0}
+	canRead = tc.canRead(pEq)
+	if canRead {
+		t.Errorf("TLSConn.canRead() should not able to read pID = 0")
+	}
+
+	tc.session.localPacketID = packetID(42)
+	pMore := &packet{id: 44}
+	canRead = tc.canRead(pMore)
+	if canRead {
+		t.Errorf("TLSConn.canRead() should not able to read pID = 44")
+	}
+
+	pLess := &packet{id: 41}
+	canRead = tc.canRead(pLess)
+	if canRead {
+		t.Errorf("TLSConn.canRead() should not able to read pID = 41")
+	}
+}
+
+func TestTLSConn_ackAndRead(t *testing.T) {
+	sendACKFn = func(net.Conn, *session, packetID) error {
+		return nil
+	}
+	buf := []byte("alles ist gut")
+	p := &packet{opcode: pDataV1, payload: buf}
+	tc := &TLSConn{
+		conn:      makeTestingConnForRead(len(buf), nil, p.Bytes()),
+		bufReader: &bytes.Buffer{},
+	}
+	_, err := tc.ackAndRead([]byte("foo"), p)
+	if err != nil {
+		t.Errorf("TLSConn.ackAndRead() err=%v, wantErr=%v", err, nil)
+	}
+}
+
+func TestTLSConn_Close(t *testing.T) {
 	tc, conn := makeTestingTLSConn()
 	err := tc.Close()
 	if err != nil {
@@ -258,7 +406,7 @@ func Test_TLSConn_Close(t *testing.T) {
 	}
 }
 
-func Test_TLSConn_LocalAddr(t *testing.T) {
+func TestTLSConn_LocalAddr(t *testing.T) {
 	tc, conn := makeTestingTLSConn()
 	want := "1.1.1.1"
 	if addr := tc.LocalAddr(); addr.String() != want {
@@ -269,7 +417,7 @@ func Test_TLSConn_LocalAddr(t *testing.T) {
 	}
 }
 
-func Test_TLSConn_RemoteAddr(t *testing.T) {
+func TestTLSConn_RemoteAddr(t *testing.T) {
 	tc, conn := makeTestingTLSConn()
 	want := "2.2.2.2"
 	if addr := tc.RemoteAddr(); addr.String() != want {
@@ -280,7 +428,7 @@ func Test_TLSConn_RemoteAddr(t *testing.T) {
 	}
 }
 
-func Test_TLSConn_SetDeadline(t *testing.T) {
+func TestTLSConn_SetDeadline(t *testing.T) {
 	tc, conn := makeTestingTLSConn()
 	err := tc.SetDeadline(time.Now().Add(time.Second))
 	if err != nil {
@@ -291,7 +439,7 @@ func Test_TLSConn_SetDeadline(t *testing.T) {
 	}
 }
 
-func Test_TLSConn_SetReadDeadline(t *testing.T) {
+func TestTLSConn_SetReadDeadline(t *testing.T) {
 	tc, conn := makeTestingTLSConn()
 	err := tc.SetReadDeadline(time.Now().Add(time.Second))
 	if err != nil {
@@ -302,7 +450,7 @@ func Test_TLSConn_SetReadDeadline(t *testing.T) {
 	}
 }
 
-func Test_TLSConn_SetWriteDeadline(t *testing.T) {
+func TestTLSConn_SetWriteDeadline(t *testing.T) {
 	tc, conn := makeTestingTLSConn()
 	err := tc.SetWriteDeadline(time.Now().Add(time.Second))
 	if err != nil {
@@ -310,5 +458,33 @@ func Test_TLSConn_SetWriteDeadline(t *testing.T) {
 	}
 	if !conn.setWriteDeadlineCalled {
 		t.Error("TLSConn.SetWriteDeadline(): conn.SetWriteDeadline() not called")
+	}
+}
+
+func TestTLSConn_Write(t *testing.T) {
+	a := &mocks.Addr{}
+	a.MockNetwork = func() string { return "udp" }
+	conn := &mocks.Conn{}
+	conn.MockLocalAddr = func() net.Addr { return a }
+	c := &MockTLSTransportConn{Conn: conn}
+	c.MockWrite = func(b []byte) (int, error) {
+		c.written = b
+		return len(b), nil
+	}
+	s := makeTestingSession()
+	tlsTr := &tlsTransport{Conn: c, session: s}
+	tc := &TLSConn{transport: tlsTr, session: s}
+
+	payload := []byte("this is fine")
+	want := append(
+		[]byte{0x20, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		payload...)
+	_, err := tc.Write(payload)
+	if err != nil {
+		t.Errorf("TLSConn.Write(): expected err = nil, got = %v", err)
+	}
+	if !bytes.Equal(c.written, want) {
+		t.Errorf("TLSConn.Write(): written = %v, want = %v", c.written, want)
 	}
 }

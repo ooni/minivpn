@@ -123,8 +123,16 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 }
 
 func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
+	if t.session == nil {
+		return fmt.Errorf("%w:%s", errBadInput, "tlsTransport badly initialized")
+
+	}
 	p := newPacketFromPayload(opcodeKeyID, 0, data)
-	p.id, _ = t.session.LocalPacketID()
+	id, err := t.session.LocalPacketID()
+	if err != nil {
+		return err
+	}
+	p.id = id
 	p.localSessionID = t.session.LocalSessionID
 	payload := p.Bytes()
 
@@ -133,7 +141,7 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	logger.Debug(fmt.Sprintln("tls write:", len(out)))
 	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 
-	_, err := t.Conn.Write(out)
+	_, err = t.Conn.Write(out)
 	return err
 }
 
@@ -234,7 +242,7 @@ func (t *TLSConn) canRead(p *packet) bool {
 }
 
 func (t *TLSConn) ackAndRead(b []byte, p *packet) (int, error) {
-	if err := sendACK(t.conn, t.session, p.id); err != nil {
+	if err := sendACKFn(t.conn, t.session, p.id); err != nil {
 		return 0, err
 	}
 	t.bufReader.Write(p.payload)

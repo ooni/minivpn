@@ -122,7 +122,7 @@ func (s *session) isNextPacket(p *packet) bool {
 }
 
 // control implements the controlHandler interface.
-// Like true pirates, there is no state under control.
+// Like for true pirates, there is no state in control.
 type control struct{}
 
 // SendHardReset sends a control packet with the HardResetClientv2 header,
@@ -183,7 +183,7 @@ func (c *control) ReadControlMessage(b []byte) (*keySource, string, error) {
 // over the passed connection. It returns an error if the operation cannot be
 // completed successfully.
 func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
-	return sendACK(conn, s, pid)
+	return sendACKFn(conn, s, pid)
 }
 
 // sendACK is used by controlHandler.SendACK() and by TLSConn.Read()
@@ -204,6 +204,8 @@ func sendACK(conn net.Conn, s *session, pid packetID) error {
 
 	return s.UpdateLastACK(pid)
 }
+
+var sendACKFn = sendACK
 
 var _ controlHandler = &control{} // Ensure that we implement controlHandler
 

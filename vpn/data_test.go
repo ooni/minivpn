@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/ainghazal/minivpn/vpn/mocks"
@@ -82,7 +83,9 @@ func Test_newKeySource(t *testing.T) {
 func makeTestingSession() *session {
 	s := &session{
 		RemoteSessionID: sessionID{0x01},
-		LocalSessionID:  sessionID{0x02}}
+		LocalSessionID:  sessionID{0x02},
+		mu:              sync.Mutex{},
+	}
 	return s
 }
 
