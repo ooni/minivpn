@@ -1,7 +1,9 @@
 package vpn
 
 import (
+	"bytes"
 	"errors"
+	"log"
 	"net"
 	"reflect"
 	"testing"
@@ -9,6 +11,97 @@ import (
 
 	"github.com/ainghazal/minivpn/vpn/mocks"
 )
+
+func Test_readPacketFromUDP(t *testing.T) {
+	conn := makeTestinConnFromNetwork("udp")
+	got, err := readPacketFromUDP(conn)
+	want := []byte("alles ist gut")
+	if err != nil {
+		t.Errorf("readPacketFromUDP() error = %v, want %v", err, nil)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("readPacketFromTCP() got = %s, want %s", got, want)
+	}
+}
+
+func Test_readPacketFromTCP(t *testing.T) {
+	conn := makeTestinConnFromNetwork("tcp")
+	got, err := readPacketFromTCP(conn)
+	want := []byte("alles ist gut")
+	if err != nil {
+		t.Errorf("readPacketFromTCP() error = %v, want %v", err, nil)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("readPacketFromTCP() got = %s, want %s", got, want)
+	}
+}
+
+func Test_readPacket_BadNetwork(t *testing.T) {
+	conn := makeTestinConnFromNetwork("unix")
+	_, err := readPacket(conn)
+	wantErr := ErrBadConnNetwork
+	if !errors.Is(err, wantErr) {
+		t.Errorf("readPacket() got = %v, want %v", err, wantErr)
+	}
+}
+
+type MockTLSTransportConn struct {
+	*mocks.Conn
+	written []byte
+}
+
+func makeTestingTLSTransport() (*tlsTransport, *MockTLSTransportConn) {
+	readPayload := &packet{opcode: pDataV1, payload: []byte("this is not a payload")}
+	s := makeTestingSession()
+	a := &mocks.Addr{}
+	a.MockNetwork = func() string { return "udp" }
+	c := &MockTLSTransportConn{Conn: &mocks.Conn{}}
+	c.MockLocalAddr = func() net.Addr { return a }
+	c.MockRead = func(b []byte) (int, error) {
+		out := readPayload.Bytes()
+		copy(b, out)
+		return len(out), nil
+	}
+	c.MockWrite = func(b []byte) (int, error) {
+		c.written = b
+		return 0, nil
+	}
+	return &tlsTransport{Conn: c, session: s}, c
+}
+
+func Test_tlsTransport_ReadPacket(t *testing.T) {
+	fakePayload := append(
+		// fake tag
+		bytes.Repeat([]byte{0x00}, 13),
+		[]byte("this is not a payload")...)
+	want := &packet{opcode: pDataV1, payload: fakePayload}
+
+	tt, _ := makeTestingTLSTransport()
+	got, err := tt.ReadPacket()
+
+	if err != nil {
+		t.Errorf("ReadPacket() error = %v, wantErr %v", err, nil)
+	}
+	if !bytes.Equal(got.payload, want.payload) {
+		t.Errorf("ReadPacket() got = %v, want = %v", got.payload, want.payload)
+	}
+}
+
+func Test_tlsTransport_WritePacket(t *testing.T) {
+	payload := []byte("this is not a payload")
+	fakePacket := append([]byte{0x30, 0x02}, bytes.Repeat([]byte{0x00}, 12)...)
+	fakePacket = append(fakePacket, payload...)
+
+	tt, conn := makeTestingTLSTransport()
+	err := tt.WritePacket(pDataV1, payload)
+	if err != nil {
+		t.Errorf("ReadPacket() error = %v, want = %v", err, nil)
+	}
+	if !bytes.Equal(conn.written, fakePacket) {
+		log.Println("written", conn.written)
+		t.Errorf("ReadPacket(): got = %v, want = %v", conn.written, fakePacket)
+	}
+}
 
 func makeTestinConnFromNetwork(network string) net.Conn {
 	mockAddr := &mocks.Addr{}
@@ -39,6 +132,10 @@ func makeTestinConnFromNetwork(network string) net.Conn {
 				copy(b, out)
 			}
 			return len(out), nil
+		}
+	default:
+		c.MockRead = func([]byte) (int, error) {
+			return 0, nil
 		}
 	}
 	return c
@@ -143,7 +240,7 @@ func makeConnForTransportTest() *MockTLSConn {
 	return c
 }
 
-func makeTLSConn() (*TLSConn, *MockTLSConn) {
+func makeTestingTLSConn() (*TLSConn, *MockTLSConn) {
 	c := makeConnForTransportTest()
 	t := &TLSConn{}
 	t.conn = c
@@ -151,7 +248,7 @@ func makeTLSConn() (*TLSConn, *MockTLSConn) {
 }
 
 func Test_TLSConn_Close(t *testing.T) {
-	tc, conn := makeTLSConn()
+	tc, conn := makeTestingTLSConn()
 	err := tc.Close()
 	if err != nil {
 		t.Errorf("TLSConn.Close() error = %v, want = nil", err)
@@ -162,7 +259,7 @@ func Test_TLSConn_Close(t *testing.T) {
 }
 
 func Test_TLSConn_LocalAddr(t *testing.T) {
-	tc, conn := makeTLSConn()
+	tc, conn := makeTestingTLSConn()
 	want := "1.1.1.1"
 	if addr := tc.LocalAddr(); addr.String() != want {
 		t.Errorf("TLSConn.LocalAddr() got = %s, want = %s", addr, want)
@@ -173,7 +270,7 @@ func Test_TLSConn_LocalAddr(t *testing.T) {
 }
 
 func Test_TLSConn_RemoteAddr(t *testing.T) {
-	tc, conn := makeTLSConn()
+	tc, conn := makeTestingTLSConn()
 	want := "2.2.2.2"
 	if addr := tc.RemoteAddr(); addr.String() != want {
 		t.Errorf("TLSConn.RemoteAddr() got = %s, want = %s", addr, want)
@@ -184,7 +281,7 @@ func Test_TLSConn_RemoteAddr(t *testing.T) {
 }
 
 func Test_TLSConn_SetDeadline(t *testing.T) {
-	tc, conn := makeTLSConn()
+	tc, conn := makeTestingTLSConn()
 	err := tc.SetDeadline(time.Now().Add(time.Second))
 	if err != nil {
 		t.Errorf("TLSConn.SetDeadline() error = %v, want = nil", err)
@@ -195,7 +292,7 @@ func Test_TLSConn_SetDeadline(t *testing.T) {
 }
 
 func Test_TLSConn_SetReadDeadline(t *testing.T) {
-	tc, conn := makeTLSConn()
+	tc, conn := makeTestingTLSConn()
 	err := tc.SetReadDeadline(time.Now().Add(time.Second))
 	if err != nil {
 		t.Errorf("TLSConn.SetReadDeadline() error = %v, want = nil", err)
@@ -206,7 +303,7 @@ func Test_TLSConn_SetReadDeadline(t *testing.T) {
 }
 
 func Test_TLSConn_SetWriteDeadline(t *testing.T) {
-	tc, conn := makeTLSConn()
+	tc, conn := makeTestingTLSConn()
 	err := tc.SetWriteDeadline(time.Now().Add(time.Second))
 	if err != nil {
 		t.Errorf("TLSConn.SetWriteDeadline() error = %v, want = nil", err)
