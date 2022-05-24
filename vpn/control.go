@@ -210,6 +210,9 @@ var _ controlHandler = &control{} // Ensure that we implement controlHandler
 // sendControlPacket crafts a control packet with the given opcode and payload,
 // and writes it to the passed net.Conn.
 func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload []byte) (n int, err error) {
+	if s == nil {
+		return 0, fmt.Errorf("%w:%s", errBadInput, "nil session")
+	}
 	p := newPacketFromPayload(uint8(opcode), 0, payload)
 	p.localSessionID = s.LocalSessionID
 
@@ -243,12 +246,12 @@ func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
 	case "udp", "udp4", "udp6":
 		// nothing to do for UDP
 		return payload
-	// TODO not catching tcp explicitely because it makes it harder to test.
-	// For now I rely on the client to filter out non-tcp networks.
-	default:
+	case "tcp", "tcp4", "tcp6":
 		lenght := make([]byte, 2)
 		binary.BigEndian.PutUint16(lenght, uint16(len(payload)))
 		return append(lenght, payload...)
+	default:
+		return []byte{}
 	}
 }
 

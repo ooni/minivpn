@@ -75,7 +75,7 @@ func decodeOptionStringFromBytes(b []byte) (string, error) {
 	if len(b) < length {
 		return "", fmt.Errorf("%w: got %d, expected %d", errDecodeOption, len(b), length)
 	}
-	if len(b) <= 0 {
+	if len(b) <= 0 || length == 0 {
 		return "", fmt.Errorf("%w: zero length encoded option is not possible: %s", errDecodeOption,
 			"we need at least one byte for the trailing \\0")
 	}

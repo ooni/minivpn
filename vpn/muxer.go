@@ -113,7 +113,7 @@ type dataHandler interface {
 // vpnMuxer contains all the behavior expected by the muxer.
 type vpnMuxer interface {
 	Handshake() error
-	Reset() error
+	Reset(net.Conn, *session) error
 	InitDataWithRemoteKey() error
 	Write([]byte) (int, error)
 	Read([]byte) (int, error)
@@ -159,7 +159,7 @@ func (m *muxer) Handshake() error {
 
 	// 1. control channel sends reset, parse response.
 
-	if err := m.Reset(); err != nil {
+	if err := m.Reset(m.conn, m.session); err != nil {
 		return err
 	}
 
@@ -167,7 +167,7 @@ func (m *muxer) Handshake() error {
 
 	// XXX this step can now be moved before dial/reset; we can store the conf
 	// in the muxer.
-	tlsConf, err := initTLS(m.session, m.options)
+	tlsConf, err := initTLSFn(m.session, m.options)
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func (m *muxer) Handshake() error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 	}
-	tls, err := tlsHandshake(tlsConn, tlsConf)
+	tls, err := tlsHandshakeFn(tlsConn, tlsConf)
 	if err != nil {
 		return err
 	}
@@ -194,8 +194,11 @@ func (m *muxer) Handshake() error {
 
 // Reset sends a hard-reset packet to the server, and awaits the server
 // confirmation.
-func (m *muxer) Reset() error {
-	if err := m.control.SendHardReset(m.conn, m.session); err != nil {
+func (m *muxer) Reset(conn net.Conn, s *session) error {
+	if m.control == nil {
+		return fmt.Errorf("%w:%s", errBadInput, "bad control")
+	}
+	if err := m.control.SendHardReset(conn, s); err != nil {
 		return err
 	}
 	resp, err := readPacket(m.conn)
@@ -343,6 +346,10 @@ func (m *muxer) sendPushRequest() (int, error) {
 // packet, it will store the parts of the pushed options that will be of use
 // later.
 func (m *muxer) readPushReply() error {
+	if m.control == nil || m.tunnel == nil {
+		return fmt.Errorf("%w:%s", errBadInput, "muxer badly initialized")
+
+	}
 	resp, err := m.readTLSPacket()
 	if err != nil {
 		return err
@@ -401,7 +408,7 @@ func (m *muxer) InitDataWithRemoteKey() error {
 		return err
 	}
 
-	err = m.data.SetupKeys(key0) //, m.session) TODO session already in data
+	err = m.data.SetupKeys(key0)
 	if err != nil {
 		return err
 	}

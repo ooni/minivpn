@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"net"
 	"reflect"
@@ -67,6 +68,103 @@ func Test_newMuxerFromOptions(t *testing.T) {
 				t.Errorf("newMuxerFromOptions() options = %v, want %v", got.options, tt.want.options)
 			}
 		})
+	}
+}
+
+func makeTestingConnForHandshake(network, addr string, n int) net.Conn {
+	ma := &mocks.Addr{}
+	ma.MockString = func() string {
+		return addr
+	}
+	ma.MockNetwork = func() string {
+		return network
+	}
+
+	c := &mocks.Conn{}
+	c.MockLocalAddr = func() net.Addr {
+		return ma
+	}
+	c.MockWrite = func([]byte) (int, error) {
+		return n, nil
+	}
+	c.MockRead = func(b []byte) (int, error) {
+		switch c.Count {
+		case 0:
+			// this is the expected reset response from server
+			rp := []byte{
+				0x40,
+				0x00, 0x01, 0x02, 0x03, 0x04,
+				0x05, 0x06, 0x07, 0x08,
+			}
+			copy(b[:], rp)
+			c.Count += 1
+			return len(rp), nil
+		case 1:
+			// control message data (to load remote key)
+			p := []byte{0x00, 0x00, 0x00, 0x00, 0x02}
+			p = append(p, bytes.Repeat([]byte{0x01}, 70)...)
+			copy(b[:], p)
+			c.Count += 1
+			return len(p), nil
+		case 2:
+			// control message data (to load remote key)
+			p := []byte("PUSH_REPLY")
+			copy(b[:], p)
+			c.Count += 1
+			return len(p), nil
+		}
+
+		return 0, nil
+	}
+	return c
+}
+
+type mockMuxerForHandshake struct {
+	muxer
+}
+
+func (md *mockMuxerForHandshake) sendControlMessage() error {
+	return nil
+}
+
+func (md *mockMuxerForHandshake) readAndLoadRemoteKey() error {
+	return nil
+}
+
+func Test_muxer_Handshake(t *testing.T) {
+	makeData := func() *data {
+		options := makeTestingOptions("AES-128-GCM", "sha1")
+		data, _ := newDataFromOptions(options, makeTestingSession())
+		return data
+	}
+
+	m := &mockMuxerForHandshake{}
+	m.control = &control{}
+	m.data = makeData()
+	m.tunnel = &tunnel{}
+	s, err := newSession()
+	if err != nil {
+		t.Error("session failed, cannot run handshake test")
+	}
+	m.session = s
+	m.options = makeTestingOptions("AES-128-GCM", "sha512")
+	m.tls = makeTestingConnForWrite("udp", "0.0.0.0", 42)
+	m.conn = makeTestingConnForHandshake("udp", "10.0.0.0", 42)
+
+	initTLSFn = func(*session, *Options) (*tls.Config, error) {
+		return &tls.Config{InsecureSkipVerify: true}, nil
+	}
+
+	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {
+		return m.conn, nil
+	}
+
+	// and now for the test itself...
+
+	err = m.Handshake()
+	if err != nil {
+		t.Errorf("muxer.Handshake() error = %v, wantErr nil", err)
+		return
 	}
 }
 

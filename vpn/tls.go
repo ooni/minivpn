@@ -65,6 +65,8 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 	return tlsConf, nil
 }
 
+var initTLSFn = initTLS
+
 // tlsHandshake performs the TLS handshake over the control channel, and return
 // the TLS Client as a net.Conn; returns also any error during the handshake.
 func tlsHandshake(tlsConn *TLSConn, tlsConf *tls.Config) (net.Conn, error) {
@@ -72,5 +74,7 @@ func tlsHandshake(tlsConn *TLSConn, tlsConf *tls.Config) (net.Conn, error) {
 	if err := tlsClient.Handshake(); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 	}
-	return net.Conn(tlsClient), nil
+	return tlsClient, nil
 }
+
+var tlsHandshakeFn = tlsHandshake
