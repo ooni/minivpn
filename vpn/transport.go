@@ -172,40 +172,72 @@ func NewTLSConn(conn net.Conn, s *session) (*TLSConn, error) {
 // it retries reads until the _next_ packet is received (according to the
 // packetID). Returns also an error if the operation cannot be completed.
 func (t *TLSConn) Read(b []byte) (int, error) {
-	var pa *packet
 	for {
-		if len(t.session.ackQueue) != 0 {
+		switch len(t.session.ackQueue) {
+		case 0:
+			ok, n, err := t.doReadFromConn(b)
+			if ok {
+				return n, err
+			}
+		default:
+			ok, n, err := t.doReadFromQueue(b)
+			if ok {
+				return n, err
+			}
+		}
+	}
+}
 
-			logger.Debug(fmt.Sprintf("queued: %d packets", len(t.session.ackQueue)))
+func (t *TLSConn) doReadFromConn(b []byte) (bool, int, error) {
+	p, err := t.doRead()
+	if err != nil {
+		return true, 0, err
+	}
+	if t.canRead(p) {
+		n, err := t.ackAndRead(b, p)
+		return true, n, err
+	}
+	return false, 0, nil
+}
 
-			for p := range t.session.ackQueue {
-				if p != nil && t.session.isNextPacket(p) {
-					pa = p
-					break
-				} else {
-					if p != nil {
-						t.session.ackQueue <- p
-						goto read
-					}
+func (t *TLSConn) doReadFromQueue(b []byte) (bool, int, error) {
+	for p := range t.session.ackQueue {
+		if t.canRead(p) {
+			n, err := t.ackAndRead(b, p)
+			return true, n, err
+		} else {
+			t.session.ackQueue <- p
+			p, err := t.doRead()
+			if err != nil {
+				return true, 0, err
+			}
+			if t.canRead(p) {
+				n, err := t.ackAndRead(b, p)
+				return true, n, err
+
+			} else {
+				if p != nil {
+					t.session.ackQueue <- p
 				}
 			}
 		}
-	read:
-		if p, _ := t.transport.ReadPacket(); p != nil && t.session.isNextPacket(p) {
-			pa = p
-			break
-		} else {
-			if p != nil {
-				t.session.ackQueue <- p
-			}
-		}
-
 	}
+	return false, 0, nil
+}
 
-	if err := sendACK(t.conn, t.session, pa.id); err != nil {
+func (t *TLSConn) doRead() (*packet, error) {
+	return t.transport.ReadPacket()
+}
+
+func (t *TLSConn) canRead(p *packet) bool {
+	return p != nil && t.session.isNextPacket(p)
+}
+
+func (t *TLSConn) ackAndRead(b []byte, p *packet) (int, error) {
+	if err := sendACK(t.conn, t.session, p.id); err != nil {
 		return 0, err
 	}
-	t.bufReader.Write(pa.payload)
+	t.bufReader.Write(p.payload)
 	return t.bufReader.Read(b)
 }
 
