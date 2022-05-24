@@ -112,6 +112,11 @@ func makeTestingConnForHandshake(network, addr string, n int) net.Conn {
 			copy(b[:], p)
 			c.Count += 1
 			return len(p), nil
+		default:
+			p := []byte("aaaaaaa")
+			copy(b[:], p)
+			c.Count += 1
+			return len(p), nil
 		}
 
 		return 0, nil

@@ -180,7 +180,9 @@ func (d *device) Up() {
 
 type RawDialer struct {
 	Options *Options
-	dialFn  DialFunc
+	// dialFn is the on-the-wire dial function that will be passed to the
+	// OpenVPN client.
+	dialFn DialFunc
 }
 
 func NewRawDialer(opts *Options) *RawDialer {
@@ -197,15 +199,17 @@ func (d *RawDialer) Dial() (net.Conn, error) {
 // the TunDialer that access this we need to access some private fields from
 // the Client implementation.
 func (d *RawDialer) dial() (*Client, error) {
-	client := NewClientFromOptions(d.Options)
-	if d.dialFn != nil {
-		client.DialFn = d.dialFn
-	}
-
-	err := client.Start()
-	if err != nil {
-		return nil, err
-	}
-
-	return client, nil
+	client, err := clientFactoryFn(d.Options, d.dialFn)
+	return client, err
 }
+
+func clientFactory(opt *Options, dialFn DialFunc) (*Client, error) {
+	client := NewClientFromOptions(opt)
+	if dialFn != nil {
+		client.DialFn = dialFn
+	}
+	err := client.Start()
+	return client, err
+}
+
+var clientFactoryFn = clientFactory

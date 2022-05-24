@@ -49,6 +49,9 @@ var _ net.Conn = &Client{} // Ensure that we implement net.Conn
 
 // NewClientFromOptions returns a Client configured with the given Options.
 func NewClientFromOptions(opt *Options) *Client {
+	if opt == nil {
+		return &Client{}
+	}
 	if opt.Log != nil {
 		logger = opt.Log
 	}
@@ -96,6 +99,10 @@ func (c *Client) Stop() error {
 // data channel. It is the second step in an OpenVPN connection (out of five).
 // (In UDP mode no network connection is done at this step).
 func (c *Client) Dial() (net.Conn, error) {
+	if c.Opts == nil {
+		return nil, fmt.Errorf("%w:%s", errBadInput, "nil options")
+
+	}
 	var proto string
 	switch c.Opts.Proto {
 	case UDPMode:
@@ -124,6 +131,10 @@ func (c *Client) Write(b []byte) (int, error) {
 
 // Read reads bytes from the tunnel.
 func (c *Client) Read(b []byte) (int, error) {
+	if c.mux == nil {
+		return 0, fmt.Errorf("%w:%s", errBadInput, "nil muxer")
+
+	}
 	return c.mux.Read(b)
 }
 
