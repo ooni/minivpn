@@ -49,8 +49,6 @@ func Test_initTLS(t *testing.T) {
 			},
 			wantErr: nil,
 		},
-
-		// TODO: Add test cases.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -63,6 +61,40 @@ func Test_initTLS(t *testing.T) {
 				t.Errorf("initTLS() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_initTLS_MaxTLSVersion(t *testing.T) {
+	opt := makeTestingOptions("AES-128-GCM", "sha512")
+
+	s := makeTestingSession()
+	opt.TLSMaxVer = "1.2"
+	tlsConfig, err := initTLS(s, opt)
+	if err != nil {
+		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
+	}
+	if tlsConfig.MaxVersion != tls.VersionTLS12 {
+		t.Errorf("initTLS() = wrong max version, expected 1.2")
+	}
+
+	s = makeTestingSession()
+	opt.TLSMaxVer = "1.0" // something absurd
+	tlsConfig, err = initTLS(s, opt)
+	if err != nil {
+		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
+	}
+	if tlsConfig.MaxVersion != tls.VersionTLS13 {
+		t.Errorf("initTLS() = wrong max version, expected 1.3")
+	}
+
+	s = makeTestingSession()
+	opt.TLSMaxVer = "999" // something absurd
+	tlsConfig, err = initTLS(s, opt)
+	if err != nil {
+		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
+	}
+	if tlsConfig.MaxVersion != tls.VersionTLS13 {
+		t.Errorf("initTLS() = wrong max version, expected 1.3")
 	}
 }
 

@@ -168,6 +168,107 @@ func Test_muxer_Handshake(t *testing.T) {
 	}
 }
 
+func makePacketForHandleIncomingTest(opcode byte, s *session) *packet {
+	p := &packet{
+		id:              packetID(1), // always a good packet for a clean session
+		opcode:          opcode,
+		keyID:           0x00,
+		payload:         []byte("aaa"),
+		localSessionID:  s.LocalSessionID,
+		remoteSessionID: s.RemoteSessionID,
+		acks:            []packetID{},
+	}
+	return p
+}
+
+//I have modified muxer.handleIncomingPacket() so that it optionally receives a []byte
+//in order to make it easier to test payloads. here we go:
+type mockDataHandler struct{}
+
+func (m *mockDataHandler) SetupKeys(*dataChannelKey) error {
+	return nil
+}
+
+func (m *mockDataHandler) WritePacket(net.Conn, []byte) (int, error) {
+	return 42, nil
+}
+
+func (m *mockDataHandler) ReadPacket(*packet) ([]byte, error) {
+	return []byte("alles ist gut"), nil
+}
+
+func (m *mockDataHandler) DecodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error) {
+	return &encryptedData{}, nil
+}
+
+func (m *mockDataHandler) EncryptAndEncodePayload([]byte, *dataChannelState) ([]byte, error) {
+	return []byte("this is not a payload"), nil
+}
+
+type mockDataHandlerBadReadPacket struct {
+	mockDataHandler
+}
+
+func (m *mockDataHandlerBadReadPacket) ReadPacket(*packet) ([]byte, error) {
+	dummy := errors.New("dummy error")
+	return []byte{}, dummy
+}
+
+var _ dataHandler = &mockData{}
+
+func Test_muxer_handleIncomingPacket(t *testing.T) {
+	m := muxer{
+		data:      &mockData{},
+		bufReader: &bytes.Buffer{},
+	}
+
+	// ping data
+	if ok := m.handleIncomingPacket(pingPayload); ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected !ok with ping payload")
+		return
+	}
+	// packets with different opcodes
+	if ok := m.handleIncomingPacket([]byte{}); ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected !ok with empty bytes")
+		return
+	}
+	p := &packet{opcode: pACKV1}
+	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected !ok with ack packet")
+		return
+	}
+	p = &packet{opcode: pControlV1}
+	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected !ok with control packet")
+		return
+	}
+	p = &packet{opcode: pControlV1}
+	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected !ok with control packet")
+		return
+	}
+	p = &packet{opcode: byte(0xff)}
+	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected !ok with unknown opcode")
+		return
+	}
+	p = &packet{opcode: pDataV1}
+	if ok := m.handleIncomingPacket(p.Bytes()); !ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected ok with data opcode")
+		return
+	}
+
+	// replace dataHandler in muxer with a method that raises error on ReadPacket()
+	m = muxer{
+		data:      &mockDataHandlerBadReadPacket{},
+		bufReader: &bytes.Buffer{},
+	}
+	p = &packet{opcode: pDataV1}
+	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+		t.Errorf("muxer.handleIncomingPacket(): expected !ok with error in ReadPacket()")
+	}
+}
+
 func Test_muxer_Write(t *testing.T) {
 
 	makeData := func() *data {

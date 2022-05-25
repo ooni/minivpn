@@ -231,14 +231,31 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 // handleIncoming packet reads the next packet available in the underlying
 // socket. It returns true if the packet was a data packet; otherwise it will
 // process it but return false.
-func (m *muxer) handleIncomingPacket() bool {
-
-	data, err := readPacket(m.conn)
-	if err != nil {
-		logger.Error(err.Error())
+func (m *muxer) handleIncomingPacket(data []byte) bool {
+	if m.data == nil {
+		logger.Errorf("unhandled error: uninitialized muxer")
 		return false
 	}
-	p, err := parsePacketFromBytes(data)
+	var input []byte
+	if data == nil {
+		parsed, err := readPacket(m.conn)
+		if err != nil {
+			logger.Error(err.Error())
+			return false
+		}
+		input = parsed
+	} else {
+		input = data
+	}
+
+	if isPing(input) {
+		err := handleDataPing(m.conn, m.data)
+		if err != nil {
+			logger.Errorf("cannot handle ping: %s", err.Error())
+		}
+		return false
+	}
+	p, err := parsePacketFromBytes(input)
 	if err != nil {
 		logger.Error(err.Error())
 		return false
@@ -260,13 +277,6 @@ func (m *muxer) handleIncomingPacket() bool {
 		fmt.Println(hex.Dump(data))
 		return false
 	}
-	if isPing(data) {
-		err = m.handleDataPing()
-		if err != nil {
-			logger.Errorf("cannot handle ping: %s", err.Error())
-		}
-		return false
-	}
 
 	// at this point, the incoming packet should be
 	// a data packet that needs to be processed
@@ -286,9 +296,9 @@ func (m *muxer) handleIncomingPacket() bool {
 }
 
 // handleDataPing replies to an openvpn-ping with a canned response.
-func (m *muxer) handleDataPing() error {
+func handleDataPing(conn net.Conn, data dataHandler) error {
 	log.Println("openvpn-ping, sending reply")
-	_, err := m.data.WritePacket(m.conn, pingPayload)
+	_, err := data.WritePacket(conn, pingPayload)
 	return err
 }
 
@@ -439,7 +449,7 @@ func (m *muxer) Write(b []byte) (int, error) {
 // user-view of the VPN connection reads. It returns the number of bytes read,
 // and an error if the operation could not succeed.
 func (m *muxer) Read(b []byte) (int, error) {
-	for !m.handleIncomingPacket() {
+	for !m.handleIncomingPacket(nil) {
 	}
 	return m.bufReader.Read(b)
 }
