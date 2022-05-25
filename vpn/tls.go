@@ -17,9 +17,9 @@ var (
 	// ErrBadTLSHandshake is returned when the OpenVPN handshake failed.
 	ErrBadTLSHandshake = errors.New("handshake failure")
 	// ErrBadCA is returned when the CA file cannot be found or is not valid.
-	ErrBadCA = "bad ca conf"
+	ErrBadCA = errors.New("bad ca conf")
 	// ErrBadKeypair is returned when the key or cert file cannot be found or is not valid.
-	ErrBadKeypair = "bad keypair conf"
+	ErrBadKeypair = errors.New("bad keypair conf")
 )
 
 // initTLS returns a tls.Config matching the VPN options.
@@ -49,15 +49,17 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 	if opt.Cert != "" {
 		ca := x509.NewCertPool()
 		caData, err := ioutil.ReadFile(opt.Ca)
-
 		if err != nil {
-			return nil, fmt.Errorf("%s %w", ErrBadCA, err)
+			return nil, fmt.Errorf("%w:%s", ErrBadCA, err)
 		}
-		ca.AppendCertsFromPEM(caData)
+		ok := ca.AppendCertsFromPEM(caData)
+		if !ok {
+			return nil, fmt.Errorf("%w:%s", ErrBadCA, "cannot parse ca cert")
+		}
 
 		cert, err := tls.LoadX509KeyPair(opt.Cert, opt.Key)
 		if err != nil {
-			return nil, fmt.Errorf("%s %w", ErrBadKeypair, err)
+			return nil, fmt.Errorf("%w:%s", ErrBadKeypair, err)
 		}
 		tlsConf.RootCAs = ca
 		tlsConf.Certificates = []tls.Certificate{cert}

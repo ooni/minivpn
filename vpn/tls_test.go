@@ -207,6 +207,114 @@ func writeTestingCerts(dir string) (testingCert, error) {
 	return testingCert, nil
 }
 
+func writeTestingCertsBadCAFile(dir string) (testingCert, error) {
+	certFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	certFile.Write(pemTestingCertificate)
+
+	keyFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	keyFile.Write(pemTestingKey)
+
+	caFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	caFile.Write(pemTestingCa[:len(pemTestingCa)-10])
+
+	testingCert := testingCert{
+		cert: certFile.Name(),
+		key:  keyFile.Name(),
+		ca:   caFile.Name() + "-non-existent",
+	}
+	return testingCert, nil
+}
+
+func writeTestingCertsBadCA(dir string) (testingCert, error) {
+	certFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	certFile.Write(pemTestingCertificate)
+
+	keyFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	keyFile.Write(pemTestingKey)
+
+	caFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	caFile.Write(pemTestingCa[:len(pemTestingCa)-10])
+
+	testingCert := testingCert{
+		cert: certFile.Name(),
+		key:  keyFile.Name(),
+		ca:   caFile.Name(),
+	}
+	return testingCert, nil
+}
+
+func writeTestingCertsBadKey(dir string) (testingCert, error) {
+	certFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	certFile.Write(pemTestingCertificate)
+
+	keyFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	keyFile.Write(pemTestingKey[:len(pemTestingKey)-10])
+
+	caFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	caFile.Write(pemTestingCa)
+
+	testingCert := testingCert{
+		cert: certFile.Name(),
+		key:  keyFile.Name(),
+		ca:   caFile.Name(),
+	}
+	return testingCert, nil
+}
+
+func writeTestingCertsBadCert(dir string) (testingCert, error) {
+	certFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	certFile.Write(pemTestingCertificate[:len(pemTestingCertificate)-10])
+
+	keyFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	keyFile.Write(pemTestingKey[:len(pemTestingKey)-10])
+
+	caFile, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return testingCert{}, err
+	}
+	caFile.Write(pemTestingCa)
+
+	testingCert := testingCert{
+		cert: certFile.Name(),
+		key:  keyFile.Name(),
+		ca:   caFile.Name(),
+	}
+	return testingCert, nil
+}
+
 func Test_initTLSLoadTestCertificates(t *testing.T) {
 
 	session := makeTestingSession()
@@ -223,6 +331,71 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 	if err != nil {
 		t.Errorf("initTLS() error = %v, want: nil", err)
 	}
+
+	// bad ca (non existent file)
+	session = makeTestingSession()
+	crt, err = writeTestingCertsBadCAFile(t.TempDir())
+	if err != nil {
+		t.Errorf("error while testing: %v", err)
+	}
+	opt = &Options{
+		Cert: crt.cert,
+		Key:  crt.key,
+		Ca:   crt.ca,
+	}
+	_, err = initTLS(session, opt)
+	if !errors.Is(err, ErrBadCA) {
+		t.Errorf("initTLS() error = %v, want: %v", err, ErrBadCA)
+	}
+
+	// bad ca (malformed)
+	session = makeTestingSession()
+	crt, err = writeTestingCertsBadCA(t.TempDir())
+	if err != nil {
+		t.Errorf("error while testing: %v", err)
+	}
+	opt = &Options{
+		Cert: crt.cert,
+		Key:  crt.key,
+		Ca:   crt.ca,
+	}
+	_, err = initTLS(session, opt)
+	if !errors.Is(err, ErrBadCA) {
+		t.Errorf("initTLS() error = %v, want: %v", err, ErrBadCA)
+	}
+
+	// bad key
+	session = makeTestingSession()
+	crt, err = writeTestingCertsBadKey(t.TempDir())
+	if err != nil {
+		t.Errorf("error while testing: %v", err)
+	}
+	opt = &Options{
+		Cert: crt.cert,
+		Key:  crt.key,
+		Ca:   crt.ca,
+	}
+	_, err = initTLS(session, opt)
+	if !errors.Is(err, ErrBadKeypair) {
+		t.Errorf("initTLS() error = %v, want: %v", err, ErrBadKeypair)
+	}
+
+	// bad cert
+	session = makeTestingSession()
+	crt, err = writeTestingCertsBadCert(t.TempDir())
+	if err != nil {
+		t.Errorf("error while testing: %v", err)
+	}
+	opt = &Options{
+		Cert: crt.cert,
+		Key:  crt.key,
+		Ca:   crt.ca,
+	}
+	_, err = initTLS(session, opt)
+	if !errors.Is(err, ErrBadKeypair) {
+		t.Errorf("initTLS() error = %v, want: %v", err, ErrBadKeypair)
+	}
+
 }
 
 func Test_tlsHandshake(t *testing.T) {
