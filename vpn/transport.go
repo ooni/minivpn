@@ -105,6 +105,8 @@ type tlsTransport struct {
 	session *session
 }
 
+// ReadPacket returns a packet reading from the underlying conn, and an error
+// if the read did not succeed.
 func (t *tlsTransport) ReadPacket() (*packet, error) {
 	buf, err := readPacket(t.Conn)
 	if err != nil {
@@ -122,6 +124,7 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 	return p, nil
 }
 
+// WritePacket writes a packet to the underlying conn. It expect the opcode of the packet and a byte array containing the serialized data. It returns an error if the write did not succeed.
 func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	if t.session == nil {
 		return fmt.Errorf("%w:%s", errBadInput, "tlsTransport badly initialized")
@@ -153,8 +156,8 @@ type TLSConn struct {
 	conn      net.Conn
 	session   *session
 	transport TLSModeTransporter
-	// we need a buffer because the tls records request less than the
-	// payload we receive.
+	// we need to buffer reads because the tls records request less than
+	// the payload we receive.
 	bufReader *bytes.Buffer
 
 	doReadFromConnFn  func(*TLSConn, []byte) (bool, int, error)
@@ -206,20 +209,23 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 
 func doReadFromConn(t *TLSConn, b []byte) (bool, int, error) {
 	p, err := t.doRead()
+
 	if err != nil {
 		return true, 0, err
 	}
-	if t.canRead(p) {
+	switch t.canRead(p) {
+	case true:
 		if err := sendACKFn(t.conn, t.session, p.id); err != nil {
 			return true, 0, err
 		}
-		n, err := writeAndReadFromBuffer(t.bufReader, b, p.payload)
+		n, err := writeAndReadFromBufferFn(t.bufReader, b, p.payload)
 		return true, n, err
-	} else {
+	case false:
 		if p != nil {
 			t.session.ackQueue <- p
 		}
 	}
+
 	return false, 0, nil
 }
 
@@ -229,7 +235,7 @@ func doReadFromQueue(t *TLSConn, b []byte) (bool, int, error) {
 			if err := sendACKFn(t.conn, t.session, p.id); err != nil {
 				return true, 0, err
 			}
-			n, err := writeAndReadFromBuffer(t.bufReader, b, p.payload)
+			n, err := writeAndReadFromBufferFn(t.bufReader, b, p.payload)
 			return true, n, err
 		} else {
 			t.session.ackQueue <- p
@@ -239,10 +245,18 @@ func doReadFromQueue(t *TLSConn, b []byte) (bool, int, error) {
 	return false, 0, nil
 }
 
+// doRead() calls ReadPacket() in the underlying transport implementation. It
+// returns a packet and an error.
 func (t *TLSConn) doRead() (*packet, error) {
+	if t.transport == nil {
+		return nil, fmt.Errorf("%w:%s", errBadInput, "tlsConn is missing transport")
+
+	}
 	return t.transport.ReadPacket()
 }
 
+// canRead returns true if the packet is not nil and its packetID is the next
+// integer in the expected sequence; returns false otherwise.
 func (t *TLSConn) canRead(p *packet) bool {
 	return p != nil && t.session.isNextPacket(p)
 }
@@ -254,6 +268,8 @@ func writeAndReadFromBuffer(bb *bytes.Buffer, b []byte, payload []byte) (int, er
 	bb.Write(payload)
 	return bb.Read(b)
 }
+
+var writeAndReadFromBufferFn = writeAndReadFromBuffer
 
 // Write writes the given data to the tls connection.
 func (t *TLSConn) Write(b []byte) (int, error) {
