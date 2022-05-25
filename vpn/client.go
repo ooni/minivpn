@@ -31,7 +31,6 @@ type tunnel struct {
 
 type vpnClient interface {
 	Start() error
-	Stop() error
 	Dial() (net.Conn, error)
 }
 
@@ -71,10 +70,6 @@ func NewClientFromOptions(opt *Options) vpnClient {
 
 // Start starts the OpenVPN tunnel.
 func (c *Client) Start() error {
-	if c.mux != nil {
-		// TODO(ainghazal): test for multiple start/stop cycles
-		return ErrAlreadyStarted
-	}
 	conn, err := c.Dial()
 	if err != nil {
 		return err
@@ -90,15 +85,6 @@ func (c *Client) Start() error {
 		return err
 	}
 	c.mux = mux
-	return nil
-}
-
-// Stop stops the OpenVPN tunnel.
-func (c *Client) Stop() error {
-	if err := c.conn.Close(); err != nil {
-		return err
-	}
-	c.mux = nil
 	return nil
 }
 
