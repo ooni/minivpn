@@ -1201,7 +1201,6 @@ func Test_data_ReadPacket(t *testing.T) {
 				state:     tt.fields.state,
 				decryptFn: tt.fields.decryptFn,
 				decodeFn:  tt.fields.decodeFn,
-				//session:         tt.fields.session,
 			}
 			got, err := d.ReadPacket(tt.args.p)
 			if !errors.Is(err, tt.wantErr) {
@@ -1231,6 +1230,9 @@ func makeTestingConnForWrite(network, addr string, n int) net.Conn {
 		return mockAddr
 	}
 	mockConn.MockWrite = func([]byte) (int, error) {
+		return n, nil
+	}
+	mockConn.MockRead = func([]byte) (int, error) {
 		return n, nil
 	}
 	return mockConn

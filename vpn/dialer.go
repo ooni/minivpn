@@ -22,10 +22,11 @@ var (
 // through an OpenVPN endpoint. It uses a userspace gVisor virtual device over
 // the raw VPN tunnel.
 type TunDialer struct {
-	DialFn DialFunc
-	raw    *RawDialer
-	ns1    string
-	ns2    string
+	DialFn          DialFunc
+	raw             *RawDialer
+	ns1             string
+	ns2             string
+	skipDeviceSetup bool
 }
 
 // NewTunDialer creates a new Dialer with the default nameservers (OpenDNS).
@@ -128,8 +129,10 @@ func (td TunDialer) createNetTUN() (*netstack.Net, error) {
 	}
 
 	// connect the virtual device to our openvpn tunnel
-	dev := &device{tun, client}
-	dev.Up()
+	if !td.skipDeviceSetup {
+		dev := &device{tun, client}
+		dev.Up()
+	}
 
 	return tnet, nil
 }
@@ -183,6 +186,9 @@ type RawDialer struct {
 	// dialFn is the on-the-wire dial function that will be passed to the
 	// OpenVPN client.
 	dialFn DialFunc
+
+	// a client factory to facilitate testing wih a mocked client
+	clientFactory func(*Options) vpnClient
 }
 
 func NewRawDialer(opts *Options) *RawDialer {
@@ -199,17 +205,14 @@ func (d *RawDialer) Dial() (net.Conn, error) {
 // the TunDialer that access this we need to access some private fields from
 // the Client implementation.
 func (d *RawDialer) dial() (*Client, error) {
-	client, err := clientFactoryFn(d.Options, d.dialFn)
-	return client, err
-}
-
-func clientFactory(opt *Options, dialFn DialFunc) (*Client, error) {
-	client := NewClientFromOptions(opt)
-	if dialFn != nil {
-		client.DialFn = dialFn
+	cf := NewClientFromOptions
+	if d.clientFactory != nil {
+		cf = d.clientFactory
+	}
+	client := cf(d.Options)
+	if d.dialFn != nil {
+		client.(*Client).DialFn = d.dialFn
 	}
 	err := client.Start()
-	return client, err
+	return client.(*Client), err
 }
-
-var clientFactoryFn = clientFactory

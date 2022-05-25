@@ -29,6 +29,12 @@ type tunnel struct {
 	mtu int
 }
 
+type vpnClient interface {
+	Start() error
+	Stop() error
+	Dial() (net.Conn, error)
+}
+
 // Client implements the OpenVPN protocol. If you're just interested in writing
 // to and reading from the tunnel you should use the dialer methods instead.
 // This type is only intended to be instantiated by users that need a finer control
@@ -45,10 +51,11 @@ type Client struct {
 	Log Logger
 }
 
-var _ net.Conn = &Client{} // Ensure that we implement net.Conn
+var _ net.Conn = &Client{}  // Ensure that we implement net.Conn
+var _ vpnClient = &Client{} // Ensure that we implement vpnClient
 
 // NewClientFromOptions returns a Client configured with the given Options.
-func NewClientFromOptions(opt *Options) *Client {
+func NewClientFromOptions(opt *Options) vpnClient {
 	if opt == nil {
 		return &Client{}
 	}
