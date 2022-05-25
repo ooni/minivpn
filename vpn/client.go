@@ -162,6 +162,7 @@ func (c *Client) LocalAddr() net.Addr {
 
 // TODO(ainghazal): should get the remote _tunnel_ ip addr somehow
 func (c *Client) RemoteAddr() net.Addr {
+	logger.Errorf("client.RemoteAddr() not implemented")
 	return nil
 }
 

@@ -247,89 +247,74 @@ func makeTestingTLSConn() (*TLSConn, *MockTLSConn) {
 	return t, c
 }
 
-func TestTLSConn_doReadFromConn(t *testing.T) {
-	type fields struct {
-		conn      net.Conn
-		session   *session
-		transport TLSModeTransporter
-		bufReader *bytes.Buffer
+func TestTLSConn_Read_Fails_With_Bad_Data(t *testing.T) {
+	tc, _ := makeTestingTLSConn()
+	b := make([]byte, 16)
+	_, err := tc.Read(b)
+	wantErr := errBadInput
+	if !errors.Is(err, wantErr) {
+		t.Errorf("TLSConn.Read(): empty session; gotErr = %v, wantErr = %v ", err, wantErr)
 	}
-	type args struct {
-		b []byte
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		want    bool
-		want1   int
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tr := &TLSConn{
-				conn:      tt.fields.conn,
-				session:   tt.fields.session,
-				transport: tt.fields.transport,
-				bufReader: tt.fields.bufReader,
-			}
-			got, got1, err := tr.doReadFromConn(tt.args.b)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("TLSConn.doReadFromConn() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("TLSConn.doReadFromConn() got = %v, want %v", got, tt.want)
-			}
-			if got1 != tt.want1 {
-				t.Errorf("TLSConn.doReadFromConn() got1 = %v, want %v", got1, tt.want1)
-			}
-		})
-	}
+
 }
 
-func TestTLSConn_doReadFromQueue(t *testing.T) {
-	type fields struct {
-		conn      net.Conn
-		session   *session
-		transport TLSModeTransporter
-		bufReader *bytes.Buffer
+func TestTLSConn_Read(t *testing.T) {
+	readFromConnCalled := false
+	readFromQueueCalled := false
+
+	payload := []byte("alles ist gut")
+
+	tc, _ := makeTestingTLSConn()
+	tc.session = makeTestingSession()
+	ackQueue := make(chan *packet, 16)
+	tc.session.ackQueue = ackQueue
+
+	tc.doReadFromConnFn = func(tcn *TLSConn, b []byte) (bool, int, error) {
+		readFromConnCalled = true
+		copy(b[:], payload)
+		return true, len(payload), nil
 	}
-	type args struct {
-		b []byte
+	tc.doReadFromQueueFn = func(tcn *TLSConn, b []byte) (bool, int, error) {
+		readFromQueueCalled = true
+		copy(b[:], payload)
+		return true, len(payload), nil
 	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		want    bool
-		want1   int
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+
+	// first we read from conn
+	b := make([]byte, 255)
+	n, err := tc.Read(b)
+	if err != nil {
+		t.Errorf("TLSConn.Read(): expected no error, got %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tr := &TLSConn{
-				conn:      tt.fields.conn,
-				session:   tt.fields.session,
-				transport: tt.fields.transport,
-				bufReader: tt.fields.bufReader,
-			}
-			got, got1, err := tr.doReadFromQueue(tt.args.b)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("TLSConn.doReadFromQueue() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("TLSConn.doReadFromQueue() got = %v, want %v", got, tt.want)
-			}
-			if got1 != tt.want1 {
-				t.Errorf("TLSConn.doReadFromQueue() got1 = %v, want %v", got1, tt.want1)
-			}
-		})
+	if n != len(payload) {
+		t.Errorf("TLSConn.Read(): readFromConn returned wrong len %v", n)
+	}
+	if !readFromConnCalled {
+		t.Errorf("TLSConn.Read(): readFromConn not called")
+	}
+	if readFromQueueCalled {
+		t.Errorf("TLSConn.Read(): readFromQueue should have not been called")
+	}
+
+	// now we read from queue. reset the witnesses:
+
+	readFromConnCalled = false
+	readFromQueueCalled = false
+
+	p := &packet{opcode: pDataV1, payload: []byte("alles ist gut")}
+	tc.session.ackQueue <- p
+
+	b = make([]byte, 255)
+	n, err = tc.Read(b)
+	if err != nil {
+		t.Errorf("TLSConn.Read(): expected no error, got %v", err)
+	}
+
+	if !readFromQueueCalled {
+		t.Errorf("TLSConn.Read(): readFromQueue not called")
+	}
+	if readFromConnCalled {
+		t.Errorf("TLSConn.Read(): readFromConn should not have been called")
 	}
 }
 
@@ -379,19 +364,16 @@ func TestTLSConn_canRead(t *testing.T) {
 	}
 }
 
-func TestTLSConn_ackAndRead(t *testing.T) {
-	sendACKFn = func(net.Conn, *session, packetID) error {
-		return nil
-	}
-	buf := []byte("alles ist gut")
-	p := &packet{opcode: pDataV1, payload: buf}
-	tc := &TLSConn{
-		conn:      makeTestingConnForRead(len(buf), nil, p.Bytes()),
-		bufReader: &bytes.Buffer{},
-	}
-	_, err := tc.ackAndRead([]byte("foo"), p)
+func Test_writeAndReadFromBuffer(t *testing.T) {
+	bb := &bytes.Buffer{}
+	b := make([]byte, 255)
+	payload := []byte("this test is green")
+	n, err := writeAndReadFromBuffer(bb, b, payload)
 	if err != nil {
-		t.Errorf("TLSConn.ackAndRead() err=%v, wantErr=%v", err, nil)
+		t.Error("writeAndReadFromBuffer(): expected no error")
+	}
+	if n != len(payload) {
+		t.Errorf("writeAndReadFromBuffer(): got len = %v, wanted = %v", n, len(payload))
 	}
 }
 
