@@ -15,6 +15,88 @@ func writeDummyCertFiles(d string) {
 	os.WriteFile(fp.Join(d, "key.pem"), []byte("dummy"), 0600)
 }
 
+func TestOptions_String(t *testing.T) {
+	type fields struct {
+		Remote     string
+		Port       string
+		Proto      int
+		Username   string
+		Password   string
+		Ca         string
+		Cert       string
+		Key        string
+		Compress   compression
+		Cipher     string
+		Auth       string
+		TLSMaxVer  string
+		ProxyOBFS4 string
+		Log        Logger
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   string
+	}{
+		{
+			name:   "empty cipher",
+			fields: fields{},
+			want:   "",
+		},
+		{
+			name: "proto tcp",
+			fields: fields{
+				Cipher: "AES-128-GCM",
+				Auth:   "sha512",
+				Proto:  1,
+			},
+			want: "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto TCPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client",
+		},
+		{
+			name: "compress stub",
+			fields: fields{
+				Cipher:   "AES-128-GCM",
+				Auth:     "sha512",
+				Proto:    2,
+				Compress: compressionStub,
+			},
+			want: "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client,compress stub",
+		},
+		{
+			name: "compress lzo-no",
+			fields: fields{
+				Cipher:   "AES-128-GCM",
+				Auth:     "sha512",
+				Proto:    2,
+				Compress: compressionLZONo,
+			},
+			want: "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client,lzo-comp no",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &Options{
+				Remote:     tt.fields.Remote,
+				Port:       tt.fields.Port,
+				Proto:      tt.fields.Proto,
+				Username:   tt.fields.Username,
+				Password:   tt.fields.Password,
+				Ca:         tt.fields.Ca,
+				Cert:       tt.fields.Cert,
+				Key:        tt.fields.Key,
+				Compress:   tt.fields.Compress,
+				Cipher:     tt.fields.Cipher,
+				Auth:       tt.fields.Auth,
+				TLSMaxVer:  tt.fields.TLSMaxVer,
+				ProxyOBFS4: tt.fields.ProxyOBFS4,
+				Log:        tt.fields.Log,
+			}
+			if got := o.String(); got != tt.want {
+				t.Errorf("Options.String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetOptionsFromLines(t *testing.T) {
 	d := t.TempDir()
 	l := []string{
@@ -159,6 +241,65 @@ func TestGetOptionsComment(t *testing.T) {
 	if o.Cipher != "AES-256-GCM" {
 		t.Errorf("Expected cipher: AES-256-GCM")
 	}
+}
+
+func Test_parseProto(t *testing.T) {
+	// empty parts
+	err := parseProto([]string{}, &Options{})
+	wantErr := errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseProto(): wantErr: %v, got %v", wantErr, err)
+	}
+
+	// two parts
+	err = parseProto([]string{"foo", "bar"}, &Options{})
+	wantErr = errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseProto(): wantErr %v, got %v", wantErr, err)
+	}
+
+	// udp
+	opt := &Options{}
+	err = parseProto([]string{"udp"}, opt)
+	if !errors.Is(err, nil) {
+		t.Errorf("parseProto(): wantErr: %v, got %v", nil, err)
+	}
+	if opt.Proto != UDPMode {
+		t.Errorf("parseProto(): wantErr %v, got %v", nil, err)
+	}
+
+	// tcp
+	opt = &Options{}
+	err = parseProto([]string{"tcp"}, opt)
+	if !errors.Is(err, nil) {
+		t.Errorf("parseProto(): wantErr: %v, got %v", nil, err)
+	}
+	if opt.Proto != TCPMode {
+		t.Errorf("parseProto(): wantErr %v, got %v", nil, err)
+	}
+
+}
+
+func Test_parseProxyOBFS4(t *testing.T) {
+	// empty parts
+	err := parseProxyOBFS4([]string{}, &Options{})
+	wantErr := errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseProxyOBFS4(): wantErr: %v, got %v", wantErr, err)
+	}
+
+	// obfs4 string
+	opt := &Options{}
+	obfs4Uri := "obfs4://foobar"
+	err = parseProxyOBFS4([]string{obfs4Uri}, opt)
+	wantErr = nil
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseProxyOBFS4(): wantErr: %v, got %v", wantErr, err)
+	}
+	if opt.ProxyOBFS4 != obfs4Uri {
+		t.Errorf("parseProxyOBFS4(): want %v, got %v", obfs4Uri, opt.ProxyOBFS4)
+	}
+
 }
 
 func Test_parseRemoteOptions(t *testing.T) {
@@ -370,6 +511,23 @@ func Test_parseTLSVerMax(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := parseTLSVerMax(tt.args.p, tt.args.o); !errors.Is(err, tt.wantErr) {
 				t.Errorf("parseTLSVerMax() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_proto_String(t *testing.T) {
+	tests := []struct {
+		name string
+		p    proto
+		want string
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.p.String(); got != tt.want {
+				t.Errorf("proto.String() = %v, want %v", got, tt.want)
 			}
 		})
 	}

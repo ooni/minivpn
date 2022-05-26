@@ -324,6 +324,7 @@ func parseProxyOBFS4(p []string, o *Options) error {
 	if len(p) != 1 {
 		return fmt.Errorf("%w:%s", errBadCfg, "proto-obfs4: need a properly configured proxy")
 	}
+	// TODO(ainghazal): can validate the obfs4://... scheme here
 	o.ProxyOBFS4 = p[0]
 	return nil
 }
