@@ -136,7 +136,7 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// LocalLocalAddr returns the local address on the tunnel virtual device.
+// LocalAddr returns the local address on the tunnel virtual device.
 func (c *Client) LocalAddr() net.Addr {
 	if c.tunnel == nil {
 		addr, _ := net.ResolveIPAddr("ip", "")

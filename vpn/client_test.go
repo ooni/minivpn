@@ -32,6 +32,76 @@ func TestNewClientFromOptions(t *testing.T) {
 	}
 }
 
+type mockMuxerForClient struct {
+	muxer
+	writeCalled bool
+	readCalled  bool
+}
+
+func (mm *mockMuxerForClient) Read([]byte) (int, error) {
+	mm.readCalled = true
+	return 42, nil
+}
+
+func (mm *mockMuxerForClient) Write(b []byte) (int, error) {
+	mm.writeCalled = true
+	return len(b), nil
+}
+
+func TestClient_Write(t *testing.T) {
+	// test that call to write calls the muxer method
+	cl, _ := makeTestingClientConn()
+	mux := &mockMuxerForClient{}
+	cl.mux = mux
+	_, err := cl.Write([]byte("alles ist green"))
+	if err != nil {
+		t.Errorf("Client.Write(): expected err = nil, got %v", err)
+	}
+	if !mux.writeCalled {
+		t.Errorf("Client.Write(): client.mux.Write() not called")
+	}
+}
+
+func TestClient_Read(t *testing.T) {
+	cl, _ := makeTestingClientConn()
+	cl.mux = nil
+	b := make([]byte, 255)
+	_, err := cl.Read(b)
+	if !errors.Is(err, errBadInput) {
+		t.Errorf("Client.Read(): nil mux, expected error %v, got %v ", errBadInput, err)
+	}
+
+	// test that call to read calls the muxer method
+	cl, _ = makeTestingClientConn()
+	mux := &mockMuxerForClient{}
+	cl.mux = mux
+	b = make([]byte, 255)
+	_, err = cl.Read(b)
+	if err != nil {
+		t.Errorf("Client.Read(): expected err = nil, got %v", err)
+	}
+	if !mux.readCalled {
+		t.Errorf("Client.Read(): client.mux.Read() not called")
+	}
+}
+
+func TestClient_LocalAddr(t *testing.T) {
+	cl, _ := makeTestingClientConn()
+	cl.tunnel = nil
+	a := cl.LocalAddr()
+	if a.String() != "" {
+		t.Errorf("Client.LocalAddr(): expected empty string, got %v", a.String())
+	}
+}
+
+func TestClient_RemoteAddr(t *testing.T) {
+	cl, _ := makeTestingClientConn()
+	a := cl.RemoteAddr()
+	if a != nil {
+		t.Error("Client.RemoteAddr(): this was not implemented, please fix test")
+	}
+}
+
 // for the tests that test the delegation of methods to the underlying conn we
 // can reuse the mock used in transport_test
 
