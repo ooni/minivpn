@@ -7,6 +7,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/ainghazal/minivpn/vpn/mocks"
 )
 
 func Test_initTLS(t *testing.T) {
@@ -398,29 +400,78 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 
 }
 
+// mock good handshake
+
+type dummyTLSConn struct {
+	tls.Conn
+}
+
+var _ handshaker = &dummyTLSConn{} // Ensure that we implement handshaker
+
+func (d *dummyTLSConn) Handshake() error {
+	return nil
+}
+
+func dummyTLSFactory(net.Conn, *tls.Config) handshaker {
+	return &dummyTLSConn{tls.Conn{}}
+}
+
+// mock bad handshake
+
+type dummyTLSConnBadHandshake struct {
+	tls.Conn
+}
+
+var _ handshaker = &dummyTLSConnBadHandshake{} // Ensure that we implement handshaker
+
+func (d *dummyTLSConnBadHandshake) Handshake() error {
+	return errors.New("dummy error")
+}
+
+func dummyTLSFactoryBadHandshake(net.Conn, *tls.Config) handshaker {
+	return &dummyTLSConnBadHandshake{tls.Conn{}}
+}
+
 func Test_tlsHandshake(t *testing.T) {
-	type args struct {
-		tlsConn *TLSConn
-		tlsConf *tls.Config
+
+	makeConnAndConf := func() (*TLSConn, *tls.Config) {
+		conn := &mocks.Conn{}
+		s := makeTestingSession()
+		tc, _ := NewTLSConn(conn, s)
+
+		conf := &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS13,
+		}
+		return tc, conf
 	}
-	tests := []struct {
-		name    string
-		args    args
-		want    net.Conn
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+
+	// mocked good handshake
+
+	tlsFactoryFn = dummyTLSFactory
+	conn, conf := makeConnAndConf()
+
+	_, err := tlsHandshake(conn, conf)
+	if err != nil {
+		t.Errorf("tlsHandshake() error = %v, wantErr %v", err, nil)
+		return
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tlsHandshake(tt.args.tlsConn, tt.args.tlsConf)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("tlsHandshake() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("tlsHandshake() = %v, want %v", got, tt.want)
-			}
-		})
+
+	// mocked bad handshake
+	tlsFactoryFn = dummyTLSFactoryBadHandshake
+	conn, conf = makeConnAndConf()
+
+	wantErr := ErrBadTLSHandshake
+	_, err = tlsHandshake(conn, conf)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("tlsHandshake() error = %v, wantErr %v", err, wantErr)
+		return
 	}
+}
+
+func Test_defaultTLSFactory(t *testing.T) {
+	conn := &mocks.Conn{}
+	conf := &tls.Config{}
+	defaultTLSFactory(conn, conf)
 }

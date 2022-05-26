@@ -72,11 +72,25 @@ var initTLSFn = initTLS
 // tlsHandshake performs the TLS handshake over the control channel, and return
 // the TLS Client as a net.Conn; returns also any error during the handshake.
 func tlsHandshake(tlsConn *TLSConn, tlsConf *tls.Config) (net.Conn, error) {
-	tlsClient := tls.Client(tlsConn, tlsConf)
+	tlsClient := tlsFactoryFn(tlsConn, tlsConf)
 	if err := tlsClient.Handshake(); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 	}
 	return tlsClient, nil
 }
 
+// handshaker is a custom interface that we define here to be able to mock
+// the tls.Conn implementation.
+type handshaker interface {
+	net.Conn
+	Handshake() error
+}
+
+// defaultTLSFactory returns an implementer of the handshaker interface; that
+// is, the default tls.Client factory.
+func defaultTLSFactory(conn net.Conn, config *tls.Config) handshaker {
+	return tls.Client(conn, config)
+}
+
+var tlsFactoryFn = defaultTLSFactory
 var tlsHandshakeFn = tlsHandshake
