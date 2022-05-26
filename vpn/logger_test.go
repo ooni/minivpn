@@ -1,8 +1,12 @@
 package vpn
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestDefaultLoggerDoesNotFail(t *testing.T) {
+	os.Setenv("EXTRA_DEBUG", "1")
 	logger := defaultLogger{}
 	logger.Debug("foo")
 	logger.Debugf("%s", "foo")

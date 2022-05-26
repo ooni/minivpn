@@ -497,9 +497,23 @@ func Test_muxer_readPushReply(t *testing.T) {
 	tests := []struct {
 		name    string
 		fields  fields
-		wantErr bool
+		wantErr error
 	}{
-		// TODO: Add test cases.
+		{
+			name: "control == nil should return error",
+			fields: fields{
+				control: nil,
+			},
+			wantErr: errBadInput,
+		},
+		{
+			name: "tunnel == nil should return error",
+			fields: fields{
+				tunnel: nil,
+			},
+			wantErr: errBadInput,
+		},
+		// TODO: Add moar test cases.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -513,7 +527,7 @@ func Test_muxer_readPushReply(t *testing.T) {
 				tunnel:    tt.fields.tunnel,
 				options:   tt.fields.options,
 			}
-			if err := m.readPushReply(); (err != nil) != tt.wantErr {
+			if err := m.readPushReply(); !errors.Is(err, tt.wantErr) {
 				t.Errorf("muxer.readPushReply() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

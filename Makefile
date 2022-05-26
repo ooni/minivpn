@@ -3,7 +3,7 @@ TARGET ?= "1.1.1.1"
 COUNT ?= 3
 TIMEOUT ?= 10
 LOCAL_TARGET := $(shell ip -4 addr show docker0 | grep 'inet ' | awk '{print $$2}' | cut -f 1 -d /)
-COVERAGE_THRESHOLD := 85
+COVERAGE_THRESHOLD := 88
 
 build:
 	@go build

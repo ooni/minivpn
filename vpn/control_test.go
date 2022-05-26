@@ -2,10 +2,13 @@ package vpn
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"net"
 	"reflect"
 	"testing"
+
+	"github.com/ainghazal/minivpn/vpn/mocks"
 )
 
 func Test_newSession(t *testing.T) {
@@ -66,6 +69,18 @@ func Test_maybeAddSizeFrame(t *testing.T) {
 				t.Errorf("maybeAddSizeFrame() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_session_ActiveKey(t *testing.T) {
+	s := &session{
+		keys:  make([]*dataChannelKey, 2),
+		keyID: 10,
+	}
+	_, err := s.ActiveKey()
+	wantErr := errDataChannelKey
+	if !errors.Is(err, wantErr) {
+		t.Errorf("session.ActiveKey() = got err %v, want %v", err, wantErr)
 	}
 }
 
@@ -226,6 +241,14 @@ func Test_isPushReply(t *testing.T) {
 				t.Errorf("isPushReply() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_sendControlPacket(t *testing.T) {
+	_, err := sendControlPacket(&mocks.Conn{}, nil, 1, 1, []byte(""))
+	wantErr := errBadInput
+	if !errors.Is(err, wantErr) {
+		t.Errorf("sendControlPacket(): empty session should fail with err=%v, got=%v", wantErr, err)
 	}
 }
 

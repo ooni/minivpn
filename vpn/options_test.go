@@ -243,6 +243,50 @@ func TestGetOptionsComment(t *testing.T) {
 	}
 }
 
+var dummyConfigFile = []byte(`proto udp
+cipher AES-128-GCM
+auth SHA1`)
+
+func writeDummyConfigFile(dir string) (string, error) {
+	f, err := os.CreateTemp(dir, "tmpfile-")
+	if err != nil {
+		return "", err
+	}
+	f.Write(dummyConfigFile)
+	return f.Name(), nil
+}
+
+func Test_ParseConfigFile(t *testing.T) {
+	// parse good file
+	f, err := writeDummyConfigFile(t.TempDir())
+	if err != nil {
+		t.Fatal("ParseConfigFile(): cannot write cert needed for the test")
+	}
+	o, err := ParseConfigFile(f)
+	if err != nil {
+		t.Errorf("ParseConfigFile(): expected err=%v, got=%v", nil, err)
+	}
+	wantProto := UDPMode
+	if o.Proto != wantProto {
+		t.Errorf("ParseConfigFile(): expected Proto=%v, got=%v", wantProto, o.Proto)
+	}
+	wantCipher := "AES-128-GCM"
+	if o.Cipher != wantCipher {
+		t.Errorf("ParseConfigFile(): expected=%v, got=%v", wantCipher, o.Cipher)
+	}
+
+	// expect error when parsing a bad filepath
+	_, err = ParseConfigFile("")
+	if err == nil {
+		t.Errorf("expected error with empty file")
+	}
+
+	_, err = ParseConfigFile("http://example.com")
+	if err == nil {
+		t.Errorf("expected error with http uri")
+	}
+}
+
 func Test_parseProto(t *testing.T) {
 	// empty parts
 	err := parseProto([]string{}, &Options{})
@@ -278,6 +322,14 @@ func Test_parseProto(t *testing.T) {
 		t.Errorf("parseProto(): wantErr %v, got %v", nil, err)
 	}
 
+	// bad
+	opt = &Options{}
+	err = parseProto([]string{"kcp"}, opt)
+	wantErr = errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseProto(): wantErr: %v, got %v", errBadCfg, err)
+	}
+
 }
 
 func Test_parseProxyOBFS4(t *testing.T) {
@@ -300,6 +352,94 @@ func Test_parseProxyOBFS4(t *testing.T) {
 		t.Errorf("parseProxyOBFS4(): want %v, got %v", obfs4Uri, opt.ProxyOBFS4)
 	}
 
+}
+
+func Test_parseCA(t *testing.T) {
+	// more than one part should fail
+	err := parseCA([]string{"one", "two"}, &Options{}, "")
+	wantErr := errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseCA(): want %v, got %v", wantErr, err)
+	}
+
+	// empty part should fail
+	err = parseCA([]string{}, &Options{}, "")
+	wantErr = errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseCA(): want %v, got %v", wantErr, err)
+	}
+}
+
+func Test_parseCert(t *testing.T) {
+	// more than one part should fail
+	err := parseCert([]string{"one", "two"}, &Options{}, "")
+	wantErr := errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseCert(): want %v, got %v", wantErr, err)
+	}
+
+	// empty part should fail
+	err = parseCert([]string{}, &Options{}, "")
+	wantErr = errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseCert(): want %v, got %v", wantErr, err)
+	}
+
+	// non-existent cert should fail
+	err = parseCert([]string{"/tmp/nonexistent"}, &Options{}, "")
+	wantErr = errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseCert(): want %v, got %v", wantErr, err)
+	}
+}
+
+func Test_parseKey(t *testing.T) {
+	// more than one part should fail
+	err := parseKey([]string{"one", "two"}, &Options{}, "")
+	wantErr := errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseKey(): want %v, got %v", wantErr, err)
+	}
+
+	// empty part should fail
+	err = parseKey([]string{}, &Options{}, "")
+	wantErr = errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseKey(): want %v, got %v", wantErr, err)
+	}
+
+	// non-existent key should fail
+	err = parseKey([]string{"/tmp/nonexistent"}, &Options{}, "")
+	wantErr = errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseKey(): want %v, got %v", wantErr, err)
+	}
+}
+
+func Test_parseCompress(t *testing.T) {
+	// more than one part should fail
+	err := parseCompress([]string{"one", "two"}, &Options{})
+	wantErr := errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseCompress(): want %v, got %v", wantErr, err)
+	}
+}
+
+func Test_parseCompLZO(t *testing.T) {
+	// only "no" is supported
+	err := parseCompLZO([]string{"yes"}, &Options{})
+	wantErr := errBadCfg
+	if !errors.Is(err, wantErr) {
+		t.Errorf("parseCompLZO(): want %v, got %v", wantErr, err)
+	}
+}
+
+func Test_parseOption(t *testing.T) {
+	// unknown key should not fail
+	err := parseOption(&Options{}, t.TempDir(), "unknownKey", []string{"a", "b"})
+	if err != nil {
+		t.Errorf("parseOption(): want %v, got %v", nil, err)
+	}
 }
 
 func Test_parseRemoteOptions(t *testing.T) {
@@ -422,11 +562,35 @@ func Test_parseAuth(t *testing.T) {
 		args    args
 		wantErr error
 	}{
-		// TODO: Add test cases.
+		{
+			name:    "should fail with empty array",
+			args:    args{[]string{}, &Options{}},
+			wantErr: errBadCfg,
+		},
+		{
+			name:    "should fail with 2-element array",
+			args:    args{[]string{"foo", "bar"}, &Options{}},
+			wantErr: errBadCfg,
+		},
+		{
+			name:    "should fail with lowercase option",
+			args:    args{[]string{"sha1"}, &Options{}},
+			wantErr: errBadCfg,
+		},
+		{
+			name:    "should fail with unknown option",
+			args:    args{[]string{"SHA666"}, &Options{}},
+			wantErr: errBadCfg,
+		},
+		{
+			name:    "should not fail with good option",
+			args:    args{[]string{"SHA512"}, &Options{}},
+			wantErr: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := parseAuthUser(tt.args.p, tt.args.o); !errors.Is(err, tt.wantErr) {
+			if err := parseAuth(tt.args.p, tt.args.o); !errors.Is(err, tt.wantErr) {
 				t.Errorf("parseAuth() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -435,17 +599,17 @@ func Test_parseAuth(t *testing.T) {
 }
 
 func Test_parseAuthUser(t *testing.T) {
-	f, err := os.CreateTemp("", "tmpfile-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fakeCreds := []byte("foo\nbar\n")
-	if _, err := f.Write(fakeCreds); err != nil {
-		t.Fatal(err)
-	}
 
-	defer f.Close()
-	defer os.Remove(f.Name())
+	makeCreds := func(credStr string) string {
+		f, err := os.CreateTemp(t.TempDir(), "tmpfile-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write([]byte(credStr)); err != nil {
+			t.Fatal(err)
+		}
+		return f.Name()
+	}
 
 	type args struct {
 		p []string
@@ -459,10 +623,34 @@ func Test_parseAuthUser(t *testing.T) {
 		{
 			name: "parse good auth",
 			args: args{
-				p: []string{f.Name()},
+				p: []string{makeCreds("foo\nbar\n")},
 				o: &Options{},
 			},
 			wantErr: nil,
+		},
+		{
+			name: "parse empty file should fail",
+			args: args{
+				p: []string{""},
+				o: &Options{},
+			},
+			wantErr: errBadCfg,
+		},
+		{
+			name: "parse empty parts should fail",
+			args: args{
+				p: []string{},
+				o: &Options{},
+			},
+			wantErr: errBadCfg,
+		},
+		{
+			name: "parse less than two lines should fail",
+			args: args{
+				p: []string{makeCreds("foo\n")},
+				o: &Options{},
+			},
+			wantErr: errBadCfg,
 		},
 	}
 	for _, tt := range tests {
@@ -528,6 +716,67 @@ func Test_proto_String(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.p.String(); got != tt.want {
 				t.Errorf("proto.String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_getCredentialsFromFile(t *testing.T) {
+
+	makeCreds := func(credStr string) string {
+		f, err := os.CreateTemp(t.TempDir(), "tmpfile-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write([]byte(credStr)); err != nil {
+			t.Fatal(err)
+		}
+		return f.Name()
+	}
+
+	type args struct {
+		path string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr error
+	}{
+		{
+			name:    "should fail with non-existing file",
+			args:    args{"/tmp/nonexistent"},
+			want:    nil,
+			wantErr: errBadCfg,
+		},
+		{
+			name:    "should fail with empty file",
+			args:    args{makeCreds("")},
+			want:    nil,
+			wantErr: errBadCfg,
+		},
+		{
+			name:    "should fail with empty user",
+			args:    args{makeCreds("\n\n")},
+			want:    nil,
+			wantErr: errBadCfg,
+		},
+		{
+			name:    "should fail with empty pass",
+			args:    args{makeCreds("user\n\n")},
+			want:    nil,
+			wantErr: errBadCfg,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := getCredentialsFromFile(tt.args.path)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("getCredentialsFromFile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getCredentialsFromFile() = %v, want %v", got, tt.want)
 			}
 		})
 	}

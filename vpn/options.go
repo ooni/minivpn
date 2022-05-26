@@ -412,7 +412,6 @@ func existsFile(path string) bool {
 
 func getLinesFromFile(path string) ([]string, error) {
 	f, err := os.Open(path) //#nosec G304
-	//defer f.Close()
 	defer func() {
 		if err := f.Close(); err != nil {
 			logger.Errorf("Error closing file: %s\n", err)
@@ -437,16 +436,16 @@ func getLinesFromFile(path string) ([]string, error) {
 func getCredentialsFromFile(path string) ([]string, error) {
 	lines, err := getLinesFromFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", errBadCfg, err)
 	}
 	if len(lines) != 2 {
-		return nil, fmt.Errorf("%w:%s", errBadCfg, "malformed credentials file")
+		return nil, fmt.Errorf("%w: %s", errBadCfg, "malformed credentials file")
 	}
 	if len(lines[0]) == 0 {
-		return nil, fmt.Errorf("%w:%s", errBadCfg, "empty username in creds file")
+		return nil, fmt.Errorf("%w: %s", errBadCfg, "empty username in creds file")
 	}
 	if len(lines[1]) == 0 {
-		return nil, fmt.Errorf("%w:%s", errBadCfg, "empty password in creds file")
+		return nil, fmt.Errorf("%w: %s", errBadCfg, "empty password in creds file")
 	}
 	return lines, nil
 }

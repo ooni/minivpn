@@ -35,20 +35,21 @@ import (
  TCP session over OpenVPN running in UDP mode, the TCP protocol itself will
  provide the reliability layer."
 
-SSL/TLS -> Reliability Layer -> \
-           --tls-auth HMAC       \
-                                  \
-                                   > Multiplexer ----> UDP/TCP
-                                  /                    Transport
-IP        Encrypt and HMAC       /
-Tunnel -> using OpenSSL EVP --> /
-Packets   interface.
+ SSL/TLS -> Reliability Layer -> \
+            --tls-auth HMAC       \
+                                   \
+                                    > Multiplexer ----> UDP/TCP
+                                   /                    Transport
+ IP        Encrypt and HMAC       /
+ Tunnel -> using OpenSSL EVP --> /
+ Packets   interface.
 
 "This model has the benefit that SSL/TLS sees a reliable transport layer while
 the IP packet forwarder sees an unreliable transport layer -- exactly what both
 components want to see. The reliability and authentication layers are
 completely independent of one another, i.e. the sequence number is embedded
 inside the HMAC-signed envelope and is not used for authentication purposes."
+
 */
 type muxer struct {
 
@@ -86,8 +87,17 @@ type muxer struct {
 var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
 
 //
-// Interfaces we depend on (we could make muxer an interface too).
+// Interfaces
 //
+
+// vpnMuxer contains all the behavior expected by the muxer.
+type vpnMuxer interface {
+	Handshake() error
+	Reset(net.Conn, *session) error
+	InitDataWithRemoteKey() error
+	Write([]byte) (int, error)
+	Read([]byte) (int, error)
+}
 
 // controlHandler manages the control "channel".
 type controlHandler interface {
@@ -98,7 +108,6 @@ type controlHandler interface {
 	ReadPushResponse([]byte) string
 	ControlMessage(*session, *Options) ([]byte, error)
 	ReadControlMessage([]byte) (*keySource, string, error)
-	// ...
 }
 
 // dataHandler manages the data "channel".
@@ -110,17 +119,8 @@ type dataHandler interface {
 	EncryptAndEncodePayload([]byte, *dataChannelState) ([]byte, error)
 }
 
-// vpnMuxer contains all the behavior expected by the muxer.
-type vpnMuxer interface {
-	Handshake() error
-	Reset(net.Conn, *session) error
-	InitDataWithRemoteKey() error
-	Write([]byte) (int, error)
-	Read([]byte) (int, error)
-}
-
 //
-// muxer: initialization
+// muxer initialization
 //
 
 // newMuxerFromOptions returns a configured muxer, and any error if the
@@ -150,7 +150,7 @@ func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (*muxe
 }
 
 //
-// muxer: handshake
+// muxer handshake
 //
 
 // Handshake performs the OpenVPN "handshake" operations serially. It returns
