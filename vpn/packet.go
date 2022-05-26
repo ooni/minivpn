@@ -184,47 +184,49 @@ func parseControlPacket(p *packet) (*packet, error) {
 		return p, errEmptyPayload
 	}
 	if !p.isControl() {
-		return p, fmt.Errorf("%w:%s", errBadInput, "expected control packet")
+		return p, fmt.Errorf("%w: %s", errBadInput, "expected control packet")
 	}
 
 	buf := bytes.NewBuffer(p.payload)
 
-	// session id
+	// local session id
 	_, err := io.ReadFull(buf, p.localSessionID[:])
 	if err != nil {
-		return p, err
+		return p, fmt.Errorf("%w: bad sessionID: %s", errBadInput, err)
 	}
 
 	// ack array
 	ackBuf, err := buf.ReadByte()
 	if err != nil {
-		return p, err
+		return p, fmt.Errorf("%w: bad ack: %s", errBadInput, err)
 	}
-
 	nAcks := int(ackBuf)
 	p.acks = make([]packetID, nAcks)
 	for i := 0; i < nAcks; i++ {
 		val, err := bufReadUint32(buf)
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("%w: cannot parse ack id: %s", errBadInput, err)
 		}
 		p.acks[i] = packetID(val)
 	}
-	// local session id
+
+	// remote session id
 	if nAcks > 0 {
 		_, err = io.ReadFull(buf, p.remoteSessionID[:])
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("%w: bad remote sessionID: %s", errBadInput, err)
 		}
 	}
+
 	// packet id
 	if p.opcode != pACKV1 {
 		val, err := bufReadUint32(buf)
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("%w: bad packetID: %s", errBadInput, err)
 		}
 		p.id = packetID(val)
 	}
+
 	// payload
 	p.payload = buf.Bytes()
 	return p, nil

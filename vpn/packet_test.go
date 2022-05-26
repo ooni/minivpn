@@ -8,15 +8,6 @@ import (
 	"testing"
 )
 
-func Test_packet_Bytes(t *testing.T) {
-	got := (&packet{opcode: pACKV1}).Bytes()
-	want := []byte{40, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("newPacketFromBytes() = %v, want %v", got, want)
-	}
-
-}
-
 func Test_newPacketFromPayload(t *testing.T) {
 	type args struct {
 		opcode  uint8
@@ -47,6 +38,81 @@ func Test_newPacketFromPayload(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := newPacketFromPayload(tt.args.opcode, tt.args.keyID, tt.args.payload); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("newPacketFromPayload() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_packet_Bytes(t *testing.T) {
+	got := (&packet{opcode: pACKV1}).Bytes()
+	want := []byte{40, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("newPacketFromBytes() = %v, want %v", got, want)
+	}
+
+	id := packetID(1)
+	tooManyAcks := []packetID{
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+		id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id,
+	}
+
+	p := &packet{
+		opcode: pACKV1,
+		acks:   tooManyAcks,
+	}
+	got = p.Bytes()
+	if len(got) != 1038 {
+		t.Errorf("packet.Bytes(): expected len = %v, got %v", 1038, len(got))
+	}
+}
+
+func Test_packet_isControlV1(t *testing.T) {
+	type fields struct {
+		opcode byte
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   bool
+	}{
+		{
+			name:   "good control",
+			fields: fields{opcode: pControlV1},
+			want:   true,
+		},
+		{
+			name:   "no control",
+			fields: fields{opcode: pDataV1},
+			want:   false,
+		},
+		{
+			name:   "zero byte",
+			fields: fields{opcode: 0x00},
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &packet{
+				opcode: tt.fields.opcode,
+			}
+			if got := p.isControlV1(); got != tt.want {
+				t.Errorf("packet.isControlV1() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -340,7 +406,7 @@ func Test_parseControlPacket(t *testing.T) {
 	raw1 := "5ad4a9517af8e7fe000000000296f517f943d32a11fc8463b8594ae7d3523b627d8c9444aac2def81a13bea2e037aecbd158bdf50ed16e800829a929cae2440999ff8a2c45277e195e6ddc6c3cda178ec7ae86b1f034bb45c23493efff526659c4170303004553d904ebd8d1fe7f9dd962770444e43e3f3b2e8e3eaf31478004748953b8c01bf420ba71e2484b29e7e2a907071ec23ba7de605dd72c370aee31412d194144bb6b32e469f8"
 	payload1, _ := hex.DecodeString(raw1)
 	data1, _ := hex.DecodeString(raw1[26:])
-	p1 := &packet{id: 2, opcode: 4, payload: payload1}
+	packet1 := &packet{id: 2, opcode: 4, payload: payload1}
 	bls1, _ := hex.DecodeString("5ad4a9517af8e7fe")
 	var ls1 sessionID
 	copy(ls1[:], bls1)
@@ -352,12 +418,12 @@ func Test_parseControlPacket(t *testing.T) {
 		name    string
 		args    args
 		want    *packet
-		wantErr bool
+		wantErr error
 	}{
 		{
-			"good control packet 1",
-			args{p1},
-			&packet{
+			name: "good control packet 1",
+			args: args{packet1},
+			want: &packet{
 				id:              2,
 				keyID:           0,
 				opcode:          4,
@@ -365,24 +431,226 @@ func Test_parseControlPacket(t *testing.T) {
 				remoteSessionID: sessionID{},
 				payload:         data1,
 			},
-			false,
+			wantErr: nil,
+		},
+		{
+			name: "empty payload",
+			args: args{
+				p: &packet{
+					id:      2,
+					opcode:  4,
+					payload: []byte{},
+				},
+			},
+			want: &packet{
+				id:      2,
+				opcode:  4,
+				payload: []byte{},
+			},
+			wantErr: errEmptyPayload,
+		},
+		{
+			name: "non-control packet should fail",
+			args: args{
+				p: &packet{
+					id:      1,
+					opcode:  pDataV1,
+					payload: []byte("a"),
+				},
+			},
+			want: &packet{
+				id:      1,
+				opcode:  pDataV1,
+				payload: []byte("a"),
+			},
+			wantErr: errBadInput,
+		},
+		{
+			// TODO this case does corrupt the packet ID
+			name: "parse till session id",
+			args: args{
+				p: &packet{
+					id:     7,
+					opcode: pControlV1,
+					payload: []byte{
+						0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // sessionID
+						0x00,                   // number of acks
+						0x00, 0x00, 0x00, 0x07, // packetID
+					},
+				},
+			},
+			want: &packet{
+				id:             7,
+				opcode:         pControlV1,
+				localSessionID: sessionID{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+				payload:        []byte{},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "bad session id",
+			args: args{
+				p: &packet{
+					id:     1,
+					opcode: pControlV1,
+					payload: []byte{
+						0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // incomplete session id
+					},
+				},
+			},
+			want: &packet{
+				id:             1,
+				opcode:         pControlV1,
+				localSessionID: sessionID{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
+				payload:        []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
+			},
+			wantErr: errBadInput,
+		},
+		{
+			name: "not enough bytes for acks (eof)",
+			args: args{
+				p: &packet{
+					id:     1,
+					opcode: pControlV1,
+					payload: []byte{
+						0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // good session id
+					},
+				},
+			},
+			want: &packet{
+				id:             1,
+				opcode:         pControlV1,
+				localSessionID: sessionID{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+				payload:        []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+			},
+			wantErr: errBadInput,
+		},
+		{
+			name: "ack len ok, not enough bytes for ack id (eof)",
+			args: args{
+				p: &packet{
+					id:     1,
+					opcode: pControlV1,
+					payload: []byte{
+						0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // good session id
+						0x01, // EOF
+					},
+				},
+			},
+			want: &packet{
+				id:             1,
+				opcode:         pControlV1,
+				localSessionID: sessionID{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+				payload:        []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x01},
+			},
+			wantErr: errBadInput,
+		},
+		{
+			name: "ack len ok, parse one ack id",
+			args: args{
+				p: &packet{
+					id:     1,
+					opcode: pControlV1,
+					payload: []byte{
+						0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // good session id
+						0x01,                   // one ack
+						0x00, 0x00, 0x00, 0x42, // packet id of ack
+					},
+				},
+			},
+			want: &packet{
+				id:             1,
+				opcode:         pControlV1,
+				localSessionID: sessionID{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+				payload: []byte{
+					0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+					0x01,
+					0x00, 0x00, 0x00, 0x42,
+				},
+				acks: []packetID{0x42},
+			},
+			wantErr: errBadInput,
+		},
+		{
+			name: "incomplete remote session id",
+			args: args{
+				p: &packet{
+					id:     1,
+					opcode: pControlV1,
+					payload: []byte{
+						0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // good session id
+						0x01,                   // one ack
+						0x00, 0x00, 0x00, 0x42, // packet id of ack
+					},
+				},
+			},
+			want: &packet{
+				id:             1,
+				opcode:         pControlV1,
+				localSessionID: sessionID{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+				payload: []byte{
+					0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+					0x01,
+					0x00, 0x00, 0x00, 0x42,
+				},
+				acks: []packetID{0x42},
+			},
+			wantErr: errBadInput,
+		},
+		{
+			name: "good remote session id",
+			args: args{
+				p: &packet{
+					id:     1,
+					opcode: pControlV1,
+					payload: []byte{
+						0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // good session id
+						0x01,                   // one ack
+						0x00, 0x00, 0x00, 0x42, // packet id of ack
+						0xff, 0xfe, 0xfd, 0xfe,
+						0xff, 0xfe, 0xfd, 0xfe, // remote session id
+					},
+				},
+			},
+			want: &packet{
+				id:              1,
+				opcode:          pControlV1,
+				localSessionID:  sessionID{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+				remoteSessionID: sessionID{0xff, 0xfe, 0xfd, 0xfe, 0xff, 0xfe, 0xfd, 0xfe},
+				payload: []byte{
+					0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // session id
+					0x01,                   // one ack
+					0x00, 0x00, 0x00, 0x42, // packet id of ack
+					0xff, 0xfe, 0xfd, 0xfe,
+					0xff, 0xfe, 0xfd, 0xfe, // remote session id
+				},
+				acks: []packetID{0x42},
+			},
+			wantErr: errBadInput,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := parseControlPacket(tt.args.p)
-			if (err != nil) != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("parseControlPacket() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got.payload, tt.want.payload) {
-				t.Errorf("parseControlPacket() = got %v, want %v", got.payload, tt.want.payload)
+			if got.id != tt.want.id {
+				t.Errorf("parseControlPacket() = got id %v, want %v", got.id, tt.want.id)
+				return
 			}
-			if !reflect.DeepEqual(got.localSessionID, tt.want.localSessionID) {
-				t.Errorf("parseControlPacket() = got %v, want %v", got.payload, tt.want.payload)
+			if !bytes.Equal(got.payload, tt.want.payload) {
+				t.Errorf("parseControlPacket() = got payload %v, want %v", got.payload, tt.want.payload)
+				return
 			}
-			if !reflect.DeepEqual(got.remoteSessionID, tt.want.remoteSessionID) {
-				t.Errorf("parseControlPacket() = got %v, want %v", got.payload, tt.want.payload)
+			if !bytes.Equal(got.localSessionID[:], tt.want.localSessionID[:]) {
+				t.Errorf("parseControlPacket() = got localSessionID %v, want %v", got.localSessionID[:], tt.want.localSessionID[:])
+				return
+			}
+			if !bytes.Equal(got.remoteSessionID[:], tt.want.remoteSessionID[:]) {
+				t.Errorf("parseControlPacket() = got remoteSessionID %v, want %v", got.remoteSessionID[:], tt.want.remoteSessionID[:])
+				return
 			}
 		})
 	}
