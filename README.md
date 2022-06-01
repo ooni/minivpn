@@ -1,18 +1,18 @@
 # minivpn
 
-A dumb implementation of OpenVPN in pure Go (client only).
+A minimalistic implementation of the OpenVPN protocol in Go (client only).
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/ainghazal/gowl.svg)](https://pkg.go.dev/github.com/ainghazal/minivpn/vpn)
 ![Build Status](https://github.com/ainghazal/minivpn/workflows/build/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ainghazal/minivpn)](https://goreportcard.com/report/github.com/ainghazal/minivpn)
 
-This implementation has serious flaws, so do **not** use this for any other
-purposes than your own learning and research.
+This implementation is intended for research purposes only. It has serious
+flaws, so please do **not** use it for any real-life situation where you need to
+trust it with user data.
 
-This is not, and will never be, a working implementation with all the
-properties that you need from software that can protect your privacy. If you
-arrived here looking for such a thing, please use
-[misteriumnetwork/go-openvpn](https://github.com/mysteriumnetwork/go-openvpn) instead.
+This is not a working implementation with all the properties that you need from
+software that can effectively protect your privacy. If you arrived here looking
+for such a thing, please use [misteriumnetwork/go-openvpn](https://github.com/mysteriumnetwork/go-openvpn) instead.
 
 
 ## License
@@ -123,10 +123,9 @@ in the current state. Porting over the replay protections would also be nice.
 
 ## Acknowledgements
 
-Big thanks to people that wrote other implementations, that made easier for
-me to understand the protocol. This project started as a learning exercise
-adapting `ppyopenvpn` to Go, and wouldn't have been possible without it.
+Big thanks to people that wrote other implementations. This project started as
+a learning exercise adapting `ppyopenvpn` to Go, and wouldn't have been
+possible without it.
 
-And to Jason Donenfeld for making gVisor more palatable :)
-
-
+And to [Jason Donenfeld](https://www.jasondonenfeld.com/) for
+making [gVisor's netstack](https://gvisor.dev/docs/user_guide/networking/) more palatable.
