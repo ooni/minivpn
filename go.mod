@@ -1,4 +1,4 @@
-module github.com/ainghazal/minivpn
+module github.com/ooni/minivpn
 
 go 1.17
 

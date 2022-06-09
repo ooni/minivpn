@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/ainghazal/minivpn/obfs4"
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/obfs4"
+	"github.com/ooni/minivpn/vpn"
 )
 
 func main() {

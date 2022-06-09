@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ainghazal/minivpn/vpn/mocks"
+	"github.com/ooni/minivpn/vpn/mocks"
 )
 
 func Test_readPacketFromUDP(t *testing.T) {

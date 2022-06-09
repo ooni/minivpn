@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ainghazal/minivpn/vpn/mocks"
+	"github.com/ooni/minivpn/vpn/mocks"
 	"golang.zx2c4.com/go118/netip"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )

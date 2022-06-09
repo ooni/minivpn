@@ -10,10 +10,10 @@ import (
 
 	"github.com/pborman/getopt/v2"
 
-	"github.com/ainghazal/minivpn/extras"
-	"github.com/ainghazal/minivpn/extras/memoryless"
-	"github.com/ainghazal/minivpn/obfs4"
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/extras"
+	"github.com/ooni/minivpn/extras/memoryless"
+	"github.com/ooni/minivpn/obfs4"
+	"github.com/ooni/minivpn/vpn"
 )
 
 func wait(c memoryless.Config) {

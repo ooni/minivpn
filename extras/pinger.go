@@ -16,7 +16,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/vpn"
 )
 
 const (
