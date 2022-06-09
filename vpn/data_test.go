@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ainghazal/minivpn/vpn/mocks"
+	"github.com/ooni/minivpn/vpn/mocks"
 )
 
 const (

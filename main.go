@@ -9,8 +9,8 @@ import (
 	"github.com/apex/log"
 	"github.com/pborman/getopt/v2"
 
-	"github.com/ainghazal/minivpn/extras"
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/extras"
+	"github.com/ooni/minivpn/vpn"
 )
 
 var (

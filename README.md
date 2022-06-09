@@ -2,9 +2,9 @@
 
 A minimalistic implementation of the OpenVPN protocol in Go (client only).
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/ainghazal/gowl.svg)](https://pkg.go.dev/github.com/ainghazal/minivpn/vpn)
-![Build Status](https://github.com/ainghazal/minivpn/workflows/build/badge.svg)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ainghazal/minivpn)](https://goreportcard.com/report/github.com/ainghazal/minivpn)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ooni/gowl.svg)](https://pkg.go.dev/github.com/ooni/minivpn/vpn)
+![Build Status](https://github.com/ooni/minivpn/workflows/build/badge.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ooni/minivpn)](https://goreportcard.com/report/github.com/ooni/minivpn)
 
 This implementation is intended for research purposes only. It has serious
 flaws, so please do **not** use it for any real-life situation where you need to
@@ -43,7 +43,7 @@ proxy-obfs4 obfs4://RHOST:RPORT?cert=BASE64ENCODED_CERT&iat-mode=0
 
 You can run a `connect+ping` test against a given provider (but be aware that
 there's very limited support for ciphersuites and compression). Place a config
-file in `data/provider/config`. The [bootstrap script](https://github.com/ainghazal/minivpn/blob/main/scripts/bootstrap-provider)
+file in `data/provider/config`. The [bootstrap script](https://github.com/ooni/minivpn/blob/main/scripts/bootstrap-provider)
 can be useful.
 
 Then you can run:
@@ -63,7 +63,7 @@ go test -v --short ./...
 ### Integration tests
 
 You will need `docker` installed to run the integration tests. They use a [fork
-of docker-openvpn](https://github.com/ainghazal/docker-openvpn) that allows us
+of docker-openvpn](https://github.com/ooni/docker-openvpn) that allows us
 to configure some parameters at runtime (cipher and auth, for the time being). 
 
 ```
@@ -92,7 +92,7 @@ so not to mess with your global routes. `make netns-shell` will drop you in
 a shell in the new namespace.
 
 To be able to use that config file with the `minivpn` client, you need to
-[extract](https://github.com/ainghazal/minivpn/blob/main/tests/integration/extract.sh)
+[extract](https://github.com/ooni/minivpn/blob/main/tests/integration/extract.sh)
 the different key blocks first. 
 
 You can download the config file, split it and run integration tests with:

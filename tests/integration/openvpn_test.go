@@ -16,8 +16,8 @@ import (
 	"github.com/ory/dockertest/v3"
 	dc "github.com/ory/dockertest/v3/docker"
 
-	"github.com/ainghazal/minivpn/extras"
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/extras"
+	"github.com/ooni/minivpn/vpn"
 )
 
 const (

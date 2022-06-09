@@ -3,7 +3,7 @@ package extras
 import (
 	"os"
 
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/vpn"
 )
 
 var (

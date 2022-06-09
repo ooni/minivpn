@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 
-	"github.com/ainghazal/minivpn/extras"
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/extras"
+	"github.com/ooni/minivpn/vpn"
 )
 
 func main() {

@@ -5,8 +5,8 @@ import (
 	"net"
 	"os"
 
-	"github.com/ainghazal/minivpn/vpn"
 	socks5 "github.com/armon/go-socks5"
+	"github.com/ooni/minivpn/vpn"
 )
 
 const (

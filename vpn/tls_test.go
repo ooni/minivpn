@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ainghazal/minivpn/vpn/mocks"
+	"github.com/ooni/minivpn/vpn/mocks"
 )
 
 func Test_initTLS(t *testing.T) {

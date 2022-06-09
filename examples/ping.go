@@ -20,7 +20,7 @@ import (
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 
-	"github.com/ainghazal/minivpn/vpn"
+	"github.com/ooni/minivpn/vpn"
 )
 
 func main() {

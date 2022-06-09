@@ -20,11 +20,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/ainghazal/minivpn/extras/ndt7/emitter"
-	"github.com/ainghazal/minivpn/vpn"
 	"github.com/gorilla/websocket"
 	"github.com/m-lab/ndt7-client-go"
 	"github.com/m-lab/ndt7-client-go/spec"
+	"github.com/ooni/minivpn/extras/ndt7/emitter"
+	"github.com/ooni/minivpn/vpn"
 )
 
 const (
