@@ -1,7 +1,6 @@
 package vpn
 
 import (
-	"crypto/tls"
 	"errors"
 	"net"
 	"os"
@@ -9,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ooni/minivpn/vpn/mocks"
+	tls "github.com/refraction-networking/utls"
 )
 
 func Test_initTLS(t *testing.T) {
@@ -59,8 +59,20 @@ func Test_initTLS(t *testing.T) {
 				t.Errorf("initTLS() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("initTLS() = %v, want %v", got, tt.want)
+			if tt.want == nil {
+				return
+			}
+			if !reflect.DeepEqual(got.InsecureSkipVerify, tt.want.InsecureSkipVerify) {
+				t.Errorf("initTLS() InsecureSkipVerify = %v, want %v", got.InsecureSkipVerify, tt.want.InsecureSkipVerify)
+				return
+			}
+			if !reflect.DeepEqual(got.MinVersion, tt.want.MinVersion) {
+				t.Errorf("initTLS() MinVersion = %v, want %v", got.MinVersion, tt.want.MinVersion)
+				return
+			}
+			if !reflect.DeepEqual(got.MaxVersion, tt.want.MaxVersion) {
+				t.Errorf("initTLS() MaxVersion = %v, want %v", got.MaxVersion, tt.want.MaxVersion)
+				return
 			}
 		})
 	}
@@ -412,8 +424,8 @@ func (d *dummyTLSConn) Handshake() error {
 	return nil
 }
 
-func dummyTLSFactory(net.Conn, *tls.Config) handshaker {
-	return &dummyTLSConn{tls.Conn{}}
+func dummyTLSFactory(net.Conn, *tls.Config) (handshaker, error) {
+	return &dummyTLSConn{tls.Conn{}}, nil
 }
 
 // mock bad handshake
@@ -428,8 +440,8 @@ func (d *dummyTLSConnBadHandshake) Handshake() error {
 	return errors.New("dummy error")
 }
 
-func dummyTLSFactoryBadHandshake(net.Conn, *tls.Config) handshaker {
-	return &dummyTLSConnBadHandshake{tls.Conn{}}
+func dummyTLSFactoryBadHandshake(net.Conn, *tls.Config) (handshaker, error) {
+	return &dummyTLSConnBadHandshake{tls.Conn{}}, nil
 }
 
 func Test_tlsHandshake(t *testing.T) {

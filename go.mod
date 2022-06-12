@@ -15,6 +15,7 @@ require (
 	github.com/m-lab/ndt7-client-go v0.6.1
 	github.com/ory/dockertest/v3 v3.8.1
 	github.com/pborman/getopt/v2 v2.1.0
+	github.com/refraction-networking/utls v1.1.0
 	gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d
 	golang.org/x/net v0.0.0-20211111083644-e5c967477495
 	golang.zx2c4.com/go118/netip v0.0.0-20211105124833-002a02cb0e53
