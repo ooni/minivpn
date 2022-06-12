@@ -3,7 +3,6 @@ package vpn
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"errors"
 	"net"
 	"reflect"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ooni/minivpn/vpn/mocks"
+	tls "github.com/refraction-networking/utls"
 	"golang.zx2c4.com/go118/netip"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )

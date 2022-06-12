@@ -2,13 +2,13 @@ package vpn
 
 import (
 	"bytes"
-	"crypto/tls"
 	"errors"
 	"net"
 	"reflect"
 	"testing"
 
 	"github.com/ooni/minivpn/vpn/mocks"
+	tls "github.com/refraction-networking/utls"
 )
 
 func Test_newMuxerFromOptions(t *testing.T) {
