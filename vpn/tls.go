@@ -30,7 +30,31 @@ var (
 	ErrBadParrot = errors.New("cannot parrot")
 )
 
-// initTLS returns a tls.Config matching the VPN options.
+// customVerify is a version of the verification routines that does not try to verify
+// the common name. Returns an error if the verification fails.
+// TODO(ainghazal): write a test for this function.
+func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+	roots := x509.NewCertPool()
+	var crt *x509.Certificate
+
+	for _, rawCert := range rawCerts {
+		cert, _ := x509.ParseCertificate(rawCert)
+		roots.AddCert(cert)
+		crt = cert
+	}
+	opts := x509.VerifyOptions{
+		// Setting DNSName to the empty string allows to skip CN verification.
+		DNSName: "",
+		Roots:   roots,
+	}
+	_, err := crt.Verify(opts)
+	return err
+}
+
+// initTLS returns a tls.Config matching the VPN options. We pass a custom
+// verification function since verifying the ServerName does not make sense in
+// the context of establishing a VPN session: we perform mutual TLS
+// Authentication with the custom CA.
 func initTLS(session *session, opt *Options) (*tls.Config, error) {
 	if session == nil || opt == nil {
 		return nil, fmt.Errorf("%w:%s", errBadInput, "nil args")
@@ -40,13 +64,10 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 	// that we use as reference already sets "reasonable" values.
 
 	tlsConf := &tls.Config{
-		// TODO(ainghazal): make sure I end up verifying the peer
-		// certificate correctly. We cannot use name verification, since
-		// the ServerName is not known a priory. Probably must pass a
-		// VerifyConnection or VerifyPeercertificate callback?
-		// ServerName:         "vpnserver",
-		// VerifyPeerCertificate: ...,
-		InsecureSkipVerify:          true,
+		// crypto/tls wants either ServerName or InsecureSkipVerify set ...
+		InsecureSkipVerify: true,
+		// ...but we pass our own verification function that ignores the ServerName
+		VerifyPeerCertificate:       customVerify,
 		DynamicRecordSizingDisabled: true,
 	} //#nosec G402
 
