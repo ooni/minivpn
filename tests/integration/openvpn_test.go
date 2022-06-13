@@ -57,8 +57,8 @@ func launchDocker(cipher, auth string) ([]byte, *dockertest.Pool, *dockertest.Re
 		Repository: dockerImage,
 		Tag:        dockerTag,
 		PortBindings: map[dc.Port][]dc.PortBinding{
-			"1194/udp": []dc.PortBinding{{HostPort: "1194"}},
-			"8080/tcp": []dc.PortBinding{{HostPort: "8080"}},
+			"1194/udp": {{HostPort: "1194"}},
+			"8080/tcp": {{HostPort: "8080"}},
 		},
 		Env:    []string{"OPENVPN_CIPHER=" + cipher, "OPENVPN_AUTH=" + auth},
 		CapAdd: []string{"NET_ADMIN"},
