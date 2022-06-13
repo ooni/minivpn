@@ -367,7 +367,7 @@ func maybeAddCompressStub(b []byte, opt *Options) ([]byte, error) {
 	}
 	switch opt.Compress {
 	case "stub":
-		// compresssion stub: send sfirst and last byte
+		// compression stub: swap first and last byte
 		b = append(b, b[0])
 		b[0] = 0xfb
 	case "lzo-no":

@@ -249,9 +249,9 @@ func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
 		// nothing to do for UDP
 		return payload
 	case "tcp", "tcp4", "tcp6":
-		lenght := make([]byte, 2)
-		binary.BigEndian.PutUint16(lenght, uint16(len(payload)))
-		return append(lenght, payload...)
+		length := make([]byte, 2)
+		binary.BigEndian.PutUint16(length, uint16(len(payload)))
+		return append(length, payload...)
 	default:
 		return []byte{}
 	}

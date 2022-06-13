@@ -122,7 +122,7 @@ func (td TunDialer) createNetTUN() (*netstack.Net, error) {
 		client.tunnel.mtu-100,
 	)
 	// BUG(ainghazal): we cannot use the tun-mtu that the remote
-	// advertises, so we substract a "safety" margin for now.
+	// advertises, so we subtract a "safety" margin for now.
 
 	if err != nil {
 		return nil, err
@@ -187,7 +187,7 @@ type RawDialer struct {
 	// OpenVPN client.
 	dialFn DialFunc
 
-	// a client factory to facilitate testing wih a mocked client
+	// a client factory to facilitate testing with a mocked client
 	clientFactory func(*Options) vpnClient
 }
 
