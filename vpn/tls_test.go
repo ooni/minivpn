@@ -1,11 +1,17 @@
 package vpn
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
+	"math/big"
 	"net"
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/ooni/minivpn/vpn/mocks"
 	tls "github.com/refraction-networking/utls"
@@ -444,6 +450,12 @@ func dummyTLSFactoryBadHandshake(net.Conn, *tls.Config) (handshaker, error) {
 	return &dummyTLSConnBadHandshake{tls.Conn{}}, nil
 }
 
+var tlsFactoryError = errors.New("tlsFactory error")
+
+func errorRaisingTLSFactory(net.Conn, *tls.Config) (handshaker, error) {
+	return nil, tlsFactoryError
+}
+
 func Test_tlsHandshake(t *testing.T) {
 
 	makeConnAndConf := func() (*TLSConn, *tls.Config) {
@@ -480,10 +492,157 @@ func Test_tlsHandshake(t *testing.T) {
 		t.Errorf("tlsHandshake() error = %v, wantErr %v", err, wantErr)
 		return
 	}
+
+	// we bubble up any error coming from the factory
+	tlsFactoryFn = errorRaisingTLSFactory
+	wantErr = tlsFactoryError
+	_, err = tlsHandshake(conn, conf)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("tlsHandshake() error = %v, wantErr %v", err, wantErr)
+		return
+	}
 }
 
 func Test_defaultTLSFactory(t *testing.T) {
 	conn := &mocks.Conn{}
 	conf := &tls.Config{}
 	defaultTLSFactory(conn, conf)
+}
+
+func Test_parrotTLSFactory(t *testing.T) {
+	conn := &mocks.Conn{}
+	conf := &tls.Config{InsecureSkipVerify: true}
+	_, err := parrotTLSFactory(conn, conf)
+	if err != nil {
+		t.Errorf("parrotTLSFactory() error = %v, wantErr %v", err, nil)
+		return
+	}
+
+	// an hex clienthello that cannot be decoded to raw bytes should raise ErrBadParrot
+	vpnClientHelloHex = `aaa`
+	_, err = parrotTLSFactory(conn, conf)
+	wantErr := ErrBadParrot
+	if !errors.Is(err, wantErr) {
+		t.Errorf("tlsHandshake() error = %v, wantErr %v", err, wantErr)
+		return
+	}
+
+	// an hex representation that is not a valid clienthello should raise ErrBadParrot
+	vpnClientHelloHex = `deadbeef`
+	_, err = parrotTLSFactory(conn, conf)
+	wantErr = ErrBadParrot
+	if !errors.Is(err, wantErr) {
+		t.Errorf("tlsHandshake() error = %v, wantErr %v", err, wantErr)
+		return
+	}
+
+	// TODO(ainghazal): there's an extra error case that I'm not pretty sure how to reach
+	// (error on client.ApplyPreset)
+}
+
+func Test_customVerify(t *testing.T) {
+
+	// a correct certChain should validate
+
+	rawCerts, err := makeRawCerts()
+	if err != nil {
+		t.Errorf("error getting raw certs")
+		return
+	}
+
+	err = customVerify(rawCerts, nil)
+	if err != nil {
+		t.Errorf("customVerify() error = %v, wantErr %v", err, nil)
+	}
+
+	// empty certchain raises error
+
+	emptyCerts := [][]byte{[]byte{}, []byte{}}
+	wantErr := ErrCannotVerifyCertChain
+	err = customVerify(emptyCerts, nil)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("customVerify() error = %v, wantErr %v", err, wantErr)
+	}
+
+	// garbage certchain raises error
+
+	garbageCerts := [][]byte{[]byte{0xde, 0xad}, []byte{0xbe, 0xef}}
+	wantErr = ErrCannotVerifyCertChain
+	err = customVerify(garbageCerts, nil)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("customVerify() error = %v, wantErr %v", err, wantErr)
+	}
+
+	// attempting to verify one cert with a different ca raises error
+
+	certChainOne, _ := makeRawCerts()
+	certChainTwo, _ := makeRawCerts()
+	badChain := [][]byte{certChainOne[0], certChainTwo[1]}
+	wantErr = ErrCannotVerifyCertChain
+	err = customVerify(badChain, nil)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("customVerify() error = %v, wantErr %v", err, wantErr)
+	}
+}
+
+// makeRawCerts creates a CA, and return an array of byte arrays containing a
+// cert signed with that CA and the CA itself. it also returns an error if it
+// could not build the certs correctly.
+func makeRawCerts() ([][]byte, error) {
+	// set up a CA certificate
+	ca := &x509.Certificate{
+		SerialNumber: big.NewInt(1984),
+		Subject: pkix.Name{
+			Organization:  []string{"Oonitarians united"},
+			Locality:      []string{"Atlantis"},
+			StreetAddress: []string{"On a pineapple at the bottom of the sea"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	// create our private and public key - small size for to run fast.
+	caPrivKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		return nil, err
+	}
+
+	// create the CA
+	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// set up our server certificate
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1984),
+		Subject: pkix.Name{
+			Organization: []string{"Oonitarians united"},
+			CommonName:   "random-vpn-gateway",
+		},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().AddDate(10, 0, 0),
+		SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+
+	// tiny cert size to run fast
+	certPrivKey, err := rsa.GenerateKey(rand.Reader, 512)
+	if err != nil {
+		return nil, err
+	}
+
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, ca, &certPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return nil, err
+	}
+
+	result := [][]byte{certBytes, caBytes}
+	return result, nil
 }

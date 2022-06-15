@@ -28,27 +28,51 @@ var (
 	ErrBadKeypair = errors.New("bad keypair conf")
 	// ErrBadParrot is returned for errors during TLS parroting
 	ErrBadParrot = errors.New("cannot parrot")
+	// ErrCannotVerifyCertChain is returned for certificate chain validation errors.
+	ErrCannotVerifyCertChain = errors.New("cannot verify chain")
 )
 
+// certVerifyOptionsNoCommonNameCheck is a x509.VerifyOptions initialized with
+// an empty string for the DNSName. This allows to skip CN verification.
+var certVerifyOptionsNoCommonNameCheck = x509.VerifyOptions{DNSName: ""}
+
+// certVerifyOptions is the option that the customVerify function will use.
+var certVerifyOptions = certVerifyOptionsNoCommonNameCheck
+
 // customVerify is a version of the verification routines that does not try to verify
-// the common name. Returns an error if the verification fails.
-// TODO(ainghazal): write a test for this function.
+// the Common Name, since we don't know it a priori for a VPN gateway. Returns
+// an error if the verification fails.
+// From tls/common documentation: If normal verification is disabled by
+// setting InsecureSkipVerify, [...] then this callback will be considered but
+// the verifiedChains argument will always be nil.
 func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 	roots := x509.NewCertPool()
-	var crt *x509.Certificate
+	var leaf *x509.Certificate
 
-	for _, rawCert := range rawCerts {
+	for i, rawCert := range rawCerts {
 		cert, _ := x509.ParseCertificate(rawCert)
-		roots.AddCert(cert)
-		crt = cert
+		if cert != nil {
+			if i == 0 {
+				leaf = cert
+			} else {
+				roots.AddCert(cert)
+			}
+		}
 	}
-	opts := x509.VerifyOptions{
-		// Setting DNSName to the empty string allows to skip CN verification.
-		DNSName: "",
-		Roots:   roots,
+
+	opts := certVerifyOptions
+	opts.Roots = roots
+
+	var err error
+	if leaf == nil {
+		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
+
 	}
-	_, err := crt.Verify(opts)
-	return err
+	_, err = leaf.Verify(opts)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
+	}
+	return nil
 }
 
 // initTLS returns a tls.Config matching the VPN options. We pass a custom
@@ -126,7 +150,7 @@ func defaultTLSFactory(conn net.Conn, config *tls.Config) (handshaker, error) {
 }
 
 // vpnClientHelloHex is the hexadecimal respresentation of a capture from the reference openvpn implementation.
-const vpnClientHelloHex = `16030100e8010000e40303fe0b6526568ada469f8a7996b79b2598208481dc43fe56081614c7e0e8b9bd8920ddb7565358d398109fb7934c077eb0234c98839b2578046904849b2b76156ab1000a130213031301c02c00ff01000091000b000403000102000a00160014001d0017001e00190018010001010102010301040016000000170000000d002a0028040305030603080708080809080a080b080408050806040105010601030303010302040205020602002b00050403040303002d00020101003300260024001d0020a9cf1d61f8caee159b9a4dc684d9319e2349f80f6e82ff7b755b820ff33fa75f`
+var vpnClientHelloHex = `16030100e8010000e40303fe0b6526568ada469f8a7996b79b2598208481dc43fe56081614c7e0e8b9bd8920ddb7565358d398109fb7934c077eb0234c98839b2578046904849b2b76156ab1000a130213031301c02c00ff01000091000b000403000102000a00160014001d0017001e00190018010001010102010301040016000000170000000d002a0028040305030603080708080809080a080b080408050806040105010601030303010302040205020602002b00050403040303002d00020101003300260024001d0020a9cf1d61f8caee159b9a4dc684d9319e2349f80f6e82ff7b755b820ff33fa75f`
 
 // parrotTLSFactory returns an implementer of the handshaker interface; in this
 // case, a parroting implementation; and an error.
