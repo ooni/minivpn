@@ -104,7 +104,7 @@ make test-local
 ## Limitations
 
 Many, but re-keying is maybe one of the first expected to limit the usefulness
-in the current state. Porting over the replay protections would also be nice.
+in the current state.
 
 
 ## Pointers
