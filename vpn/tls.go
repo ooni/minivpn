@@ -63,12 +63,11 @@ func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	opts := certVerifyOptions
 	opts.Roots = roots
 
-	var err error
 	if leaf == nil {
 		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
 
 	}
-	_, err = leaf.Verify(opts)
+	_, err := leaf.Verify(opts)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
 	}
@@ -149,7 +148,7 @@ func defaultTLSFactory(conn net.Conn, config *tls.Config) (handshaker, error) {
 	return c, nil
 }
 
-// vpnClientHelloHex is the hexadecimal respresentation of a capture from the reference openvpn implementation.
+// vpnClientHelloHex is the hexadecimal representation of a capture from the reference openvpn implementation.
 // openvpn=2.5.5,openssl=3.0.2
 // You can use https://github.com/ainghazal/sniff/tree/main/clienthello to
 // analyze a ClientHello from the wire or pcap.
