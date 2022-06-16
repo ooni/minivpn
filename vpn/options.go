@@ -306,6 +306,8 @@ func parseCompLZO(p []string, o *Options) error {
 	return nil
 }
 
+// parseTLSVerMax sets the maximum TLS version. This is currently ignored
+// because we're using uTLS to parrot the Client Hello.
 func parseTLSVerMax(p []string, o *Options) error {
 	if o == nil {
 		return errBadInput
@@ -337,8 +339,8 @@ var pMap = map[string]interface{}{
 	"auth-user-pass":  parseAuthUser,
 	"compress":        parseCompress,
 	"comp-lzo":        parseCompLZO,
-	"tls-version-max": parseTLSVerMax,
 	"proxy-obfs4":     parseProxyOBFS4,
+	"tls-version-max": parseTLSVerMax, // this is currently ignored because of uTLS
 }
 
 var pMapDir = map[string]interface{}{
