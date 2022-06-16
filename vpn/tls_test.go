@@ -52,8 +52,6 @@ func Test_initTLS(t *testing.T) {
 			},
 			want: &tls.Config{
 				InsecureSkipVerify: true,
-				MinVersion:         tls.VersionTLS12,
-				MaxVersion:         tls.VersionTLS13,
 			},
 			wantErr: nil,
 		},
@@ -72,51 +70,48 @@ func Test_initTLS(t *testing.T) {
 				t.Errorf("initTLS() InsecureSkipVerify = %v, want %v", got.InsecureSkipVerify, tt.want.InsecureSkipVerify)
 				return
 			}
-			if !reflect.DeepEqual(got.MinVersion, tt.want.MinVersion) {
-				t.Errorf("initTLS() MinVersion = %v, want %v", got.MinVersion, tt.want.MinVersion)
-				return
-			}
-			if !reflect.DeepEqual(got.MaxVersion, tt.want.MaxVersion) {
-				t.Errorf("initTLS() MaxVersion = %v, want %v", got.MaxVersion, tt.want.MaxVersion)
-				return
-			}
 		})
 	}
 }
 
-func Test_initTLS_MaxTLSVersion(t *testing.T) {
-	opt := makeTestingOptions("AES-128-GCM", "sha512")
+// We're not setting the max version at the moment because we're using uTLS.
+// We might want to expose a non-parroting TLS factory at some point, and that's why I'm leaving this test commented.
+// But this should be deleted if we are positive that we're not going to need it going forward.
+/*
+ func Test_initTLS_MaxTLSVersion(t *testing.T) {
+ 	opt := makeTestingOptions("AES-128-GCM", "sha512")
 
-	s := makeTestingSession()
-	opt.TLSMaxVer = "1.2"
-	tlsConfig, err := initTLS(s, opt)
-	if err != nil {
-		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
-	}
-	if tlsConfig.MaxVersion != tls.VersionTLS12 {
-		t.Errorf("initTLS() = wrong max version, expected 1.2")
-	}
+ 	s := makeTestingSession()
+ 	opt.TLSMaxVer = "1.2"
+ 	tlsConfig, err := initTLS(s, opt)
+ 	if err != nil {
+ 		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
+ 	}
+ 	if tlsConfig.MaxVersion != tls.VersionTLS12 {
+ 		t.Errorf("initTLS() = wrong max version, expected 1.2")
+ 	}
 
-	s = makeTestingSession()
-	opt.TLSMaxVer = "1.0" // something absurd
-	tlsConfig, err = initTLS(s, opt)
-	if err != nil {
-		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
-	}
-	if tlsConfig.MaxVersion != tls.VersionTLS13 {
-		t.Errorf("initTLS() = wrong max version, expected 1.3")
-	}
+ 	s = makeTestingSession()
+ 	opt.TLSMaxVer = "1.0" // something absurd
+ 	tlsConfig, err = initTLS(s, opt)
+ 	if err != nil {
+ 		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
+ 	}
+ 	if tlsConfig.MaxVersion != tls.VersionTLS13 {
+ 		t.Errorf("initTLS() = wrong max version, expected 1.3")
+ 	}
 
-	s = makeTestingSession()
-	opt.TLSMaxVer = "999" // something absurd
-	tlsConfig, err = initTLS(s, opt)
-	if err != nil {
-		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
-	}
-	if tlsConfig.MaxVersion != tls.VersionTLS13 {
-		t.Errorf("initTLS() = wrong max version, expected 1.3")
-	}
-}
+ 	s = makeTestingSession()
+ 	opt.TLSMaxVer = "999" // something absurd
+ 	tlsConfig, err = initTLS(s, opt)
+ 	if err != nil {
+ 		t.Errorf("initTLS() = %v, wantErr %v", err, nil)
+ 	}
+ 	if tlsConfig.MaxVersion != tls.VersionTLS13 {
+ 		t.Errorf("initTLS() = wrong max version, expected 1.3")
+ 	}
+ }
+*/
 
 var pemTestingKey = []byte(`-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC/vw0YScdbP2wg
