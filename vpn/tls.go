@@ -3,6 +3,10 @@ package vpn
 //
 // TLS initialization and read/write wrappers.
 //
+// TODO for the time being, we're using uTLS to parrot a ClientHello that can reasonably blend
+// with a recent openvpn+openssl client (2.5.x). We might want to revisit this
+// in the near future and perhaps expose other TLS Factories.
+//
 
 import (
 	"crypto/x509"
@@ -31,10 +35,9 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 	if session == nil || opt == nil {
 		return nil, fmt.Errorf("%w:%s", errBadInput, "nil args")
 	}
-	max := tls.VersionTLS13
-	if opt.TLSMaxVer == "1.2" {
-		max = tls.VersionTLS12
-	}
+
+	// We are not passing min/max tls versions because the ClientHello spec
+	// that we use as reference already sets "reasonable" values.
 
 	tlsConf := &tls.Config{
 		// TODO(ainghazal): make sure I end up verifying the peer
@@ -44,8 +47,6 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 		// ServerName:         "vpnserver",
 		// VerifyPeerCertificate: ...,
 		InsecureSkipVerify:          true,
-		MinVersion:                  tls.VersionTLS12,
-		MaxVersion:                  uint16(max),
 		DynamicRecordSizingDisabled: true,
 	} //#nosec G402
 
