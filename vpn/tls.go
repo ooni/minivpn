@@ -51,7 +51,10 @@ func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 
 	for i, rawCert := range rawCerts {
 		cert, _ := x509.ParseCertificate(rawCert)
+
 		if cert != nil {
+			// we assume (from docs) that we're always given the
+			// leaf certificate as the first cert in the array.
 			if i == 0 {
 				leaf = cert
 			} else {
@@ -60,6 +63,9 @@ func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 		}
 	}
 
+	if roots == nil {
+		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "roots is nil")
+	}
 	opts := certVerifyOptions
 	opts.Roots = roots
 
@@ -67,6 +73,7 @@ func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
 
 	}
+
 	_, err := leaf.Verify(opts)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
@@ -96,6 +103,8 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 
 	// TODO(ainghazal): we assume a non-empty cert means we've got also a
 	// valid ca and key, but we need a validation function that accepts an Options object.
+	// it probably makes sense to extract the read/load to a function that is also called
+	// when parsing the options file.
 	if opt.Cert != "" {
 		ca := x509.NewCertPool()
 		caData, err := ioutil.ReadFile(opt.Ca)

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/martian/mitm"
 	"github.com/ooni/minivpn/vpn/mocks"
 	tls "github.com/refraction-networking/utls"
 )
@@ -328,7 +329,6 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 		}
 	})
 
-	// FIXME -- this is the same test as above!!
 	t.Run("bad ca (malformed)", func(t *testing.T) {
 		session := makeTestingSession()
 		crt, err := writeTestingCertsBadCA(t.TempDir())
@@ -551,6 +551,33 @@ func Test_customVerify(t *testing.T) {
 		}
 	})
 
+	t.Run("a correct certChain fails if DNSName is set in VerifyOptions", func(t *testing.T) {
+		// this test is really only testing the behavior of golang x509 validation
+		// in the stdlib, but it gives me more faith in the correctness
+		// of the custom verify function
+		rawCerts, err := makeRawCerts()
+		if err != nil {
+			t.Errorf("error getting raw certs")
+			return
+		}
+
+		origVerifyOptions := certVerifyOptions
+
+		// the test cert has random.gateway set as the DNSName, so we're just verifying
+		// that the verification actually fails with options different from the default that we're
+		// setting in the certVerifyOptions global.
+		certVerifyOptions = x509.VerifyOptions{DNSName: "other.gateway"}
+		defer func() {
+			certVerifyOptions = origVerifyOptions
+		}()
+
+		wantErr := ErrCannotVerifyCertChain
+		err = customVerify(rawCerts, nil)
+		if !errors.Is(err, wantErr) {
+			t.Errorf("customVerify() error = %v, wantErr %v", err, nil)
+		}
+	})
+
 	t.Run("empty certchain raises error", func(t *testing.T) {
 		emptyCerts := [][]byte{[]byte{}, []byte{}}
 		wantErr := ErrCannotVerifyCertChain
@@ -585,50 +612,31 @@ func Test_customVerify(t *testing.T) {
 // cert signed with that CA and the CA itself. it also returns an error if it
 // could not build the certs correctly.
 func makeRawCerts() ([][]byte, error) {
-	// set up a CA certificate
-	ca := &x509.Certificate{
-		SerialNumber: big.NewInt(1984),
-		Subject: pkix.Name{
-			Organization:  []string{"Oonitarians united"},
-			Locality:      []string{"Atlantis"},
-			StreetAddress: []string{"On a pineapple at the bottom of the sea"},
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().AddDate(10, 0, 0),
-		IsCA:                  true,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-	}
-
-	// create our private and public key - small size for to run fast.
-	caPrivKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	// set up a CA certificate. this sets up a 2048 cert for the ca, if we ever
+	// want to shave milliseconds we can roll a ca with a smaller key size.
+	ca, caPrivKey, err := mitm.NewAuthority("ca", "oonitarians united", 1*time.Hour)
 	if err != nil {
 		return nil, err
 	}
-
-	// create the CA
 	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// set up our server certificate
+	// set up a leaf certificate - this would be the gateway cert
 	cert := &x509.Certificate{
 		SerialNumber: big.NewInt(1984),
 		Subject: pkix.Name{
-			Organization: []string{"Oonitarians united"},
-			CommonName:   "random-vpn-gateway",
+			Organization:  []string{"Oonitarians united"},
+			StreetAddress: []string{"On a pinneaple at the bottom of the sea"},
+			CommonName:    "random.gateway",
 		},
-		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().AddDate(10, 0, 0),
-		SubjectKeyId: []byte{1, 2, 3, 4, 6},
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:     x509.KeyUsageDigitalSignature,
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().AddDate(10, 0, 0),
+		DNSNames:  []string{"random.gateway", "randomgw"},
 	}
 
-	// tiny cert size to run fast
+	// tiny cert size to make tests go brrr
 	certPrivKey, err := rsa.GenerateKey(rand.Reader, 512)
 	if err != nil {
 		return nil, err
