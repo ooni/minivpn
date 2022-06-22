@@ -238,17 +238,17 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 // handleIncoming packet reads the next packet available in the underlying
 // socket. It returns true if the packet was a data packet; otherwise it will
 // process it but return false.
-func (m *muxer) handleIncomingPacket(data []byte) bool {
+func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	if m.data == nil {
-		logger.Errorf("unhandled error: uninitialized muxer")
-		return false
+		logger.Errorf("uninitialized muxer")
+		return false, errBadInput
 	}
 	var input []byte
 	if data == nil {
 		parsed, err := readPacket(m.conn)
 		if err != nil {
-			logger.Error(err.Error())
-			return false
+			//logger.Error(err.Error())
+			return false, err
 		}
 		input = parsed
 	} else {
@@ -260,16 +260,16 @@ func (m *muxer) handleIncomingPacket(data []byte) bool {
 		if err != nil {
 			logger.Errorf("cannot handle ping: %s", err.Error())
 		}
-		return false
+		return false, nil
 	}
 	p, err := parsePacketFromBytes(input)
 	if err != nil {
 		logger.Error(err.Error())
-		return false
+		return false, err
 	}
 	if p.isACK() {
 		logger.Warn("muxer: got ACK (ignored)")
-		return false
+		return false, err
 	}
 	if p.isControl() {
 		logger.Infof("Got control packet: %d", len(data))
@@ -277,12 +277,12 @@ func (m *muxer) handleIncomingPacket(data []byte) bool {
 		// re-key (but I keep ignoring that case for now).
 		// we're doing nothing for now.
 		fmt.Println(hex.Dump(p.payload))
-		return false
+		return false, err
 	}
 	if !p.isData() {
 		logger.Warnf("unhandled data. (op: %d)", p.opcode)
 		fmt.Println(hex.Dump(data))
-		return false
+		return false, err
 	}
 
 	// at this point, the incoming packet should be
@@ -293,13 +293,13 @@ func (m *muxer) handleIncomingPacket(data []byte) bool {
 	if err != nil {
 		logger.Errorf("bad decryption: %s", err.Error())
 		// XXX I'm not sure returning false is the right thing to do here.
-		return false
+		return false, err
 	}
 
 	// all good! we write the plaintext into the read buffer.
 	// the caller is responsible for reading from there.
 	m.bufReader.Write(plaintext)
-	return true
+	return true, nil
 }
 
 // handleDataPing replies to an openvpn-ping with a canned response.
@@ -456,7 +456,14 @@ func (m *muxer) Write(b []byte) (int, error) {
 // user-view of the VPN connection reads. It returns the number of bytes read,
 // and an error if the operation could not succeed.
 func (m *muxer) Read(b []byte) (int, error) {
-	for !m.handleIncomingPacket(nil) {
+	for {
+		ok, err := m.handleIncomingPacket(nil)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			break
+		}
 	}
 	return m.bufReader.Read(b)
 }

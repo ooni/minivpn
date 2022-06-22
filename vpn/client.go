@@ -7,6 +7,7 @@ package vpn
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"time"
@@ -74,6 +75,7 @@ func (c *Client) Start() error {
 	if err != nil {
 		return err
 	}
+	c.conn = conn
 
 	mux, err := newMuxerFromOptions(conn, c.Opts, c.tunnel)
 	if err != nil {
@@ -157,6 +159,10 @@ func (c *Client) SetDeadline(t time.Time) error {
 }
 
 func (c *Client) SetReadDeadline(t time.Time) error {
+	if c.conn == nil {
+		log.Println("CONN IS NIL")
+
+	}
 	return c.conn.SetReadDeadline(t)
 }
 

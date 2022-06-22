@@ -1,6 +1,6 @@
 PROVIDER ?= calyx
 TARGET ?= "1.1.1.1"
-COUNT ?= 3
+COUNT ?= 5
 TIMEOUT ?= 10
 LOCAL_TARGET := $(shell ip -4 addr show docker0 | grep 'inet ' | awk '{print $$2}' | cut -f 1 -d /)
 COVERAGE_THRESHOLD := 88
@@ -34,7 +34,7 @@ test-short:
 	go test -race -short -v ./...
 
 test-ping:
-	HANDSHAKE_TIMEOUT=${TIMEOUT} ./minivpn -c data/${PROVIDER}/config -t ${TARGET} -n ${COUNT} ping
+	./minivpn -c data/${PROVIDER}/config -t ${TARGET} -n ${COUNT} ping
 
 integration-server:
 	# this needs the container from https://github.com/ainghazal/docker-openvpn
@@ -47,7 +47,7 @@ test-fetch-config:
 
 test-ping-local:
 	# run the integration-server first
-	HANDSHAKE_TIMEOUT=${TIMEOUT} ./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
+	./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
 
 test-local: test-fetch-config test-ping-local
 
@@ -58,7 +58,7 @@ qa:
 	@rm -rf data/tests
 	@mkdir -p data/tests && curl 172.17.0.2:8080/ > data/tests/config
 	@cd data/tests && ../../tests/integration/extract.sh config
-	HANDSHAKE_TIMEOUT=${TIMEOUT} ./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
+	./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
 	@docker stop ovpn1
 
 filternet-qa:
