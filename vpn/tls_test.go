@@ -566,7 +566,9 @@ func Test_customVerify(t *testing.T) {
 		// the test cert has random.gateway set as the DNSName, so we're just verifying
 		// that the verification actually fails with options different from the default that we're
 		// setting in the certVerifyOptions global.
-		certVerifyOptions = x509.VerifyOptions{DNSName: "other.gateway"}
+		certVerifyOptions = func() x509.VerifyOptions {
+			return x509.VerifyOptions{DNSName: "other.gateway"}
+		}
 		defer func() {
 			certVerifyOptions = origVerifyOptions
 		}()

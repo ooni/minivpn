@@ -32,11 +32,14 @@ var (
 	ErrCannotVerifyCertChain = errors.New("cannot verify chain")
 )
 
-// certVerifyOptionsNoCommonNameCheck is a x509.VerifyOptions initialized with
+// certVerifyOptionsNoCommonNameCheck returns a x509.VerifyOptions initialized with
 // an empty string for the DNSName. This allows to skip CN verification.
-var certVerifyOptionsNoCommonNameCheck = x509.VerifyOptions{DNSName: ""}
+func certVerifyOptionsNoCommonNameCheck() x509.VerifyOptions {
+	return x509.VerifyOptions{DNSName: ""}
+}
 
-// certVerifyOptions is the option that the customVerify function will use.
+// certVerifyOptions is the option that the customVerify function will use; by
+// default is the version that skips the DNSName check.
 var certVerifyOptions = certVerifyOptionsNoCommonNameCheck
 
 // customVerify is a version of the verification routines that does not try to verify
@@ -66,7 +69,7 @@ func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	if roots == nil {
 		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "roots is nil")
 	}
-	opts := certVerifyOptions
+	opts := certVerifyOptions()
 	opts.Roots = roots
 
 	if leaf == nil {
