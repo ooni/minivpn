@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -82,6 +83,9 @@ type muxer struct {
 	// Options are OpenVPN options that come from parsing a subset of the OpenVPN
 	// configuration directives, plus some non-standard config directives.
 	options *Options
+
+	// ctx is the muxer context
+	ctx context.Context
 }
 
 var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
@@ -149,6 +153,23 @@ func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (*muxe
 	return m, nil
 }
 
+func (m *muxer) WithContext(ctx context.Context) *muxer {
+	if ctx == nil {
+		panic("nil context")
+	}
+	m2 := new(muxer)
+	*m2 = *m
+	m2.ctx = ctx
+	return m2
+}
+
+func (m *muxer) Context() context.Context {
+	if m.ctx != nil {
+		return m.ctx
+	}
+	return context.Background()
+}
+
 //
 // muxer handshake
 //
@@ -202,15 +223,30 @@ func (m *muxer) Handshake() error {
 // Reset sends a hard-reset packet to the server, and awaits the server
 // confirmation.
 func (m *muxer) Reset(conn net.Conn, s *session) error {
+	log.Println("try reset")
+
 	if m.control == nil {
 		return fmt.Errorf("%w:%s", errBadInput, "bad control")
 	}
 	if err := m.control.SendHardReset(conn, s); err != nil {
 		return err
 	}
-	resp, err := readPacket(m.conn)
-	if err != nil {
-		return err
+
+	log.Println("reset sent")
+
+	var resp []byte
+	var err error
+	ctx := m.Context()
+	log.Println("ctx", ctx)
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		resp, err = readPacket(m.conn, m.Context())
+		if err != nil {
+			return err
+		}
 	}
 
 	remoteSessionID, err := m.control.ParseHardReset(resp)
@@ -245,7 +281,7 @@ func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	}
 	var input []byte
 	if data == nil {
-		parsed, err := readPacket(m.conn)
+		parsed, err := readPacket(m.conn, m.Context())
 		if err != nil {
 			//logger.Error(err.Error())
 			return false, err
@@ -456,16 +492,22 @@ func (m *muxer) Write(b []byte) (int, error) {
 // user-view of the VPN connection reads. It returns the number of bytes read,
 // and an error if the operation could not succeed.
 func (m *muxer) Read(b []byte) (int, error) {
-	for {
-		ok, err := m.handleIncomingPacket(nil)
-		if err != nil {
-			return 0, err
+	ctx := m.Context()
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	default:
+		for {
+			ok, err := m.handleIncomingPacket(nil)
+			if err != nil {
+				return 0, err
+			}
+			if ok {
+				break
+			}
 		}
-		if ok {
-			break
-		}
+		return m.bufReader.Read(b)
 	}
-	return m.bufReader.Read(b)
 }
 
 var (

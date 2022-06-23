@@ -5,6 +5,7 @@ package vpn
 
 import (
 	"context"
+	"log"
 	"net"
 	"time"
 
@@ -189,10 +190,18 @@ type RawDialer struct {
 
 	// a client factory to facilitate testing with a mocked client
 	clientFactory func(*Options) vpnClient
+
+	ctx context.Context
 }
 
+// NewRawDialer returns a new *RawDialer constructed from the passed options.
 func NewRawDialer(opts *Options) *RawDialer {
 	return &RawDialer{Options: opts}
+}
+
+// NewRawDialerWithContext returns a new *RawDialer constructed from the passed options.
+func NewRawDialerWithContext(opts *Options, ctx context.Context) *RawDialer {
+	return &RawDialer{Options: opts, ctx: ctx}
 }
 
 // Dial returns a net.Conn that writes to and reads (raw packets) from the VPN
@@ -210,9 +219,15 @@ func (d *RawDialer) dial() (*Client, error) {
 		cf = d.clientFactory
 	}
 	client := cf(d.Options)
+	if d.ctx != nil {
+		log.Println("setting context")
+		client = client.WithContext(d.ctx)
+	}
 	if d.dialFn != nil {
 		client.(*Client).DialFn = d.dialFn
 	}
+
+	log.Println("starting client...")
 	err := client.Start()
 	return client.(*Client), err
 }

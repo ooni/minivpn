@@ -9,6 +9,7 @@ package vpn
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -28,7 +29,11 @@ var (
 
 // direct reads on the underlying conn
 
-func readPacket(conn net.Conn) ([]byte, error) {
+func readPacket(conn net.Conn, ctx context.Context) ([]byte, error) {
+	deadline, ok := ctx.Deadline()
+	if ok {
+		conn.SetReadDeadline(deadline)
+	}
 	switch network := conn.LocalAddr().Network(); network {
 	case "tcp", "tcp4", "tcp6":
 		return readPacketFromTCP(conn)
@@ -43,6 +48,7 @@ func readPacket(conn net.Conn) ([]byte, error) {
 func readPacketFromUDP(conn net.Conn) ([]byte, error) {
 	const enough = 1 << 17
 	buf := make([]byte, enough)
+
 	count, err := conn.Read(buf)
 	if err != nil {
 		return nil, err
@@ -108,7 +114,8 @@ type tlsTransport struct {
 // ReadPacket returns a packet reading from the underlying conn, and an error
 // if the read did not succeed.
 func (t *tlsTransport) ReadPacket() (*packet, error) {
-	buf, err := readPacket(t.Conn)
+	// TODO pass good context
+	buf, err := readPacket(t.Conn, context.Background())
 	if err != nil {
 		return nil, err
 	}

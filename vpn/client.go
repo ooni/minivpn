@@ -5,6 +5,7 @@ package vpn
 //
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -33,6 +34,7 @@ type tunnel struct {
 type vpnClient interface {
 	Start() error
 	Dial() (net.Conn, error)
+	WithContext(context.Context) vpnClient
 }
 
 // Client implements the OpenVPN protocol. If you're just interested in writing
@@ -47,6 +49,9 @@ type Client struct {
 	conn   net.Conn
 	mux    vpnMuxer
 	tunnel *tunnel
+
+	// ctx is the client context.
+	ctx context.Context
 
 	Log Logger
 }
@@ -81,6 +86,7 @@ func (c *Client) Start() error {
 	if err != nil {
 		return err
 	}
+	mux = mux.WithContext(c.Context())
 
 	err = mux.Handshake()
 	if err != nil {
@@ -108,20 +114,59 @@ func (c *Client) Dial() (net.Conn, error) {
 		return nil, fmt.Errorf("%w: unknown proto %d", errBadInput, c.Opts.Proto)
 
 	}
-	msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
-		c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
-	logger.Info(msg)
-	conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrDialError, err)
+	ctx := c.Context()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
+			c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
+		logger.Info(msg)
+
+		// FIXME change DialFn
+		// TODO honor DialFn -- but this is not working for UDP sockets.
+		//conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+		var d net.Dialer
+		conn, err := d.DialContext(ctx, proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrDialError, err)
+		}
+		return conn, nil
 	}
-	return conn, nil
+}
+
+// WithContext returns a shallow copy of c with its context changed
+// to ctx. The provided ctx must be non-nil.
+func (c *Client) WithContext(ctx context.Context) vpnClient {
+	if ctx == nil {
+		panic("nil context")
+	}
+	c2 := new(Client)
+	*c2 = *c
+	c2.ctx = ctx
+	return c2
+}
+
+// Context returns the client context. To change the context, use WithContext.
+func (c *Client) Context() context.Context {
+	if c.ctx != nil {
+		return c.ctx
+	}
+	return context.Background()
 }
 
 // Write sends bytes into the tunnel.
 func (c *Client) Write(b []byte) (int, error) {
-	return c.mux.Write(b)
+	ctx := c.Context()
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	default:
+		return c.mux.Write(b)
+	}
 }
 
 // Read reads bytes from the tunnel.
@@ -130,7 +175,13 @@ func (c *Client) Read(b []byte) (int, error) {
 		return 0, fmt.Errorf("%w:%s", errBadInput, "nil muxer")
 
 	}
-	return c.mux.Read(b)
+	ctx := c.Context()
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	default:
+		return c.mux.Read(b)
+	}
 }
 
 // Close closes the tunnel connection.
