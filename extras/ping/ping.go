@@ -499,7 +499,7 @@ func (p *Pinger) getCurrentTrackerUUID() uuid.UUID {
 
 func (p *Pinger) processPacket(recv *packet) error {
 	pkt := p.parseEchoReply(recv.bytes)
-	if pkt.Data == nil {
+	if pkt == nil || pkt.Data == nil {
 		return nil
 	}
 
