@@ -181,7 +181,8 @@ func (m *muxer) Handshake() error {
 	// 1. control channel sends reset, parse response.
 
 	if err := m.Reset(m.conn, m.session); err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
+
 	}
 
 	// 2. TLS handshake.
@@ -197,7 +198,8 @@ func (m *muxer) Handshake() error {
 
 	tlsConf, err := initTLSFn(m.session, certCfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
+
 	}
 	tlsConn, err := NewTLSConn(m.conn, m.session)
 	if err != nil {
@@ -205,7 +207,8 @@ func (m *muxer) Handshake() error {
 	}
 	tls, err := tlsHandshakeFn(tlsConn, tlsConf)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
+
 	}
 	m.tls = tls
 	logger.Info("TLS handshake done")
@@ -213,7 +216,8 @@ func (m *muxer) Handshake() error {
 	// 3. data channel init (auth, push, data initialization).
 
 	if err := m.InitDataWithRemoteKey(); err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadDataHandshake, err)
+
 	}
 
 	logger.Info("VPN handshake done")
@@ -223,8 +227,6 @@ func (m *muxer) Handshake() error {
 // Reset sends a hard-reset packet to the server, and awaits the server
 // confirmation.
 func (m *muxer) Reset(conn net.Conn, s *session) error {
-	log.Println("try reset")
-
 	if m.control == nil {
 		return fmt.Errorf("%w:%s", errBadInput, "bad control")
 	}
@@ -232,21 +234,9 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 		return err
 	}
 
-	log.Println("reset sent")
-
-	var resp []byte
-	var err error
-	ctx := m.Context()
-	log.Println("ctx", ctx)
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		resp, err = readPacket(m.conn, m.Context())
-		if err != nil {
-			return err
-		}
+	resp, err := readPacket(m.conn, m.Context())
+	if err != nil {
+		return err
 	}
 
 	remoteSessionID, err := m.control.ParseHardReset(resp)
@@ -283,7 +273,6 @@ func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	if data == nil {
 		parsed, err := readPacket(m.conn, m.Context())
 		if err != nil {
-			//logger.Error(err.Error())
 			return false, err
 		}
 		input = parsed
@@ -511,5 +500,6 @@ func (m *muxer) Read(b []byte) (int, error) {
 }
 
 var (
-	ErrBadHandshake = errors.New("bad vpn handshake")
+	ErrBadHandshake     = errors.New("bad vpn handshake")
+	ErrBadDataHandshake = errors.New("bad data handshake")
 )

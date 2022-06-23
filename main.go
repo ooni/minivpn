@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	startTime = time.Now()
+	startTime           = time.Now()
+	extraTimeoutSeconds = 30 * time.Second
 )
 
 func printUsage() {
@@ -24,16 +25,18 @@ func printUsage() {
 	os.Exit(0)
 }
 
-func timeoutSecondsFromCount(count uint32) time.Duration {
+func timeoutSecondsFromCount(count int) time.Duration {
 	waitOnLastOne := time.Duration(2) * time.Second
 	return time.Duration(count)*time.Second + waitOnLastOne
+
 }
 
 // RunPinger takes an Option object, gets a Dialer, and runs a Pinger against
 // the passed target, for count packets.
 func RunPinger(opt *vpn.Options, target string, count uint32) error {
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	c := int(count)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutSecondsFromCount(c)+extraTimeoutSeconds)
 	defer cancel()
 
 	rawDialer := vpn.NewRawDialerWithContext(opt, ctx)
@@ -43,8 +46,8 @@ func RunPinger(opt *vpn.Options, target string, count uint32) error {
 	}
 
 	pinger := ping.New(target, conn)
-	pinger.Count = int(count)
-	pinger.Timeout = timeoutSecondsFromCount(count)
+	pinger.Count = c
+	pinger.Timeout = timeoutSecondsFromCount(c)
 	err = pinger.Run()
 	if err != nil {
 		panic(err)

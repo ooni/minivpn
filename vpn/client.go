@@ -22,8 +22,6 @@ var (
 	ErrAlreadyStarted = errors.New("tunnel already started")
 )
 
-type DialFunc func(string, string) (net.Conn, error)
-
 // tunnel holds state about the VPN tunnel that has longer duration than a
 // given session.
 type tunnel struct {
@@ -37,6 +35,10 @@ type vpnClient interface {
 	WithContext(context.Context) vpnClient
 }
 
+type DialerContext interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+}
+
 // Client implements the OpenVPN protocol. If you're just interested in writing
 // to and reading from the tunnel you should use the dialer methods instead.
 // This type is only intended to be instantiated by users that need a finer control
@@ -44,7 +46,7 @@ type vpnClient interface {
 // the handshake, etc.)
 type Client struct {
 	Opts   *Options
-	DialFn DialFunc
+	Dialer DialerContext
 
 	conn   net.Conn
 	mux    vpnMuxer
@@ -70,7 +72,7 @@ func NewClientFromOptions(opt *Options) vpnClient {
 	return &Client{
 		Opts:   opt,
 		tunnel: &tunnel{},
-		DialFn: net.Dial,
+		Dialer: &net.Dialer{},
 	}
 }
 
@@ -125,12 +127,7 @@ func (c *Client) Dial() (net.Conn, error) {
 			c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
 		logger.Info(msg)
 
-		// FIXME change DialFn
-		// TODO honor DialFn -- but this is not working for UDP sockets.
-		//conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
-		var d net.Dialer
-		conn, err := d.DialContext(ctx, proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
-
+		conn, err := c.Dialer.DialContext(ctx, proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrDialError, err)
 		}
