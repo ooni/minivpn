@@ -3,7 +3,7 @@ package vpn
 //
 // TLS initialization and read/write wrappers.
 //
-// TODO for the time being, we're using uTLS to parrot a ClientHello that can reasonably blend
+// TODO: for the time being, we're using uTLS to parrot a ClientHello that can reasonably blend
 // with a recent openvpn+openssl client (2.5.x). We might want to revisit this
 // in the near future and perhaps expose other TLS Factories.
 //
@@ -38,50 +38,47 @@ func certVerifyOptionsNoCommonNameCheck() x509.VerifyOptions {
 	return x509.VerifyOptions{DNSName: ""}
 }
 
-// certVerifyOptions is the option that the customVerify function will use; by
-// default is the version that skips the DNSName check.
+// certVerifyOptions is the options fatory that the customVerify function will
+// use; by default it configures VerifyOptions to skip the DNSName check.
 var certVerifyOptions = certVerifyOptionsNoCommonNameCheck
 
-// customVerify is a version of the verification routines that does not try to verify
-// the Common Name, since we don't know it a priori for a VPN gateway. Returns
-// an error if the verification fails.
-// From tls/common documentation: If normal verification is disabled by
-// setting InsecureSkipVerify, [...] then this callback will be considered but
-// the verifiedChains argument will always be nil.
-func customVerify(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-	roots := x509.NewCertPool()
-	var leaf *x509.Certificate
+// certAuthConfg holds the paths for the cert, key, and ca used for OpenVPN
+// certificate authentication.
+type certAuthConfig struct {
+	certPath string
+	keyPath  string
+	caPath   string
+}
 
-	for i, rawCert := range rawCerts {
-		cert, _ := x509.ParseCertificate(rawCert)
+// certAuth holds the parsed certificate and CA used for OpenVPN mutual
+// certificate authentication.
+type certAuth struct {
+	cert tls.Certificate
+	ca   *x509.CertPool
+}
 
-		if cert != nil {
-			// we assume (from docs) that we're always given the
-			// leaf certificate as the first cert in the array.
-			if i == 0 {
-				leaf = cert
-			} else {
-				roots.AddCert(cert)
-			}
-		}
-	}
-
-	if roots == nil {
-		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "roots is nil")
-	}
-	opts := certVerifyOptions()
-	opts.Roots = roots
-
-	if leaf == nil {
-		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
-
-	}
-
-	_, err := leaf.Verify(opts)
+// loadCertAndCA parses the PEM certificates contained in the paths pointed by
+// certAuthConfig and return a certAuth with the client and CA certificates.
+func loadCertAndCA(conf certAuthConfig) (*certAuth, error) {
+	ca := x509.NewCertPool()
+	caData, err := ioutil.ReadFile(conf.caPath)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
+		return nil, fmt.Errorf("%w:%s", ErrBadCA, err)
 	}
-	return nil
+	ok := ca.AppendCertsFromPEM(caData)
+	if !ok {
+		return nil, fmt.Errorf("%w:%s", ErrBadCA, "cannot parse ca cert")
+	}
+
+	cert, err := tls.LoadX509KeyPair(conf.certPath, conf.keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w:%s", ErrBadKeypair, err)
+	}
+	auth := &certAuth{
+		ca:   ca,
+		cert: cert,
+	}
+	return auth, nil
 }
 
 // initTLS returns a tls.Config matching the VPN options. We pass a custom
@@ -93,39 +90,56 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 		return nil, fmt.Errorf("%w:%s", errBadInput, "nil args")
 	}
 
+	if opt.Cert == "" && opt.Key == "" && opt.Username == "" {
+		return nil, fmt.Errorf("%w: %s", errBadInput, "expected certificate or username/password")
+	}
+
+	certAuth, err := loadCertAndCA(certAuthConfig{
+		certPath: opt.Cert,
+		keyPath:  opt.Key,
+		caPath:   opt.Ca,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// customVerify is a version of the verification routines that does not try to verify
+	// the Common Name, since we don't know it a priori for a VPN gateway. Returns
+	// an error if the verification fails.
+	// From tls/common documentation: If normal verification is disabled by
+	// setting InsecureSkipVerify, [...] then this callback will be considered but
+	// the verifiedChains argument will always be nil.
+	customVerify := func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		// we assume (from docs) that we're always given the
+		// leaf certificate as the first cert in the array.
+		leaf, _ := x509.ParseCertificate(rawCerts[0])
+		if leaf == nil {
+			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
+		}
+		// By default has DNSName verification disabled.
+		opts := certVerifyOptions()
+		// Set the configured CA(s) as the certificate pool to verify against.
+		opts.Roots = certAuth.ca
+
+		if _, err := leaf.Verify(opts); err != nil {
+			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
+		}
+		return nil
+	}
+
 	// We are not passing min/max tls versions because the ClientHello spec
 	// that we use as reference already sets "reasonable" values.
-
 	tlsConf := &tls.Config{
+		// the certificate we've loaded from the config file
+		Certificates: []tls.Certificate{certAuth.cert},
 		// crypto/tls wants either ServerName or InsecureSkipVerify set ...
 		InsecureSkipVerify: true,
-		// ...but we pass our own verification function that ignores the ServerName
-		VerifyPeerCertificate:       customVerify,
+		// ...but we pass our own verification function that verifies against the CA and ignores the ServerName
+		VerifyPeerCertificate: customVerify,
+		// disable DynamicRecordSizing to lower distinguishability.
 		DynamicRecordSizingDisabled: true,
 	} //#nosec G402
 
-	// TODO(ainghazal): we assume a non-empty cert means we've got also a
-	// valid ca and key, but we need a validation function that accepts an Options object.
-	// it probably makes sense to extract the read/load to a function that is also called
-	// when parsing the options file.
-	if opt.Cert != "" {
-		ca := x509.NewCertPool()
-		caData, err := ioutil.ReadFile(opt.Ca)
-		if err != nil {
-			return nil, fmt.Errorf("%w:%s", ErrBadCA, err)
-		}
-		ok := ca.AppendCertsFromPEM(caData)
-		if !ok {
-			return nil, fmt.Errorf("%w:%s", ErrBadCA, "cannot parse ca cert")
-		}
-
-		cert, err := tls.LoadX509KeyPair(opt.Cert, opt.Key)
-		if err != nil {
-			return nil, fmt.Errorf("%w:%s", ErrBadKeypair, err)
-		}
-		tlsConf.RootCAs = ca
-		tlsConf.Certificates = []tls.Certificate{cert}
-	}
 	return tlsConf, nil
 }
 
