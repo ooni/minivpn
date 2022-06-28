@@ -17,7 +17,9 @@ for such a thing, please use [misteriumnetwork/go-openvpn](https://github.com/my
 
 ## License
 
-GPLv3
+```
+SPDX-License-Identifier: GPL-3.0-or-later
+```
 
 ## OpenVPN Compatibility
 
