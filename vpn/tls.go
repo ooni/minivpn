@@ -50,12 +50,25 @@ type certAuthConfig struct {
 	caPath   string
 }
 
+// authorityPinner is any object from which we can obtain a certpool containing
+// a pinned Certificate Authority for verification.
+type authorityPinner interface {
+	authority() *x509.CertPool
+}
+
 // certAuth holds the parsed certificate and CA used for OpenVPN mutual
 // certificate authentication.
 type certAuth struct {
 	cert tls.Certificate
 	ca   *x509.CertPool
 }
+
+func (c *certAuth) authority() *x509.CertPool {
+	return c.ca
+}
+
+// ensure certAuth imlements authorityPinner
+var _ authorityPinner = &certAuth{}
 
 // loadCertAndCA parses the PEM certificates contained in the paths pointed by
 // certAuthConfig and return a certAuth with the client and CA certificates.
@@ -81,7 +94,40 @@ func loadCertAndCA(conf certAuthConfig) (*certAuth, error) {
 	return auth, nil
 }
 
-// initTLS returns a tls.Config matching the VPN options. We pass a custom
+// verifyFun is the type expected by the VerifyPeerCertificate callback in tls.Config.
+type verifyFun = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+
+// customVerifyFactory returns a verifyFun callback that will verify any received certificates
+// against the ca provided by the pased implementation of authorityPinner
+func customVerifyFactory(pinner authorityPinner) verifyFun {
+	// customVerify is a version of the verification routines that does not try to verify
+	// the Common Name, since we don't know it a priori for a VPN gateway. Returns
+	// an error if the verification fails.
+	// From tls/common documentation: If normal verification is disabled by
+	// setting InsecureSkipVerify, [...] then this callback will be considered but
+	// the verifiedChains argument will always be nil.
+	customVerify := func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		// we assume (from docs) that we're always given the
+		// leaf certificate as the first cert in the array.
+		leaf, _ := x509.ParseCertificate(rawCerts[0])
+		if leaf == nil {
+			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
+		}
+		// By default has DNSName verification disabled.
+		opts := certVerifyOptions()
+		// Set the configured CA(s) as the certificate pool to verify against.
+		opts.Roots = pinner.authority()
+
+		if _, err := leaf.Verify(opts); err != nil {
+			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
+		}
+		return nil
+	}
+	return customVerify
+}
+
+// initTLS returns a tls.Config matching the VPN options. Internally, it uses
+// the verify function returned by the global customVerifyFactory,
 // verification function since verifying the ServerName does not make sense in
 // the context of establishing a VPN session: we perform mutual TLS
 // Authentication with the custom CA.
@@ -103,29 +149,7 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 		return nil, err
 	}
 
-	// customVerify is a version of the verification routines that does not try to verify
-	// the Common Name, since we don't know it a priori for a VPN gateway. Returns
-	// an error if the verification fails.
-	// From tls/common documentation: If normal verification is disabled by
-	// setting InsecureSkipVerify, [...] then this callback will be considered but
-	// the verifiedChains argument will always be nil.
-	customVerify := func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-		// we assume (from docs) that we're always given the
-		// leaf certificate as the first cert in the array.
-		leaf, _ := x509.ParseCertificate(rawCerts[0])
-		if leaf == nil {
-			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
-		}
-		// By default has DNSName verification disabled.
-		opts := certVerifyOptions()
-		// Set the configured CA(s) as the certificate pool to verify against.
-		opts.Roots = certAuth.ca
-
-		if _, err := leaf.Verify(opts); err != nil {
-			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
-		}
-		return nil
-	}
+	customVerify := customVerifyFactory(certAuth)
 
 	// We are not passing min/max tls versions because the ClientHello spec
 	// that we use as reference already sets "reasonable" values.

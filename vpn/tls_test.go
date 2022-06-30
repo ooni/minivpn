@@ -49,11 +49,17 @@ func Test_initTLS(t *testing.T) {
 			name: "default tls config should not fail",
 			args: args{
 				session: makeTestingSession(),
-				opt:     &Options{},
+				opt: func() *Options {
+					c, _ := writeTestingCerts("")
+					opt := &Options{
+						Cert: c.cert,
+						Key:  c.key,
+						Ca:   c.ca,
+					}
+					return opt
+				}(),
 			},
-			want: &tls.Config{
-				InsecureSkipVerify: true,
-			},
+			want:    nil,
 			wantErr: nil,
 		},
 	}
@@ -505,11 +511,11 @@ func Test_parrotTLSFactory(t *testing.T) {
 	})
 
 	t.Run("an hex clienthello that cannot be decoded to raw bytes should raise ErrBadParrot", func(t *testing.T) {
-		origHello := vpnClientHelloHex
+		defer func(original string) {
+			vpnClientHelloHex = original
+		}(vpnClientHelloHex)
 		vpnClientHelloHex = `aaa`
-		defer func() {
-			vpnClientHelloHex = origHello
-		}()
+
 		_, err := parrotTLSFactory(conn, conf)
 		wantErr := ErrBadParrot
 		if !errors.Is(err, wantErr) {
@@ -519,11 +525,11 @@ func Test_parrotTLSFactory(t *testing.T) {
 	})
 
 	t.Run("an hex representation that is not a valid clienthello should raise ErrBadParrot", func(t *testing.T) {
-		origHello := vpnClientHelloHex
+		defer func(original string) {
+			vpnClientHelloHex = original
+		}(vpnClientHelloHex)
 		vpnClientHelloHex = `deadbeef`
-		defer func() {
-			vpnClientHelloHex = origHello
-		}()
+
 		_, err := parrotTLSFactory(conn, conf)
 		wantErr := ErrBadParrot
 		if !errors.Is(err, wantErr) {
@@ -539,11 +545,14 @@ func Test_parrotTLSFactory(t *testing.T) {
 func Test_customVerify(t *testing.T) {
 
 	t.Run("a correct certChain should validate", func(t *testing.T) {
-		rawCerts, err := makeRawCerts()
+		rawCerts, ca, vpnCert, vpnKey, err := makeRawCertsForTesting()
 		if err != nil {
 			t.Errorf("error getting raw certs")
 			return
 		}
+
+		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		customVerify := customVerifyFactory(auth)
 
 		err = customVerify(rawCerts, nil)
 		if err != nil {
@@ -555,13 +564,15 @@ func Test_customVerify(t *testing.T) {
 		// this test is really only testing the behavior of golang x509 validation
 		// in the stdlib, but it gives me more faith in the correctness
 		// of the custom verify function
-		rawCerts, err := makeRawCerts()
+		rawCerts, ca, vpnCert, vpnKey, err := makeRawCertsForTesting()
 		if err != nil {
 			t.Errorf("error getting raw certs")
 			return
 		}
 
-		origVerifyOptions := certVerifyOptions
+		defer func(original func() x509.VerifyOptions) {
+			certVerifyOptions = original
+		}(certVerifyOptions)
 
 		// the test cert has random.gateway set as the DNSName, so we're just verifying
 		// that the verification actually fails with options different from the default that we're
@@ -569,11 +580,12 @@ func Test_customVerify(t *testing.T) {
 		certVerifyOptions = func() x509.VerifyOptions {
 			return x509.VerifyOptions{DNSName: "other.gateway"}
 		}
-		defer func() {
-			certVerifyOptions = origVerifyOptions
-		}()
 
 		wantErr := ErrCannotVerifyCertChain
+
+		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		customVerify := customVerifyFactory(auth)
+
 		err = customVerify(rawCerts, nil)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("customVerify() error = %v, wantErr %v", err, nil)
@@ -583,7 +595,17 @@ func Test_customVerify(t *testing.T) {
 	t.Run("empty certchain raises error", func(t *testing.T) {
 		emptyCerts := [][]byte{[]byte{}, []byte{}}
 		wantErr := ErrCannotVerifyCertChain
-		err := customVerify(emptyCerts, nil)
+
+		_, ca, vpnCert, vpnKey, err := makeRawCertsForTesting()
+		if err != nil {
+			t.Errorf("error getting raw certs")
+			return
+		}
+
+		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		customVerify := customVerifyFactory(auth)
+
+		err = customVerify(emptyCerts, nil)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("customVerify() error = %v, wantErr %v", err, wantErr)
 		}
@@ -592,37 +614,60 @@ func Test_customVerify(t *testing.T) {
 	t.Run("garbage certchain raises error", func(t *testing.T) {
 		garbageCerts := [][]byte{[]byte{0xde, 0xad}, []byte{0xbe, 0xef}}
 		wantErr := ErrCannotVerifyCertChain
-		err := customVerify(garbageCerts, nil)
+
+		_, ca, vpnCert, vpnKey, err := makeRawCertsForTesting()
+		if err != nil {
+			t.Errorf("error getting raw certs")
+			return
+		}
+
+		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		customVerify := customVerifyFactory(auth)
+
+		err = customVerify(garbageCerts, nil)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("customVerify() error = %v, wantErr %v", err, wantErr)
 		}
 	})
 
 	t.Run("attempting to verify one cert with a different ca raises error", func(t *testing.T) {
-		certChainOne, _ := makeRawCerts()
-		certChainTwo, _ := makeRawCerts()
+		certChainOne, _, _, _, _ := makeRawCertsForTesting()
+		certChainTwo, _, _, _, _ := makeRawCertsForTesting()
 		badChain := [][]byte{certChainOne[0], certChainTwo[1]}
 		wantErr := ErrCannotVerifyCertChain
-		err := customVerify(badChain, nil)
+
+		_, ca, vpnCert, vpnKey, err := makeRawCertsForTesting()
+		if err != nil {
+			t.Errorf("error getting raw certs")
+			return
+		}
+
+		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		customVerify := customVerifyFactory(auth)
+
+		err = customVerify(badChain, nil)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("customVerify() error = %v, wantErr %v", err, wantErr)
 		}
 	})
 }
 
-// makeRawCerts creates a CA, and return an array of byte arrays containing a
-// cert signed with that CA and the CA itself. it also returns an error if it
-// could not build the certs correctly.
-func makeRawCerts() ([][]byte, error) {
+// makeRawCertsForTesting creates a CA, and returns:
+// * an array of byte arrays containing a cert signed with that CA and the CA itself (to be used to test the verify routine).
+// * the ca used to sign the certs
+// * a cert that simulates a vpn certificate signed by the ca (rsa)
+// * the private key for the vpn certificate
+// * an error if it could not build any of the certs correctly.
+func makeRawCertsForTesting() ([][]byte, *x509.Certificate, []byte, []byte, error) {
 	// set up a CA certificate. this sets up a 2048 cert for the ca, if we ever
 	// want to shave milliseconds we can roll a ca with a smaller key size.
 	ca, caPrivKey, err := mitm.NewAuthority("ca", "oonitarians united", 1*time.Hour)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// set up a leaf certificate - this would be the gateway cert
@@ -641,14 +686,50 @@ func makeRawCerts() ([][]byte, error) {
 	// tiny cert size to make tests go brrr
 	certPrivKey, err := rsa.GenerateKey(rand.Reader, 512)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, ca, &certPrivKey.PublicKey, caPrivKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
+	// set up a vpn certificate - this would be the client cert
+	vpnCert := &x509.Certificate{
+		SerialNumber: big.NewInt(1984),
+		Subject: pkix.Name{
+			Organization:  []string{"Oonitarians united"},
+			StreetAddress: []string{"On a pinneaple at the bottom of the sea"},
+			CommonName:    "client cert",
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().AddDate(10, 0, 0),
+	}
+
+	// tiny cert size to make tests go brrr
+	vpnCertPrivKey, err := rsa.GenerateKey(rand.Reader, 512)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	vpnCertBytes, err := x509.CreateCertificate(rand.Reader, vpnCert, ca, &vpnCertPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	vpnKeyBytes := x509.MarshalPKCS1PrivateKey(vpnCertPrivKey)
+
 	result := [][]byte{certBytes, caBytes}
-	return result, nil
+	return result, ca, vpnCertBytes, vpnKeyBytes, nil
+}
+
+func loadCertAndCAFromMemory(caCert *x509.Certificate, vpnCert []byte, vpnKey []byte) (*certAuth, error) {
+	ca := x509.NewCertPool()
+	ca.AddCert(caCert)
+	cert, _ := tls.X509KeyPair(vpnCert, vpnKey)
+	auth := &certAuth{
+		ca:   ca,
+		cert: cert,
+	}
+	return auth, nil
 }
