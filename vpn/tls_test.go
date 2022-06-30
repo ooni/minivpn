@@ -435,8 +435,6 @@ func Test_tlsHandshake(t *testing.T) {
 
 		conf := &tls.Config{
 			InsecureSkipVerify: true,
-			MinVersion:         tls.VersionTLS12,
-			MaxVersion:         tls.VersionTLS13,
 		}
 		return tc, conf
 	}
@@ -544,7 +542,7 @@ func Test_parrotTLSFactory(t *testing.T) {
 
 func Test_customVerify(t *testing.T) {
 
-	t.Run("a correct certChain should validate", func(t *testing.T) {
+	t.Run("happy path: a correct certChain should validate if we pin with the good ca", func(t *testing.T) {
 		rawCerts, ca, vpnCert, vpnKey, err := makeRawCertsForTesting()
 		if err != nil {
 			t.Errorf("error getting raw certs")
@@ -560,6 +558,49 @@ func Test_customVerify(t *testing.T) {
 		}
 	})
 
+	t.Run("a certChain should not validate if we do not pin the proper ca", func(t *testing.T) {
+		rawCerts, _, vpnCert, vpnKey, err := makeRawCertsForTesting()
+		if err != nil {
+			t.Errorf("error getting raw certs")
+			return
+		}
+		_, badCa, _, _, err := makeRawCertsForTesting()
+		if err != nil {
+			t.Errorf("error getting raw certs")
+			return
+		}
+
+		auth, err := loadCertAndCAFromMemory(badCa, vpnCert, vpnKey)
+		customVerify := customVerifyFactory(auth)
+
+		wantErr := ErrCannotVerifyCertChain
+		err = customVerify(rawCerts, nil)
+
+		if !errors.Is(err, wantErr) {
+			t.Errorf("customVerify() error = %v, wantErr %v", err, nil)
+		}
+	})
+
+	t.Run("a certChain should not validate if we pass an empty ca", func(t *testing.T) {
+		rawCerts, _, vpnCert, vpnKey, err := makeRawCertsForTesting()
+		if err != nil {
+			t.Errorf("error getting raw certs")
+			return
+		}
+
+		emptyCa := &x509.Certificate{}
+
+		auth, err := loadCertAndCAFromMemory(emptyCa, vpnCert, vpnKey)
+		customVerify := customVerifyFactory(auth)
+
+		wantErr := ErrCannotVerifyCertChain
+		err = customVerify(rawCerts, nil)
+
+		if !errors.Is(err, wantErr) {
+			t.Errorf("customVerify() error = %v, wantErr %v", err, nil)
+		}
+	})
+
 	t.Run("a correct certChain fails if DNSName is set in VerifyOptions", func(t *testing.T) {
 		// this test is really only testing the behavior of golang x509 validation
 		// in the stdlib, but it gives me more faith in the correctness
@@ -570,8 +611,8 @@ func Test_customVerify(t *testing.T) {
 			return
 		}
 
-		defer func(original func() x509.VerifyOptions) {
-			certVerifyOptions = original
+		defer func(orig func() x509.VerifyOptions) {
+			certVerifyOptions = orig
 		}(certVerifyOptions)
 
 		// the test cert has random.gateway set as the DNSName, so we're just verifying

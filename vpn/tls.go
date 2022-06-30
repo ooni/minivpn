@@ -167,8 +167,6 @@ func initTLS(session *session, opt *Options) (*tls.Config, error) {
 	return tlsConf, nil
 }
 
-var initTLSFn = initTLS
-
 // tlsHandshake performs the TLS handshake over the control channel, and return
 // the TLS Client as a net.Conn; returns also any error during the handshake.
 func tlsHandshake(tlsConn *TLSConn, tlsConf *tls.Config) (net.Conn, error) {
@@ -223,5 +221,9 @@ func parrotTLSFactory(conn net.Conn, config *tls.Config) (handshaker, error) {
 	return client, nil
 }
 
-var tlsFactoryFn = parrotTLSFactory
-var tlsHandshakeFn = tlsHandshake
+// global variables to allow monkeypatching in tests.
+var (
+	initTLSFn      = initTLS
+	tlsFactoryFn   = parrotTLSFactory
+	tlsHandshakeFn = tlsHandshake
+)
