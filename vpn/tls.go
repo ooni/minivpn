@@ -3,7 +3,7 @@ package vpn
 //
 // TLS initialization and read/write wrappers.
 //
-// TODO: for the time being, we're using uTLS to parrot a ClientHello that can reasonably blend
+// TODO(ainghazal): for the time being, we're using uTLS to parrot a ClientHello that can reasonably blend
 // with a recent openvpn+openssl client (2.5.x). We might want to revisit this
 // in the near future and perhaps expose other TLS Factories.
 //
@@ -38,16 +38,40 @@ func certVerifyOptionsNoCommonNameCheck() x509.VerifyOptions {
 	return x509.VerifyOptions{DNSName: ""}
 }
 
-// certVerifyOptions is the options fatory that the customVerify function will
+// certVerifyOptions is the options factory that the customVerify function will
 // use; by default it configures VerifyOptions to skip the DNSName check.
 var certVerifyOptions = certVerifyOptionsNoCommonNameCheck
 
-// certAuthConfg holds the paths for the cert, key, and ca used for OpenVPN
+// certPaths holds the paths for the cert, key, and ca used for OpenVPN
 // certificate authentication.
-type certAuthConfig struct {
+type certPaths struct {
 	certPath string
 	keyPath  string
 	caPath   string
+}
+
+// loadCertAndCA parses the PEM certificates contained in the paths pointed by
+// certAuthConfig and return a certAuth with the client and CA certificates.
+func loadCertAndCA(pth certPaths) (*certConfig, error) {
+	ca := x509.NewCertPool()
+	caData, err := ioutil.ReadFile(pth.caPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadCA, err)
+	}
+	ok := ca.AppendCertsFromPEM(caData)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrBadCA, "cannot parse ca cert")
+	}
+
+	cert, err := tls.LoadX509KeyPair(pth.certPath, pth.keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
+	}
+	cfg := &certConfig{
+		ca:   ca,
+		cert: cert,
+	}
+	return cfg, nil
 }
 
 // authorityPinner is any object from which we can obtain a certpool containing
@@ -56,46 +80,34 @@ type authorityPinner interface {
 	authority() *x509.CertPool
 }
 
-// certAuth holds the parsed certificate and CA used for OpenVPN mutual
+// certConfig holds the parsed certificate and CA used for OpenVPN mutual
 // certificate authentication.
-type certAuth struct {
+type certConfig struct {
 	cert tls.Certificate
 	ca   *x509.CertPool
 }
 
-func (c *certAuth) authority() *x509.CertPool {
+// newCertConfigFromOptions is a constructor that returns a certConfig object initialized
+// from the paths specified in the passed Options object, and an error if it
+// could not be properly built.
+func newCertConfigFromOptions(o *Options) (*certConfig, error) {
+	return loadCertAndCA(certPaths{
+		certPath: o.Cert,
+		keyPath:  o.Key,
+		caPath:   o.Ca,
+	})
+}
+
+// authority implements authorityPinner interface.
+func (c *certConfig) authority() *x509.CertPool {
 	return c.ca
 }
 
-// ensure certAuth imlements authorityPinner
-var _ authorityPinner = &certAuth{}
-
-// loadCertAndCA parses the PEM certificates contained in the paths pointed by
-// certAuthConfig and return a certAuth with the client and CA certificates.
-func loadCertAndCA(conf certAuthConfig) (*certAuth, error) {
-	ca := x509.NewCertPool()
-	caData, err := ioutil.ReadFile(conf.caPath)
-	if err != nil {
-		return nil, fmt.Errorf("%w:%s", ErrBadCA, err)
-	}
-	ok := ca.AppendCertsFromPEM(caData)
-	if !ok {
-		return nil, fmt.Errorf("%w:%s", ErrBadCA, "cannot parse ca cert")
-	}
-
-	cert, err := tls.LoadX509KeyPair(conf.certPath, conf.keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("%w:%s", ErrBadKeypair, err)
-	}
-	auth := &certAuth{
-		ca:   ca,
-		cert: cert,
-	}
-	return auth, nil
-}
+// ensure certConfig implements authorityPinner.
+var _ authorityPinner = &certConfig{}
 
 // verifyFun is the type expected by the VerifyPeerCertificate callback in tls.Config.
-type verifyFun = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+type verifyFun func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 
 // customVerifyFactory returns a verifyFun callback that will verify any received certificates
 // against the ca provided by the pased implementation of authorityPinner
@@ -131,31 +143,18 @@ func customVerifyFactory(pinner authorityPinner) verifyFun {
 // verification function since verifying the ServerName does not make sense in
 // the context of establishing a VPN session: we perform mutual TLS
 // Authentication with the custom CA.
-func initTLS(session *session, opt *Options) (*tls.Config, error) {
-	if session == nil || opt == nil {
-		return nil, fmt.Errorf("%w:%s", errBadInput, "nil args")
+func initTLS(session *session, cfg *certConfig) (*tls.Config, error) {
+	if session == nil || cfg == nil {
+		return nil, fmt.Errorf("%w: %s", errBadInput, "nil args")
 	}
 
-	if opt.Cert == "" && opt.Key == "" && opt.Username == "" {
-		return nil, fmt.Errorf("%w: %s", errBadInput, "expected certificate or username/password")
-	}
-
-	certAuth, err := loadCertAndCA(certAuthConfig{
-		certPath: opt.Cert,
-		keyPath:  opt.Key,
-		caPath:   opt.Ca,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	customVerify := customVerifyFactory(certAuth)
+	customVerify := customVerifyFactory(cfg)
 
 	// We are not passing min/max tls versions because the ClientHello spec
 	// that we use as reference already sets "reasonable" values.
 	tlsConf := &tls.Config{
 		// the certificate we've loaded from the config file
-		Certificates: []tls.Certificate{certAuth.cert},
+		Certificates: []tls.Certificate{cfg.cert},
 		// crypto/tls wants either ServerName or InsecureSkipVerify set ...
 		InsecureSkipVerify: true,
 		// ...but we pass our own verification function that verifies against the CA and ignores the ServerName

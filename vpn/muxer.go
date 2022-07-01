@@ -165,9 +165,16 @@ func (m *muxer) Handshake() error {
 
 	// 2. TLS handshake.
 
-	// XXX this step can now be moved before dial/reset; we can store the conf
-	// in the muxer.
-	tlsConf, err := initTLSFn(m.session, m.options)
+	// TODO(ainghazal): move the initialization step to an early phase and keep a ref in the muxer
+	if m.options.Cert == "" && m.options.Key == "" && m.options.Username == "" {
+		return fmt.Errorf("%w: %s", errBadInput, "expected certificate or username/password")
+	}
+	certCfg, err := newCertConfigFromOptions(m.options)
+	if err != nil {
+		return err
+	}
+
+	tlsConf, err := initTLSFn(m.session, certCfg)
 	if err != nil {
 		return err
 	}

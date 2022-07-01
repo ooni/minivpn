@@ -18,10 +18,23 @@ import (
 	tls "github.com/refraction-networking/utls"
 )
 
+func makeDummyOptionsForCertPaths() *Options {
+	return &Options{
+		Cert: "aa",
+		Key:  "aa",
+		Ca:   "aa",
+	}
+}
+
+// TODO(ainghazal): many of these tests right now create certs, which is costly
+// bacause creating a CA each time is expensive.
+// I should mock any certs for the tests that do not need to actually verify
+// the cert chain.
+
 func Test_initTLS(t *testing.T) {
 	type args struct {
 		session *session
-		opt     *Options
+		cfg     *certConfig
 	}
 	tests := []struct {
 		name    string
@@ -40,23 +53,41 @@ func Test_initTLS(t *testing.T) {
 		{
 			name: "empty session should fail",
 			args: args{
-				opt: &Options{},
+				cfg: func() *certConfig {
+					crt, err := writeTestingCerts(t.TempDir())
+					if err != nil {
+						t.Errorf("initTLS() cannot create certs for test %v", err.Error())
+					}
+					cfg, err := newCertConfigFromOptions(&Options{
+						Cert: crt.cert,
+						Key:  crt.key,
+						Ca:   crt.ca,
+					})
+					if err != nil {
+						t.Errorf("initTLS() cannot load config from opts %v", err.Error())
+					}
+					return cfg
+				}(),
 			},
 			want:    nil,
 			wantErr: errBadInput,
 		},
 		{
-			name: "default tls config should not fail",
+			name: "default tls config should not fail with proper cert paths",
 			args: args{
 				session: makeTestingSession(),
-				opt: func() *Options {
+				cfg: func() *certConfig {
 					c, _ := writeTestingCerts("")
-					opt := &Options{
-						Cert: c.cert,
-						Key:  c.key,
-						Ca:   c.ca,
+					cfg, err := newCertConfigFromOptions(
+						&Options{
+							Cert: c.cert,
+							Key:  c.key,
+							Ca:   c.ca,
+						})
+					if err != nil {
+						t.Errorf("error while testing: %v", err)
 					}
-					return opt
+					return cfg
 				}(),
 			},
 			want:    nil,
@@ -65,7 +96,7 @@ func Test_initTLS(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := initTLS(tt.args.session, tt.args.opt)
+			got, err := initTLS(tt.args.session, tt.args.cfg)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("initTLS() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -298,7 +329,83 @@ func writeTestingCertsBadCert(dir string) (testingCert, error) {
 	return testingCert, nil
 }
 
-// TODO can refactor this test to table
+func Test_loadCertAndCA(t *testing.T) {
+	type args struct {
+		pth certPaths
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *certConfig
+		wantErr error
+	}{
+		{
+			name: "bad ca (non existent file) should fail",
+			args: func() args {
+				crt, err := writeTestingCertsBadCAFile(t.TempDir())
+				if err != nil {
+					t.Errorf("error while testing: %v", err)
+				}
+				return args{pth: certPaths{crt.cert, crt.key, crt.ca}}
+
+			}(),
+			want:    nil,
+			wantErr: ErrBadCA,
+		},
+		{
+			name: "bad ca (malformed) should fail",
+			args: func() args {
+				crt, err := writeTestingCertsBadCA(t.TempDir())
+				if err != nil {
+					t.Errorf("error while testing: %v", err)
+				}
+				return args{pth: certPaths{crt.cert, crt.key, crt.ca}}
+
+			}(),
+			want:    nil,
+			wantErr: ErrBadCA,
+		},
+		{
+			name: "bad key",
+			args: func() args {
+				crt, err := writeTestingCertsBadKey(t.TempDir())
+				if err != nil {
+					t.Errorf("error while testing: %v", err)
+				}
+				return args{pth: certPaths{crt.cert, crt.key, crt.ca}}
+
+			}(),
+			want:    nil,
+			wantErr: ErrBadKeypair,
+		},
+		{
+			name: "bad cert",
+			args: func() args {
+				crt, err := writeTestingCertsBadCert(t.TempDir())
+				if err != nil {
+					t.Errorf("error while testing: %v", err)
+				}
+				return args{pth: certPaths{crt.cert, crt.key, crt.ca}}
+
+			}(),
+			want:    nil,
+			wantErr: ErrBadKeypair,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := loadCertAndCA(tt.args.pth)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("loadCertAndCA() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("loadCertAndCA() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_initTLSLoadTestCertificates(t *testing.T) {
 
 	t.Run("default options should not fail", func(t *testing.T) {
@@ -307,85 +414,20 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 		if err != nil {
 			t.Errorf("error while testing: %v", err)
 		}
-		opt := &Options{
+		cfg, err := newCertConfigFromOptions(&Options{
 			Cert: crt.cert,
 			Key:  crt.key,
 			Ca:   crt.ca,
+		})
+		if err != nil {
+			t.Errorf("error while testing: %v", err)
 		}
-		_, err = initTLS(session, opt)
+
+		_, err = initTLS(session, cfg)
 		if err != nil {
 			t.Errorf("initTLS() error = %v, want: nil", err)
 		}
 	})
-
-	t.Run("bad ca (non existent file) should fail", func(t *testing.T) {
-		session := makeTestingSession()
-		crt, err := writeTestingCertsBadCAFile(t.TempDir())
-		if err != nil {
-			t.Errorf("error while testing: %v", err)
-		}
-		opt := &Options{
-			Cert: crt.cert,
-			Key:  crt.key,
-			Ca:   crt.ca,
-		}
-		_, err = initTLS(session, opt)
-		if !errors.Is(err, ErrBadCA) {
-			t.Errorf("initTLS() error = %v, want: %v", err, ErrBadCA)
-		}
-	})
-
-	t.Run("bad ca (malformed)", func(t *testing.T) {
-		session := makeTestingSession()
-		crt, err := writeTestingCertsBadCA(t.TempDir())
-		if err != nil {
-			t.Errorf("error while testing: %v", err)
-		}
-		opt := &Options{
-			Cert: crt.cert,
-			Key:  crt.key,
-			Ca:   crt.ca,
-		}
-		_, err = initTLS(session, opt)
-		if !errors.Is(err, ErrBadCA) {
-			t.Errorf("initTLS() error = %v, want: %v", err, ErrBadCA)
-		}
-	})
-
-	t.Run("bad key", func(t *testing.T) {
-		session := makeTestingSession()
-		crt, err := writeTestingCertsBadKey(t.TempDir())
-		if err != nil {
-			t.Errorf("error while testing: %v", err)
-		}
-		opt := &Options{
-			Cert: crt.cert,
-			Key:  crt.key,
-			Ca:   crt.ca,
-		}
-		_, err = initTLS(session, opt)
-		if !errors.Is(err, ErrBadKeypair) {
-			t.Errorf("initTLS() error = %v, want: %v", err, ErrBadKeypair)
-		}
-	})
-
-	t.Run("bad cert", func(t *testing.T) {
-		session := makeTestingSession()
-		crt, err := writeTestingCertsBadCert(t.TempDir())
-		if err != nil {
-			t.Errorf("error while testing: %v", err)
-		}
-		opt := &Options{
-			Cert: crt.cert,
-			Key:  crt.key,
-			Ca:   crt.ca,
-		}
-		_, err = initTLS(session, opt)
-		if !errors.Is(err, ErrBadKeypair) {
-			t.Errorf("initTLS() error = %v, want: %v", err, ErrBadKeypair)
-		}
-	})
-
 }
 
 // mock good handshake
@@ -549,7 +591,7 @@ func Test_customVerify(t *testing.T) {
 			return
 		}
 
-		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		auth, err := makeCertAndCAFromMemory(ca, vpnCert, vpnKey)
 		customVerify := customVerifyFactory(auth)
 
 		err = customVerify(rawCerts, nil)
@@ -570,7 +612,7 @@ func Test_customVerify(t *testing.T) {
 			return
 		}
 
-		auth, err := loadCertAndCAFromMemory(badCa, vpnCert, vpnKey)
+		auth, err := makeCertAndCAFromMemory(badCa, vpnCert, vpnKey)
 		customVerify := customVerifyFactory(auth)
 
 		wantErr := ErrCannotVerifyCertChain
@@ -590,7 +632,7 @@ func Test_customVerify(t *testing.T) {
 
 		emptyCa := &x509.Certificate{}
 
-		auth, err := loadCertAndCAFromMemory(emptyCa, vpnCert, vpnKey)
+		auth, err := makeCertAndCAFromMemory(emptyCa, vpnCert, vpnKey)
 		customVerify := customVerifyFactory(auth)
 
 		wantErr := ErrCannotVerifyCertChain
@@ -624,7 +666,7 @@ func Test_customVerify(t *testing.T) {
 
 		wantErr := ErrCannotVerifyCertChain
 
-		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		auth, err := makeCertAndCAFromMemory(ca, vpnCert, vpnKey)
 		customVerify := customVerifyFactory(auth)
 
 		err = customVerify(rawCerts, nil)
@@ -643,7 +685,7 @@ func Test_customVerify(t *testing.T) {
 			return
 		}
 
-		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		auth, err := makeCertAndCAFromMemory(ca, vpnCert, vpnKey)
 		customVerify := customVerifyFactory(auth)
 
 		err = customVerify(emptyCerts, nil)
@@ -662,7 +704,7 @@ func Test_customVerify(t *testing.T) {
 			return
 		}
 
-		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		auth, err := makeCertAndCAFromMemory(ca, vpnCert, vpnKey)
 		customVerify := customVerifyFactory(auth)
 
 		err = customVerify(garbageCerts, nil)
@@ -683,7 +725,7 @@ func Test_customVerify(t *testing.T) {
 			return
 		}
 
-		auth, err := loadCertAndCAFromMemory(ca, vpnCert, vpnKey)
+		auth, err := makeCertAndCAFromMemory(ca, vpnCert, vpnKey)
 		customVerify := customVerifyFactory(auth)
 
 		err = customVerify(badChain, nil)
@@ -764,11 +806,11 @@ func makeRawCertsForTesting() ([][]byte, *x509.Certificate, []byte, []byte, erro
 	return result, ca, vpnCertBytes, vpnKeyBytes, nil
 }
 
-func loadCertAndCAFromMemory(caCert *x509.Certificate, vpnCert []byte, vpnKey []byte) (*certAuth, error) {
+func makeCertAndCAFromMemory(caCert *x509.Certificate, vpnCert []byte, vpnKey []byte) (*certConfig, error) {
 	ca := x509.NewCertPool()
 	ca.AddCert(caCert)
 	cert, _ := tls.X509KeyPair(vpnCert, vpnKey)
-	auth := &certAuth{
+	auth := &certConfig{
 		ca:   ca,
 		cert: cert,
 	}
