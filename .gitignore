@@ -10,4 +10,5 @@ ndt7
 data/*
 measurements/*
 coverage.out
+coverage-ping.out
 cov-threshold.out

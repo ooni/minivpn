@@ -1,5 +1,6 @@
 // Package ping is a simple but powerful ICMP echo (ping) library.
 // This file is a modification of one of the elements in the go-ping library.
+// for the purposes of writing raw UDP packets over a VPN tunnel.
 
 /*
  * SPDX-License-Identifier: MIT
@@ -261,34 +262,6 @@ func (p *Pinger) updateStatistics(pkt *Packet) {
 	p.stdDevRtt = time.Duration(math.Sqrt(float64(p.stddevm2 / pktCount)))
 }
 
-// SetIPAddr sets the ip address of the target host.
-func (p *Pinger) SetIPAddr(ipaddr *net.IPAddr) {
-	p.ipv4 = isIPv4(ipaddr.IP)
-
-	p.ipaddr = ipaddr
-	p.addr = ipaddr.String()
-}
-
-// IPAddr returns the ip address of the target host.
-func (p *Pinger) IPAddr() *net.IPAddr {
-	return p.ipaddr
-}
-
-// Addr returns the string ip address of the target host.
-func (p *Pinger) Addr() string {
-	return p.addr
-}
-
-// SetID sets the ICMP identifier.
-func (p *Pinger) SetID(id int) {
-	p.id = id
-}
-
-// ID returns the ICMP identifier.
-func (p *Pinger) ID() int {
-	return p.id
-}
-
 // Run runs the pinger. This is a blocking function that will exit when it's
 // done. If Count or Interval are not specified, it will run continuously until
 // it is interrupted.
@@ -315,19 +288,18 @@ func (p *Pinger) run(conn net.Conn) error {
 
 	g.Go(func() error {
 		defer p.Stop()
-		return p.recvICMP(recv)
+		return p.runLoop(recv)
 	})
 
 	g.Go(func() error {
 		defer p.Stop()
-		return p.runLoop(recv)
+		return p.recvICMP(recv)
 	})
 
 	return g.Wait()
 }
 
 func (p *Pinger) runLoop(recvCh <-chan *packet) error {
-
 	timeout := time.NewTicker(p.Timeout)
 	interval := time.NewTicker(p.Interval)
 	defer func() {
@@ -365,6 +337,7 @@ func (p *Pinger) runLoop(recvCh <-chan *packet) error {
 			if err != nil {
 				return err
 			}
+
 			// mark this sequence as in-flight
 			p.awaitingSequences[currentUUID][p.PacketsSent] = struct{}{}
 			p.PacketsSent++
@@ -401,7 +374,7 @@ func (p *Pinger) finish() {
 
 // Statistics returns the statistics of the pinger. This can be run while the
 // pinger is running or after it is finished. OnFinish calls this function to
-// get it's finished statistics.
+// get its finished statistics.
 func (p *Pinger) Statistics() *Statistics {
 	p.statsMu.RLock()
 	defer p.statsMu.RUnlock()
@@ -499,12 +472,12 @@ func (p *Pinger) getCurrentTrackerUUID() uuid.UUID {
 
 func (p *Pinger) processPacket(recv *packet) error {
 	pkt := p.parseEchoReply(recv.bytes)
+
 	if pkt == nil || pkt.Data == nil {
 		return nil
 	}
 
 	receivedAt := time.Now()
-
 	if len(pkt.Data) < timeSliceLength+trackerLength {
 		return fmt.Errorf("insufficient data received; got: %d %v", len(pkt.Data), pkt.Data)
 	}
@@ -525,7 +498,6 @@ func (p *Pinger) processPacket(recv *packet) error {
 
 	// If we've already received this sequence, ignore it.
 	if _, inflight := p.awaitingSequences[*pktUUID][pkt.Seq]; !inflight {
-		log.Println("we have already received", pkt.Seq)
 		p.PacketsRecvDuplicates++
 		if p.OnDuplicateRecv != nil {
 			p.OnDuplicateRecv(pkt)
@@ -544,7 +516,7 @@ func (p *Pinger) processPacket(recv *packet) error {
 	return nil
 }
 
-// TODO this is the naive way of doing timestamps, equivalent to "ping -U",
+// TODO(ainghazal): here I am using the naive way of doing timestamps, equivalent to "ping -U",
 // but I expect it to be unstable under certain circumstances (high CPU load, GC pauses etc).
 // It'd be a better idea to try to use kernel capabilities if available (need to research what's possible in osx/windows, possibly have a fallback to the naive way).
 // in case we do see that load produces instability.
@@ -566,6 +538,7 @@ func (p *Pinger) parseEchoReply(data []byte) *Packet {
 		switch layerType {
 		case layers.LayerTypeIPv4:
 			localAddr := p.conn.LocalAddr().String()
+
 			if ip.DstIP.String() != localAddr {
 				log.Println("warn: icmp response with wrong dst")
 				return nil
@@ -593,6 +566,7 @@ func (p *Pinger) parseEchoReply(data []byte) *Packet {
 	}
 }
 
+// PrintStats outputs statistics similar to the ones produced by the ping command.
 func (p *Pinger) PrintStats() {
 	if p.PacketsSent == 0 {
 		return
@@ -602,11 +576,13 @@ func (p *Pinger) PrintStats() {
 	fmt.Printf("rtt min/avg/max/stdev = %v, %v, %v, %v\n", p.minRtt, p.avgRtt, p.maxRtt, p.stdDevRtt)
 }
 
+// PacketLoss calculates the ratio of packets lost (per cent).
 func (p *Pinger) PacketLoss() int {
 	ratio := float64(p.PacketsRecv) / float64(p.PacketsSent)
 	return int(math.Round((1 - ratio) * 100))
 }
 
+// newIcmpData crafts an ICMP packet, using gopacket library.
 func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int, currentUUID uuid.UUID) (data []byte) {
 	ip := &layers.IPv4{}
 	ip.Version = 4
@@ -629,7 +605,7 @@ func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int, currentUUID uuid
 
 	uuidEncoded, err := currentUUID.MarshalBinary()
 	if err != nil {
-		log.Println("unable to marshal UUID binary: %s", err.Error())
+		log.Printf("unable to marshal UUID binary: %s", err.Error())
 		return []byte{}
 	}
 	payload := append(timeToBytes(time.Now()), uuidEncoded...)
@@ -643,6 +619,7 @@ func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int, currentUUID uuid
 	return buf.Bytes()
 }
 
+// bytes to time deserializes a timestamp from a byte array, and returns a Time object.
 func bytesToTime(b []byte) time.Time {
 	var nsec int64
 	for i := uint8(0); i < 8; i++ {
@@ -651,10 +628,7 @@ func bytesToTime(b []byte) time.Time {
 	return time.Unix(nsec/1000000000, nsec%1000000000)
 }
 
-func isIPv4(ip net.IP) bool {
-	return len(ip.To4()) == net.IPv4len
-}
-
+// timeToBytes converts a timestamp (a Time object accepted as the only argument)  to a byte array. Returns a byte array.
 func timeToBytes(t time.Time) []byte {
 	nsec := t.UnixNano()
 	b := make([]byte, 8)
@@ -666,7 +640,7 @@ func timeToBytes(t time.Time) []byte {
 
 var seed int64 = time.Now().UnixNano()
 
-// getSeed returns a goroutine-safe unique seed
+// getSeed returns a goroutine-safe unique seed.
 func getSeed() int64 {
 	return atomic.AddInt64(&seed, 1)
 }

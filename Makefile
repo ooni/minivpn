@@ -68,6 +68,10 @@ coverage:
 	go test -coverprofile=coverage.out ./vpn
 	go tool cover -html=coverage.out
 
+coverage-ping:
+	go test -coverprofile=coverage-ping.out ./extras/ping
+	go tool cover -html=coverage-ping.out
+
 proxy:
 	./minivpn -c data/${PROVIDER}/config proxy
 
