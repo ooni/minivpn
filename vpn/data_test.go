@@ -89,10 +89,14 @@ func makeTestingSession() *session {
 	return s
 }
 
-func makeTestingOptions(cipher, auth string) *Options {
+func makeTestingOptions(t *testing.T, cipher, auth string) *Options {
+	crt, _ := writeTestingCerts(t.TempDir())
 	opt := &Options{
 		Cipher: cipher,
 		Auth:   auth,
+		Cert:   crt.cert,
+		Key:    crt.key,
+		Ca:     crt.ca,
 	}
 	return opt
 }
@@ -127,7 +131,7 @@ func Test_newDataFromOptions(t *testing.T) {
 		{
 			name: "bad auth in Options should fail",
 			args: args{
-				opt: makeTestingOptions("AES-128-GCM", "shabad"),
+				opt: makeTestingOptions(t, "AES-128-GCM", "shabad"),
 				s:   makeTestingSession(),
 			},
 			wantWhatever: true,
@@ -136,7 +140,7 @@ func Test_newDataFromOptions(t *testing.T) {
 		{
 			name: "empty session should not fail",
 			args: args{
-				opt: makeTestingOptions("AES-128-GCM", "sha512"),
+				opt: makeTestingOptions(t, "AES-128-GCM", "sha512"),
 				s:   &session{},
 			},
 			wantWhatever: true,
@@ -1178,7 +1182,7 @@ func Test_data_ReadPacket(t *testing.T) {
 		{
 			name: "good decrypt using mocked decrypt fn and decode fn",
 			fields: fields{
-				options:   makeTestingOptions("AES-128-GCM", "sha1"),
+				options:   makeTestingOptions(t, "AES-128-GCM", "sha1"),
 				state:     makeTestingState(),
 				decryptFn: goodMockDecryptFn,
 				decodeFn:  goodMockDecodeFn,

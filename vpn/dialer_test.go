@@ -80,7 +80,7 @@ func TestNewTunDialerWithNameservers(t *testing.T) {
 }
 
 func TestNewTunDialerFromOptions(t *testing.T) {
-	options := makeTestingOptions("AES-128-GCM", "sha512")
+	options := makeTestingOptions(t, "AES-128-GCM", "sha512")
 	type args struct {
 		opt *Options
 	}
@@ -166,9 +166,9 @@ func makeTestingConnForReadWrite(network, addr string, n int) net.Conn {
 	return mockConn
 }
 
-func makeTestingRawDialer() RawDialer {
+func makeTestingRawDialer(t *testing.T) RawDialer {
 	raw := RawDialer{
-		Options:       makeTestingOptions("AES-128-GCM", "sha512"),
+		Options:       makeTestingOptions(t, "AES-128-GCM", "sha512"),
 		dialFn:        mockedDialFn,
 		clientFactory: makeTestingClient,
 	}
@@ -177,9 +177,15 @@ func makeTestingRawDialer() RawDialer {
 
 func TestTunDialer_Dial(t *testing.T) {
 
-	raw := makeTestingRawDialer()
+	raw := makeTestingRawDialer(t)
 	mockedRaw := &mockRawDialer{raw}
-	initTLSFn = func(*session, *Options) (*tls.Config, error) {
+
+	orig := initTLSFn
+	defer func() {
+		initTLSFn = orig
+	}()
+
+	initTLSFn = func(*session, *certConfig) (*tls.Config, error) {
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
 	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {
@@ -242,9 +248,13 @@ func TestTunDialer_Dial(t *testing.T) {
 }
 
 func TestTunDialer_DialTimeout(t *testing.T) {
-	raw := makeTestingRawDialer()
+	raw := makeTestingRawDialer(t)
 	mockedRaw := &mockRawDialer{raw}
-	initTLSFn = func(*session, *Options) (*tls.Config, error) {
+	orig := initTLSFn
+	defer func() {
+		initTLSFn = orig
+	}()
+	initTLSFn = func(*session, *certConfig) (*tls.Config, error) {
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
 	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {
@@ -308,9 +318,14 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 }
 
 func TestTunDialer_DialContext(t *testing.T) {
-	raw := makeTestingRawDialer()
+	raw := makeTestingRawDialer(t)
 	mockedRaw := &mockRawDialer{raw}
-	initTLSFn = func(*session, *Options) (*tls.Config, error) {
+
+	orig := initTLSFn
+	defer func() {
+		initTLSFn = orig
+	}()
+	initTLSFn = func(*session, *certConfig) (*tls.Config, error) {
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
 	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {

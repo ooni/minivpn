@@ -3,7 +3,7 @@ package vpn
 //
 // TLS initialization and read/write wrappers.
 //
-// TODO for the time being, we're using uTLS to parrot a ClientHello that can reasonably blend
+// TODO(ainghazal): for the time being, we're using uTLS to parrot a ClientHello that can reasonably blend
 // with a recent openvpn+openssl client (2.5.x). We might want to revisit this
 // in the near future and perhaps expose other TLS Factories.
 //
@@ -28,52 +28,143 @@ var (
 	ErrBadKeypair = errors.New("bad keypair conf")
 	// ErrBadParrot is returned for errors during TLS parroting
 	ErrBadParrot = errors.New("cannot parrot")
+	// ErrCannotVerifyCertChain is returned for certificate chain validation errors.
+	ErrCannotVerifyCertChain = errors.New("cannot verify chain")
 )
 
-// initTLS returns a tls.Config matching the VPN options.
-func initTLS(session *session, opt *Options) (*tls.Config, error) {
-	if session == nil || opt == nil {
-		return nil, fmt.Errorf("%w:%s", errBadInput, "nil args")
+// certVerifyOptionsNoCommonNameCheck returns a x509.VerifyOptions initialized with
+// an empty string for the DNSName. This allows to skip CN verification.
+func certVerifyOptionsNoCommonNameCheck() x509.VerifyOptions {
+	return x509.VerifyOptions{DNSName: ""}
+}
+
+// certVerifyOptions is the options factory that the customVerify function will
+// use; by default it configures VerifyOptions to skip the DNSName check.
+var certVerifyOptions = certVerifyOptionsNoCommonNameCheck
+
+// certPaths holds the paths for the cert, key, and ca used for OpenVPN
+// certificate authentication.
+type certPaths struct {
+	certPath string
+	keyPath  string
+	caPath   string
+}
+
+// loadCertAndCA parses the PEM certificates contained in the paths pointed by
+// certAuthConfig and return a certAuth with the client and CA certificates.
+func loadCertAndCA(pth certPaths) (*certConfig, error) {
+	ca := x509.NewCertPool()
+	caData, err := ioutil.ReadFile(pth.caPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadCA, err)
 	}
+	ok := ca.AppendCertsFromPEM(caData)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrBadCA, "cannot parse ca cert")
+	}
+
+	cert, err := tls.LoadX509KeyPair(pth.certPath, pth.keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
+	}
+	cfg := &certConfig{
+		ca:   ca,
+		cert: cert,
+	}
+	return cfg, nil
+}
+
+// authorityPinner is any object from which we can obtain a certpool containing
+// a pinned Certificate Authority for verification.
+type authorityPinner interface {
+	authority() *x509.CertPool
+}
+
+// certConfig holds the parsed certificate and CA used for OpenVPN mutual
+// certificate authentication.
+type certConfig struct {
+	cert tls.Certificate
+	ca   *x509.CertPool
+}
+
+// newCertConfigFromOptions is a constructor that returns a certConfig object initialized
+// from the paths specified in the passed Options object, and an error if it
+// could not be properly built.
+func newCertConfigFromOptions(o *Options) (*certConfig, error) {
+	return loadCertAndCA(certPaths{
+		certPath: o.Cert,
+		keyPath:  o.Key,
+		caPath:   o.Ca,
+	})
+}
+
+// authority implements authorityPinner interface.
+func (c *certConfig) authority() *x509.CertPool {
+	return c.ca
+}
+
+// ensure certConfig implements authorityPinner.
+var _ authorityPinner = &certConfig{}
+
+// verifyFun is the type expected by the VerifyPeerCertificate callback in tls.Config.
+type verifyFun func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+
+// customVerifyFactory returns a verifyFun callback that will verify any received certificates
+// against the ca provided by the pased implementation of authorityPinner
+func customVerifyFactory(pinner authorityPinner) verifyFun {
+	// customVerify is a version of the verification routines that does not try to verify
+	// the Common Name, since we don't know it a priori for a VPN gateway. Returns
+	// an error if the verification fails.
+	// From tls/common documentation: If normal verification is disabled by
+	// setting InsecureSkipVerify, [...] then this callback will be considered but
+	// the verifiedChains argument will always be nil.
+	customVerify := func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		// we assume (from docs) that we're always given the
+		// leaf certificate as the first cert in the array.
+		leaf, _ := x509.ParseCertificate(rawCerts[0])
+		if leaf == nil {
+			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, "nothing to verify")
+		}
+		// By default has DNSName verification disabled.
+		opts := certVerifyOptions()
+		// Set the configured CA(s) as the certificate pool to verify against.
+		opts.Roots = pinner.authority()
+
+		if _, err := leaf.Verify(opts); err != nil {
+			return fmt.Errorf("%w: %s", ErrCannotVerifyCertChain, err)
+		}
+		return nil
+	}
+	return customVerify
+}
+
+// initTLS returns a tls.Config matching the VPN options. Internally, it uses
+// the verify function returned by the global customVerifyFactory,
+// verification function since verifying the ServerName does not make sense in
+// the context of establishing a VPN session: we perform mutual TLS
+// Authentication with the custom CA.
+func initTLS(session *session, cfg *certConfig) (*tls.Config, error) {
+	if session == nil || cfg == nil {
+		return nil, fmt.Errorf("%w: %s", errBadInput, "nil args")
+	}
+
+	customVerify := customVerifyFactory(cfg)
 
 	// We are not passing min/max tls versions because the ClientHello spec
 	// that we use as reference already sets "reasonable" values.
-
 	tlsConf := &tls.Config{
-		// TODO(ainghazal): make sure I end up verifying the peer
-		// certificate correctly. We cannot use name verification, since
-		// the ServerName is not known a priory. Probably must pass a
-		// VerifyConnection or VerifyPeercertificate callback?
-		// ServerName:         "vpnserver",
-		// VerifyPeerCertificate: ...,
-		InsecureSkipVerify:          true,
+		// the certificate we've loaded from the config file
+		Certificates: []tls.Certificate{cfg.cert},
+		// crypto/tls wants either ServerName or InsecureSkipVerify set ...
+		InsecureSkipVerify: true,
+		// ...but we pass our own verification function that verifies against the CA and ignores the ServerName
+		VerifyPeerCertificate: customVerify,
+		// disable DynamicRecordSizing to lower distinguishability.
 		DynamicRecordSizingDisabled: true,
 	} //#nosec G402
 
-	// TODO(ainghazal): we assume a non-empty cert means we've got also a
-	// valid ca and key, but we need a validation function that accepts an Options object.
-	if opt.Cert != "" {
-		ca := x509.NewCertPool()
-		caData, err := ioutil.ReadFile(opt.Ca)
-		if err != nil {
-			return nil, fmt.Errorf("%w:%s", ErrBadCA, err)
-		}
-		ok := ca.AppendCertsFromPEM(caData)
-		if !ok {
-			return nil, fmt.Errorf("%w:%s", ErrBadCA, "cannot parse ca cert")
-		}
-
-		cert, err := tls.LoadX509KeyPair(opt.Cert, opt.Key)
-		if err != nil {
-			return nil, fmt.Errorf("%w:%s", ErrBadKeypair, err)
-		}
-		tlsConf.RootCAs = ca
-		tlsConf.Certificates = []tls.Certificate{cert}
-	}
 	return tlsConf, nil
 }
-
-var initTLSFn = initTLS
 
 // tlsHandshake performs the TLS handshake over the control channel, and return
 // the TLS Client as a net.Conn; returns also any error during the handshake.
@@ -104,8 +195,11 @@ func defaultTLSFactory(conn net.Conn, config *tls.Config) (handshaker, error) {
 	return c, nil
 }
 
-// vpnClientHelloHex is the hexadecimal respresentation of a capture from the reference openvpn implementation.
-const vpnClientHelloHex = `16030100e8010000e40303fe0b6526568ada469f8a7996b79b2598208481dc43fe56081614c7e0e8b9bd8920ddb7565358d398109fb7934c077eb0234c98839b2578046904849b2b76156ab1000a130213031301c02c00ff01000091000b000403000102000a00160014001d0017001e00190018010001010102010301040016000000170000000d002a0028040305030603080708080809080a080b080408050806040105010601030303010302040205020602002b00050403040303002d00020101003300260024001d0020a9cf1d61f8caee159b9a4dc684d9319e2349f80f6e82ff7b755b820ff33fa75f`
+// vpnClientHelloHex is the hexadecimal representation of a capture from the reference openvpn implementation.
+// openvpn=2.5.5,openssl=3.0.2
+// You can use https://github.com/ainghazal/sniff/tree/main/clienthello to
+// analyze a ClientHello from the wire or pcap.
+var vpnClientHelloHex = `1603010114010001100303534e0a0f2687b240f7c7dfbb51c4aac33639f28173aa5d7bcebb159695ab0855208b835bf240a83df66885d6747b5bbf1b631e8c34ae469c629d7eb76e247128eb0032130213031301c02cc030009fcca9cca8ccaac02bc02f009ec024c028006bc023c0270067c00ac0140039c009c013003300ff01000095000b000403000102000a00160014001d0017001e00190018010001010102010301040016000000170000000d002a0028040305030603080708080809080a080b080408050806040105010601030303010302040205020602002b0009080304030303020301002d00020101003300260024001d0020a10bc24becb583293c317220e6725205d3a177a4a974090f6ffcf13a43da7035`
 
 // parrotTLSFactory returns an implementer of the handshaker interface; in this
 // case, a parroting implementation; and an error.
@@ -126,5 +220,9 @@ func parrotTLSFactory(conn net.Conn, config *tls.Config) (handshaker, error) {
 	return client, nil
 }
 
-var tlsFactoryFn = parrotTLSFactory
-var tlsHandshakeFn = tlsHandshake
+// global variables to allow monkeypatching in tests.
+var (
+	initTLSFn      = initTLS
+	tlsFactoryFn   = parrotTLSFactory
+	tlsHandshakeFn = tlsHandshake
+)

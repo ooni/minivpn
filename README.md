@@ -17,7 +17,9 @@ for such a thing, please use [misteriumnetwork/go-openvpn](https://github.com/my
 
 ## License
 
-GPLv3
+```
+SPDX-License-Identifier: GPL-3.0-or-later
+```
 
 ## OpenVPN Compatibility
 
@@ -104,7 +106,7 @@ make test-local
 ## Limitations
 
 Many, but re-keying is maybe one of the first expected to limit the usefulness
-in the current state. Porting over the replay protections would also be nice.
+in the current state.
 
 
 ## Pointers

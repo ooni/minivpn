@@ -11,6 +11,7 @@ require (
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5
 	github.com/google/go-cmp v0.5.8
 	github.com/google/gopacket v1.1.19
+	github.com/google/martian v2.1.0+incompatible
 	github.com/gorilla/websocket v1.4.2
 	github.com/m-lab/ndt7-client-go v0.6.1
 	github.com/ory/dockertest/v3 v3.8.1
