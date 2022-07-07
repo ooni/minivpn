@@ -219,12 +219,11 @@ func (d *RawDialer) dial(ctx context.Context) (*Client, error) {
 		cf = d.clientFactory
 	}
 	client := cf(d.Options)
-	client = client.WithContext(ctx)
 	if d.dialer != nil {
 		client.(*Client).Dialer = d.dialer
 	}
 
 	log.Println("starting client...")
-	err := client.Start()
+	err := client.Start(ctx)
 	return client.(*Client), err
 }

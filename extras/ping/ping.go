@@ -11,6 +11,7 @@ package ping
  */
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
@@ -262,15 +263,25 @@ func (p *Pinger) updateStatistics(pkt *Packet) {
 	p.stdDevRtt = time.Duration(math.Sqrt(float64(p.stddevm2 / pktCount)))
 }
 
-// Run runs the pinger. This is a blocking function that will exit when it's
-// done. If Count or Interval are not specified, it will run continuously until
-// it is interrupted.
-func (p *Pinger) Run() error {
-	if p.Size < timeSliceLength+trackerLength {
-		return fmt.Errorf("size %d is less than minimum required size %d", p.Size, timeSliceLength+trackerLength)
+// Run runs the pinger. Accepts a single argument that is a Context. This is a
+// blocking function that will exit when it's done (or when the context expires).
+// If Count or Interval are not specified, it will run continuously until
+// it is interrupted or the context expires.
+func (p *Pinger) Run(ctx context.Context) (err error) {
+	errch := make(chan error, 1)
+	go func() {
+		if p.Size < timeSliceLength+trackerLength {
+			errch <- fmt.Errorf("size %d is less than minimum required size %d", p.Size, timeSliceLength+trackerLength)
+		}
+		defer p.conn.Close()
+		errch <- p.run(p.conn)
+	}()
+	select {
+	case err = <-errch:
+	case <-ctx.Done():
+		err = ctx.Err()
 	}
-	defer p.conn.Close()
-	return p.run(p.conn)
+	return
 }
 
 func (p *Pinger) run(conn net.Conn) error {
@@ -349,6 +360,7 @@ func (p *Pinger) runLoop(recvCh <-chan *packet) error {
 	}
 }
 
+// Stop stops the pinger run.
 func (p *Pinger) Stop() {
 	p.lock.Lock()
 	defer p.lock.Unlock()

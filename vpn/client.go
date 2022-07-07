@@ -30,9 +30,8 @@ type tunnel struct {
 
 // vpnClient has a Start and a Dial method.
 type vpnClient interface {
-	Start() error
-	Dial() (net.Conn, error)
-	WithContext(context.Context) vpnClient
+	Start(ctx context.Context) error
+	Dial(ctx context.Context) (net.Conn, error)
 }
 
 // DialerContext is anything that features a net.Dialer-like DialContext method.
@@ -52,9 +51,6 @@ type Client struct {
 	conn   net.Conn
 	mux    vpnMuxer
 	tunnel *tunnel
-
-	// ctx is the client context.
-	ctx context.Context
 
 	Log Logger
 }
@@ -78,8 +74,8 @@ func NewClientFromOptions(opt *Options) vpnClient {
 }
 
 // Start starts the OpenVPN tunnel.
-func (c *Client) Start() error {
-	conn, err := c.Dial()
+func (c *Client) Start(ctx context.Context) error {
+	conn, err := c.Dial(ctx)
 	if err != nil {
 		return err
 	}
@@ -89,9 +85,7 @@ func (c *Client) Start() error {
 	if err != nil {
 		return err
 	}
-	mux = mux.WithContext(c.Context())
-
-	err = mux.Handshake()
+	err = mux.Handshake(ctx)
 	if err != nil {
 		return err
 	}
@@ -102,7 +96,7 @@ func (c *Client) Start() error {
 // Dial opens a TCP/UDP socket against the remote, and creates an internal
 // data channel. It is the second step in an OpenVPN connection (out of five).
 // (In UDP mode no network connection is done at this step).
-func (c *Client) Dial() (net.Conn, error) {
+func (c *Client) Dial(ctx context.Context) (net.Conn, error) {
 	if c.Opts == nil {
 		return nil, fmt.Errorf("%w:%s", errBadInput, "nil options")
 
@@ -117,8 +111,6 @@ func (c *Client) Dial() (net.Conn, error) {
 		return nil, fmt.Errorf("%w: unknown proto %d", errBadInput, c.Opts.Proto)
 
 	}
-
-	ctx := c.Context()
 
 	select {
 	case <-ctx.Done():
@@ -136,35 +128,9 @@ func (c *Client) Dial() (net.Conn, error) {
 	}
 }
 
-// WithContext returns a shallow copy of c with its context changed
-// to ctx. The provided ctx must be non-nil.
-func (c *Client) WithContext(ctx context.Context) vpnClient {
-	if ctx == nil {
-		panic("nil context")
-	}
-	c2 := new(Client)
-	*c2 = *c
-	c2.ctx = ctx
-	return c2
-}
-
-// Context returns the client context. To change the context, use WithContext.
-func (c *Client) Context() context.Context {
-	if c.ctx != nil {
-		return c.ctx
-	}
-	return context.Background()
-}
-
 // Write sends bytes into the tunnel.
 func (c *Client) Write(b []byte) (int, error) {
-	ctx := c.Context()
-	select {
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	default:
-		return c.mux.Write(b)
-	}
+	return c.mux.Write(b)
 }
 
 // Read reads bytes from the tunnel.
@@ -173,13 +139,7 @@ func (c *Client) Read(b []byte) (int, error) {
 		return 0, fmt.Errorf("%w:%s", errBadInput, "nil muxer")
 
 	}
-	ctx := c.Context()
-	select {
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	default:
-		return c.mux.Read(b)
-	}
+	return c.mux.Read(b)
 }
 
 // Close closes the tunnel connection.
