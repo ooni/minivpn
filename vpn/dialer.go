@@ -7,9 +7,9 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/netip"
 	"time"
 
-	"golang.zx2c4.com/go118/netip"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
@@ -116,7 +116,7 @@ func (td TunDialer) createNetTUN() (*netstack.Net, error) {
 
 	// create a virtual device in userspace, courtesy of wireguard-go
 	tun, tnet, err := netstack.CreateNetTUN(
-		[]netip.Addr{netip.MustParseAddr(localIP)},
+		[]netip.Addr{netip.Addr(netip.MustParseAddr(localIP))},
 		[]netip.Addr{
 			netip.MustParseAddr(td.ns1),
 			netip.MustParseAddr(td.ns2)},
