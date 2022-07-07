@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"time"
@@ -29,12 +28,14 @@ type tunnel struct {
 	mtu int
 }
 
+// vpnClient has a Start and a Dial method.
 type vpnClient interface {
 	Start() error
 	Dial() (net.Conn, error)
 	WithContext(context.Context) vpnClient
 }
 
+// DialerContext is anything that features a net.Dialer-like DialContext method.
 type DialerContext interface {
 	DialContext(context.Context, string, string) (net.Conn, error)
 }
@@ -207,10 +208,6 @@ func (c *Client) SetDeadline(t time.Time) error {
 }
 
 func (c *Client) SetReadDeadline(t time.Time) error {
-	if c.conn == nil {
-		log.Println("CONN IS NIL")
-
-	}
 	return c.conn.SetReadDeadline(t)
 }
 

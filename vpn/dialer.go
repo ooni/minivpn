@@ -76,7 +76,8 @@ func NewTunDialerFromOptions(opt *Options) TunDialer {
 // Known networks are "tcp", "tcp4" (IPv4-only), "tcp6" (IPv6-only),
 // "udp", "udp4" (IPv4-only), "udp6" (IPv6-only), "ping4", "ping6".
 func (td TunDialer) Dial(network, address string) (net.Conn, error) {
-	tnet, err := td.createNetTUN()
+	ctx := context.Background()
+	tnet, err := td.createNetTUN(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -96,19 +97,19 @@ func (td TunDialer) DialTimeout(network, address string, timeout time.Duration) 
 // DialContext connects to the address on the named network using
 // the provided context.
 func (td TunDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	tnet, err := td.createNetTUN()
+	tnet, err := td.createNetTUN(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return tnet.DialContext(ctx, network, address)
 }
 
-func (td TunDialer) createNetTUN() (*netstack.Net, error) {
+func (td TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 	if td.Dialer != nil {
 		td.raw.dialer = td.Dialer
 	}
 
-	client, err := td.raw.dial()
+	client, err := td.raw.dial(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -190,9 +191,6 @@ type RawDialer struct {
 
 	// a client factory to facilitate testing with a mocked client
 	clientFactory func(*Options) vpnClient
-
-	// the context that will be passed to the client
-	ctx context.Context
 }
 
 // NewRawDialer returns a new *RawDialer constructed from the passed options.
@@ -200,29 +198,28 @@ func NewRawDialer(opts *Options) *RawDialer {
 	return &RawDialer{Options: opts}
 }
 
-// NewRawDialerWithContext returns a new *RawDialer constructed from the passed options.
-func NewRawDialerWithContext(opts *Options, ctx context.Context) *RawDialer {
-	return &RawDialer{Options: opts, ctx: ctx}
-}
-
 // Dial returns a net.Conn that writes to and reads (raw packets) from the VPN
 // tunnel.
 func (d *RawDialer) Dial() (net.Conn, error) {
-	return d.dial()
+	return d.dial(context.Background())
+}
+
+// DialContext returns a net.Conn that writes to and reads (raw packets) from the VPN
+// tunnel.
+func (d *RawDialer) DialContext(ctx context.Context) (net.Conn, error) {
+	return d.dial(ctx)
 }
 
 // dial returns a vpn Client (that implements net.Conn). We do this because in
 // the TunDialer that access this we need to access some private fields from
 // the Client implementation.
-func (d *RawDialer) dial() (*Client, error) {
+func (d *RawDialer) dial(ctx context.Context) (*Client, error) {
 	cf := NewClientFromOptions
 	if d.clientFactory != nil {
 		cf = d.clientFactory
 	}
 	client := cf(d.Options)
-	if d.ctx != nil {
-		client = client.WithContext(d.ctx)
-	}
+	client = client.WithContext(ctx)
 	if d.dialer != nil {
 		client.(*Client).Dialer = d.dialer
 	}

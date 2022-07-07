@@ -29,7 +29,7 @@ var (
 
 // direct reads on the underlying conn
 
-func readPacket(conn net.Conn, ctx context.Context) ([]byte, error) {
+func readPacket(ctx context.Context, conn net.Conn) ([]byte, error) {
 	deadline, ok := ctx.Deadline()
 	if ok {
 		conn.SetReadDeadline(deadline)
@@ -114,8 +114,8 @@ type tlsTransport struct {
 // ReadPacket returns a packet reading from the underlying conn, and an error
 // if the read did not succeed.
 func (t *tlsTransport) ReadPacket() (*packet, error) {
-	// TODO pass good context
-	buf, err := readPacket(t.Conn, context.Background())
+	// TODO(ainghazal): pass good context
+	buf, err := readPacket(context.Background(), t.Conn)
 	if err != nil {
 		return nil, err
 	}

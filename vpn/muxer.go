@@ -234,7 +234,7 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 		return err
 	}
 
-	resp, err := readPacket(m.conn, m.Context())
+	resp, err := readPacket(m.Context(), m.conn)
 	if err != nil {
 		return err
 	}
@@ -271,7 +271,7 @@ func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	}
 	var input []byte
 	if data == nil {
-		parsed, err := readPacket(m.conn, m.Context())
+		parsed, err := readPacket(m.Context(), m.conn)
 		if err != nil {
 			return false, err
 		}

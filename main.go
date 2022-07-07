@@ -26,7 +26,7 @@ func printUsage() {
 }
 
 func timeoutSecondsFromCount(count int) time.Duration {
-	waitOnLastOne := time.Duration(2) * time.Second
+	waitOnLastOne := 2 * time.Second
 	return time.Duration(count)*time.Second + waitOnLastOne
 
 }
@@ -39,8 +39,8 @@ func RunPinger(opt *vpn.Options, target string, count uint32) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutSecondsFromCount(c)+extraTimeoutSeconds)
 	defer cancel()
 
-	rawDialer := vpn.NewRawDialerWithContext(opt, ctx)
-	conn, err := rawDialer.Dial()
+	rawDialer := vpn.NewRawDialer(opt)
+	conn, err := rawDialer.DialContext(ctx)
 	if err != nil {
 		return err
 	}

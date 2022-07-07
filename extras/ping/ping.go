@@ -1,6 +1,7 @@
 // Package ping is a simple but powerful ICMP echo (ping) library.
 // This file is a modification of one of the elements in the go-ping library.
 // for the purposes of writing raw UDP packets over a VPN tunnel.
+package ping
 
 /*
  * SPDX-License-Identifier: MIT
@@ -8,8 +9,6 @@
  * Copyright (c) 2016 Cameron Sparr and contributors.
  * Copyright (C) 2022 Ain Ghazal.
  */
-
-package ping
 
 import (
 	"fmt"
@@ -37,7 +36,8 @@ var (
 	ipv6Proto = map[string]string{"icmp": "ip6:ipv6-icmp", "udp": "udp6"}
 )
 
-// New returns a new Pinger struct pointer.
+// New returns a new Pinger struct pointer.  This function TAKES OWNERSHIP of
+// the conn argument and closes it when Run terminates.
 func New(addr string, conn net.Conn) *Pinger {
 	r := rand.New(rand.NewSource(getSeed()))
 	firstUUID := uuid.New()
