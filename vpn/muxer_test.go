@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net"
 	"reflect"
@@ -175,7 +176,7 @@ func Test_muxer_Handshake(t *testing.T) {
 
 	// and now for the test itself...
 
-	err = m.Handshake()
+	err = m.Handshake(context.Background())
 	if err != nil {
 		t.Errorf("muxer.Handshake() error = %v, wantErr nil", err)
 		return
@@ -237,37 +238,37 @@ func Test_muxer_handleIncomingPacket(t *testing.T) {
 	}
 
 	// ping data
-	if ok := m.handleIncomingPacket(pingPayload); ok {
+	if ok, _ := m.handleIncomingPacket(pingPayload); ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected !ok with ping payload")
 		return
 	}
 	// packets with different opcodes
-	if ok := m.handleIncomingPacket([]byte{}); ok {
+	if ok, _ := m.handleIncomingPacket([]byte{}); ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected !ok with empty bytes")
 		return
 	}
 	p := &packet{opcode: pACKV1}
-	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+	if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected !ok with ack packet")
 		return
 	}
 	p = &packet{opcode: pControlV1}
-	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+	if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected !ok with control packet")
 		return
 	}
 	p = &packet{opcode: pControlV1}
-	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+	if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected !ok with control packet")
 		return
 	}
 	p = &packet{opcode: byte(0xff)}
-	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+	if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected !ok with unknown opcode")
 		return
 	}
 	p = &packet{opcode: pDataV1}
-	if ok := m.handleIncomingPacket(p.Bytes()); !ok {
+	if ok, _ := m.handleIncomingPacket(p.Bytes()); !ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected ok with data opcode")
 		return
 	}
@@ -278,7 +279,7 @@ func Test_muxer_handleIncomingPacket(t *testing.T) {
 		bufReader: &bytes.Buffer{},
 	}
 	p = &packet{opcode: pDataV1}
-	if ok := m.handleIncomingPacket(p.Bytes()); ok {
+	if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
 		t.Errorf("muxer.handleIncomingPacket(): expected !ok with error in ReadPacket()")
 	}
 }

@@ -34,6 +34,8 @@ type vpnClient interface {
 	Dial(ctx context.Context) (net.Conn, error)
 }
 
+type DialContextFn func(context.Context, string, string) (net.Conn, error)
+
 // DialerContext is anything that features a net.Dialer-like DialContext method.
 type DialerContext interface {
 	DialContext(context.Context, string, string) (net.Conn, error)

@@ -219,7 +219,9 @@ func (d *RawDialer) dial(ctx context.Context) (*Client, error) {
 		cf = d.clientFactory
 	}
 	client := cf(d.Options)
+
 	if d.dialer != nil {
+		// TODO(ainghazal): add a proper setter
 		client.(*Client).Dialer = d.dialer
 	}
 

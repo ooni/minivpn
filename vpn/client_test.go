@@ -151,11 +151,10 @@ func TestClient_Close(t *testing.T) {
 	}
 }
 
-type dialerCtx struct {
-}
+type badDialer struct{}
 
-func (dc *dialerCtx) DialContext(context.Context, string, string) (net.Conn, error) {
-	return nil, nil
+func (bd *badDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("cannot dial")
 }
 
 func TestClient_DialFailsWithBadOptions(t *testing.T) {
@@ -171,22 +170,17 @@ func TestClient_DialFailsWithBadOptions(t *testing.T) {
 			Proto: 3,
 		},
 	}
-	_, err = c.Dial()
+	_, err = c.Dial(context.Background())
 	wantErr = errBadInput
 	if !errors.Is(err, wantErr) {
 		t.Error("Client.Dial(): should fail with bad proto")
-	}
-
-	badDialer := &dialerCtx{}
-	badDialer.DialContext = func(context.Context, string, string) (net.Conn, error) {
-		return nil, errors.New("weird error")
 	}
 
 	c = &Client{
 		Opts: &Options{
 			Proto: TCPMode,
 		},
-		Dialer: badDialer,
+		Dialer: &badDialer{},
 	}
 	_, err = c.Dial(context.Background())
 	wantErr = ErrDialError
