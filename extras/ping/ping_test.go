@@ -248,6 +248,7 @@ func makeTestPinger() *Pinger {
 
 	return pinger
 }
+
 func AssertNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

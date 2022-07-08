@@ -16,7 +16,7 @@ import (
 
 var (
 	startTime           = time.Now()
-	extraTimeoutSeconds = 5 * time.Second
+	extraTimeoutSeconds = 10 * time.Second
 )
 
 func printUsage() {
@@ -50,7 +50,7 @@ func RunPinger(opt *vpn.Options, target string, count uint32) error {
 	pinger.Timeout = timeoutSecondsFromCount(c)
 	err = pinger.Run(ctx)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	pinger.PrintStats()
 
