@@ -89,8 +89,9 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				dialFn := obfs4.Dialer(node.Addr)
-				dialer.DialFn = vpn.DialFunc(dialFn)
+
+				var od vpn.DialerContext = obfs4.NewDialer(node)
+				dialer.Dialer = od
 			}
 			extras.RunMeasurement(dialer, ndt7Server, "download", direct)
 			wait(c) // is the pasta ready?
@@ -111,8 +112,8 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				dialFn := obfs4.Dialer(node.Addr)
-				dialer.DialFn = vpn.DialFunc(dialFn)
+				var od vpn.DialerContext = obfs4.NewDialer(node)
+				dialer.Dialer = od
 			}
 			extras.RunMeasurement(dialer, ndt7Server, "upload", direct)
 			wait(c) // is the pasta ready?

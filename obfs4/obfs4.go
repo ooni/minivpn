@@ -11,6 +11,7 @@
 package obfs4
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -32,6 +33,20 @@ type obfs4Context struct {
 }
 
 var obfs4Map = make(map[string]obfs4Context)
+
+type Dialer struct {
+	node Node
+}
+
+func NewDialer(node Node) *Dialer {
+	return &Dialer{node}
+}
+
+func (d *Dialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	// TODO(ainghazal): honor ctx
+	dialFn := dialer(d.node.Addr)
+	return dialFn(network, address)
+}
 
 // Obfs4ClientInit initializes the obfs4 client
 func Obfs4ClientInit(node Node) error {
@@ -69,7 +84,7 @@ func Obfs4ClientInit(node Node) error {
 
 type DialFunc func(string, string) (net.Conn, error)
 
-func Dialer(nodeAddr string) DialFunc {
+func dialer(nodeAddr string) DialFunc {
 	oc := obfs4Map[nodeAddr]
 	// From the documentation of the ClientFactory interface:
 	// https://github.com/Yawning/obfs4/blob/master/transports/base/base.go#L42

@@ -43,6 +43,7 @@ func readPacket(conn net.Conn) ([]byte, error) {
 func readPacketFromUDP(conn net.Conn) ([]byte, error) {
 	const enough = 1 << 17
 	buf := make([]byte, enough)
+
 	count, err := conn.Read(buf)
 	if err != nil {
 		return nil, err

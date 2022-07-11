@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"context"
 	"errors"
 	"net"
 	"reflect"
@@ -150,9 +151,15 @@ func TestClient_Close(t *testing.T) {
 	}
 }
 
+type badDialer struct{}
+
+func (bd *badDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("cannot dial")
+}
+
 func TestClient_DialFailsWithBadOptions(t *testing.T) {
 	c := &Client{}
-	_, err := c.Dial()
+	_, err := c.Dial(context.Background())
 	wantErr := errBadInput
 	if !errors.Is(err, wantErr) {
 		t.Error("Client.Dial(): should fail with nil options")
@@ -163,22 +170,19 @@ func TestClient_DialFailsWithBadOptions(t *testing.T) {
 			Proto: 3,
 		},
 	}
-	_, err = c.Dial()
+	_, err = c.Dial(context.Background())
 	wantErr = errBadInput
 	if !errors.Is(err, wantErr) {
 		t.Error("Client.Dial(): should fail with bad proto")
 	}
 
-	badDialFn := func(string, string) (net.Conn, error) {
-		return nil, errors.New("weird error")
-	}
 	c = &Client{
 		Opts: &Options{
 			Proto: TCPMode,
 		},
-		DialFn: badDialFn,
+		Dialer: &badDialer{},
 	}
-	_, err = c.Dial()
+	_, err = c.Dial(context.Background())
 	wantErr = ErrDialError
 	if !errors.Is(err, wantErr) {
 		t.Errorf("Client.Dial(): should fail with ErrDialError, err = %v", err)

@@ -35,10 +35,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dialFn := obfs4.Dialer(node.Addr)
-
 	dialer := vpn.NewTunDialerFromOptions(opts)
-	dialer.DialFn = vpn.DialFunc(dialFn)
+
+	var obfs4Dialer vpn.DialerContext = obfs4.NewDialer(node)
+	dialer.Dialer = obfs4Dialer
 
 	client := http.Client{
 		Transport: &http.Transport{

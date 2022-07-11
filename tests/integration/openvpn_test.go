@@ -4,6 +4,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -12,11 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ory/dockertest/v3"
 	dc "github.com/ory/dockertest/v3/docker"
 
-	"github.com/ooni/minivpn/extras"
+	"github.com/ooni/minivpn/extras/ping"
 	"github.com/ooni/minivpn/vpn"
 )
 
@@ -146,16 +148,27 @@ func TestClientAES256GCM(t *testing.T) {
 	// can assert that this is a remote line
 
 	// actual test begins
-	o, err := vpn.ParseConfigFile(filepath.Join(tmp, "config"))
+	opt, err := vpn.ParseConfigFile(filepath.Join(tmp, "config"))
 	if err != nil {
 		log.Fatalf("Could not parse file: %s", err)
 	}
-	vpnDialer := vpn.NewRawDialer(o)
-	pinger := extras.NewPinger(vpnDialer, target, count)
-	err = pinger.Run()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	rawDialer := vpn.NewRawDialer(opt)
+	conn, err := rawDialer.DialContext(ctx)
+	if err != nil {
+		log.Fatalf("cannot dial: %s", err)
+	}
+	pinger := ping.New(target, conn)
+	pinger.Count = count
+	err = pinger.Run(ctx)
 	defer pinger.Stop()
 	if err != nil {
 		log.Fatalf("VPN Error: %s", err)
+	}
+	if pinger.PacketLoss() != 0 {
+		log.Fatalf("packet loss is not zero")
 	}
 	// let's assert something wise about the pings
 	// can we parse the logs? get initialization etc

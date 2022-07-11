@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/ooni/minivpn/vpn/mocks"
 	tls "github.com/refraction-networking/utls"
-	"golang.zx2c4.com/go118/netip"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
@@ -108,7 +108,9 @@ func TestNewTunDialerFromOptions(t *testing.T) {
 	}
 }
 
-func mockedDialFn(string, string) (net.Conn, error) {
+type mockedDialerContext struct{}
+
+func (md *mockedDialerContext) DialContext(context.Context, string, string) (net.Conn, error) {
 	conn := makeTestingConnForHandshake("udp", "10.0.0.0", 42)
 	return conn, nil
 }
@@ -169,7 +171,7 @@ func makeTestingConnForReadWrite(network, addr string, n int) net.Conn {
 func makeTestingRawDialer(t *testing.T) RawDialer {
 	raw := RawDialer{
 		Options:       makeTestingOptions(t, "AES-128-GCM", "sha512"),
-		dialFn:        mockedDialFn,
+		dialer:        &mockedDialerContext{},
 		clientFactory: makeTestingClient,
 	}
 	return raw
@@ -194,7 +196,7 @@ func TestTunDialer_Dial(t *testing.T) {
 	}
 
 	type fields struct {
-		DialFn          DialFunc
+		Dialer          DialerContext
 		raw             *mockRawDialer
 		ns1             string
 		ns2             string
@@ -214,7 +216,7 @@ func TestTunDialer_Dial(t *testing.T) {
 		{
 			name: "dial ok with mocked dialFn",
 			fields: fields{
-				DialFn:          mockedDialFn,
+				Dialer:          &mockedDialerContext{},
 				raw:             mockedRaw,
 				ns1:             "8.8.8.8",
 				ns2:             "8.8.4.4",
@@ -231,7 +233,7 @@ func TestTunDialer_Dial(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			td := TunDialer{
-				DialFn:          tt.fields.DialFn,
+				Dialer:          tt.fields.Dialer,
 				raw:             &tt.fields.raw.RawDialer,
 				ns1:             tt.fields.ns1,
 				ns2:             tt.fields.ns2,
@@ -262,7 +264,7 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 		return conn, nil
 	}
 	type fields struct {
-		DialFn          DialFunc
+		Dialer          DialerContext
 		raw             *mockRawDialer
 		ns1             string
 		ns2             string
@@ -283,7 +285,7 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 		{
 			name: "dial ok with mocked dialFn",
 			fields: fields{
-				DialFn:          mockedDialFn,
+				Dialer:          &mockedDialerContext{},
 				raw:             mockedRaw,
 				ns1:             "8.8.8.8",
 				ns2:             "8.8.4.4",
@@ -301,7 +303,7 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			td := TunDialer{
-				DialFn:          tt.fields.DialFn,
+				Dialer:          tt.fields.Dialer,
 				raw:             &tt.fields.raw.RawDialer,
 				ns1:             tt.fields.ns1,
 				ns2:             tt.fields.ns2,
@@ -334,7 +336,7 @@ func TestTunDialer_DialContext(t *testing.T) {
 	}
 
 	type fields struct {
-		DialFn          DialFunc
+		Dialer          DialerContext
 		raw             *mockRawDialer
 		ns1             string
 		ns2             string
@@ -353,9 +355,9 @@ func TestTunDialer_DialContext(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "dial ok with mocked dialFn",
+			name: "dial ok with mocked dialer",
 			fields: fields{
-				DialFn:          mockedDialFn,
+				Dialer:          &mockedDialerContext{},
 				raw:             mockedRaw,
 				ns1:             "8.8.8.8",
 				ns2:             "8.8.4.4",
@@ -373,7 +375,7 @@ func TestTunDialer_DialContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			td := TunDialer{
-				DialFn:          tt.fields.DialFn,
+				Dialer:          tt.fields.Dialer,
 				raw:             &tt.fields.raw.RawDialer,
 				ns1:             tt.fields.ns1,
 				ns2:             tt.fields.ns2,

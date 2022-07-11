@@ -5,6 +5,7 @@ package vpn
 //
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -20,8 +21,6 @@ var (
 	ErrAlreadyStarted = errors.New("tunnel already started")
 )
 
-type DialFunc func(string, string) (net.Conn, error)
-
 // tunnel holds state about the VPN tunnel that has longer duration than a
 // given session.
 type tunnel struct {
@@ -29,9 +28,17 @@ type tunnel struct {
 	mtu int
 }
 
+// vpnClient has a Start and a Dial method.
 type vpnClient interface {
-	Start() error
-	Dial() (net.Conn, error)
+	Start(ctx context.Context) error
+	Dial(ctx context.Context) (net.Conn, error)
+}
+
+type DialContextFn func(context.Context, string, string) (net.Conn, error)
+
+// DialerContext is anything that features a net.Dialer-like DialContext method.
+type DialerContext interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
 }
 
 // Client implements the OpenVPN protocol. If you're just interested in writing
@@ -41,7 +48,7 @@ type vpnClient interface {
 // the handshake, etc.)
 type Client struct {
 	Opts   *Options
-	DialFn DialFunc
+	Dialer DialerContext
 
 	conn   net.Conn
 	mux    vpnMuxer
@@ -64,23 +71,23 @@ func NewClientFromOptions(opt *Options) vpnClient {
 	return &Client{
 		Opts:   opt,
 		tunnel: &tunnel{},
-		DialFn: net.Dial,
+		Dialer: &net.Dialer{},
 	}
 }
 
 // Start starts the OpenVPN tunnel.
-func (c *Client) Start() error {
-	conn, err := c.Dial()
+func (c *Client) Start(ctx context.Context) error {
+	conn, err := c.Dial(ctx)
 	if err != nil {
 		return err
 	}
+	c.conn = conn
 
 	mux, err := newMuxerFromOptions(conn, c.Opts, c.tunnel)
 	if err != nil {
 		return err
 	}
-
-	err = mux.Handshake()
+	err = mux.Handshake(ctx)
 	if err != nil {
 		return err
 	}
@@ -91,7 +98,7 @@ func (c *Client) Start() error {
 // Dial opens a TCP/UDP socket against the remote, and creates an internal
 // data channel. It is the second step in an OpenVPN connection (out of five).
 // (In UDP mode no network connection is done at this step).
-func (c *Client) Dial() (net.Conn, error) {
+func (c *Client) Dial(ctx context.Context) (net.Conn, error) {
 	if c.Opts == nil {
 		return nil, fmt.Errorf("%w:%s", errBadInput, "nil options")
 
@@ -106,15 +113,21 @@ func (c *Client) Dial() (net.Conn, error) {
 		return nil, fmt.Errorf("%w: unknown proto %d", errBadInput, c.Opts.Proto)
 
 	}
-	msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
-		c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
-	logger.Info(msg)
-	conn, err := c.DialFn(proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrDialError, err)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
+			c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
+		logger.Info(msg)
+
+		conn, err := c.Dialer.DialContext(ctx, proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrDialError, err)
+		}
+		return conn, nil
 	}
-	return conn, nil
 }
 
 // Write sends bytes into the tunnel.

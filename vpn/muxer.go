@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -92,7 +93,7 @@ var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
 
 // vpnMuxer contains all the behavior expected by the muxer.
 type vpnMuxer interface {
-	Handshake() error
+	Handshake(ctx context.Context) error
 	Reset(net.Conn, *session) error
 	InitDataWithRemoteKey() error
 	Write([]byte) (int, error)
@@ -153,14 +154,29 @@ func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (*muxe
 // muxer handshake
 //
 
-// Handshake performs the OpenVPN "handshake" operations serially. It returns
-// any error that is raised at any of the underlying steps.
-func (m *muxer) Handshake() error {
+// Handshake performs the OpenVPN "handshake" operations serially. Accepts a
+// Context, and itt returns any error that is raised at any of the underlying
+// steps.
+func (m *muxer) Handshake(ctx context.Context) (err error) {
+	errch := make(chan error, 1)
+	go func() {
+		errch <- m.handshake()
+	}()
+	select {
+	case err = <-errch:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	return
+}
+
+func (m *muxer) handshake() error {
 
 	// 1. control channel sends reset, parse response.
 
 	if err := m.Reset(m.conn, m.session); err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
+
 	}
 
 	// 2. TLS handshake.
@@ -176,7 +192,8 @@ func (m *muxer) Handshake() error {
 
 	tlsConf, err := initTLSFn(m.session, certCfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
+
 	}
 	tlsConn, err := NewTLSConn(m.conn, m.session)
 	if err != nil {
@@ -184,7 +201,8 @@ func (m *muxer) Handshake() error {
 	}
 	tls, err := tlsHandshakeFn(tlsConn, tlsConf)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
+
 	}
 	m.tls = tls
 	logger.Info("TLS handshake done")
@@ -192,7 +210,8 @@ func (m *muxer) Handshake() error {
 	// 3. data channel init (auth, push, data initialization).
 
 	if err := m.InitDataWithRemoteKey(); err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrBadDataHandshake, err)
+
 	}
 
 	logger.Info("VPN handshake done")
@@ -208,6 +227,7 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 	if err := m.control.SendHardReset(conn, s); err != nil {
 		return err
 	}
+
 	resp, err := readPacket(m.conn)
 	if err != nil {
 		return err
@@ -238,17 +258,16 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 // handleIncoming packet reads the next packet available in the underlying
 // socket. It returns true if the packet was a data packet; otherwise it will
 // process it but return false.
-func (m *muxer) handleIncomingPacket(data []byte) bool {
+func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	if m.data == nil {
-		logger.Errorf("unhandled error: uninitialized muxer")
-		return false
+		logger.Errorf("uninitialized muxer")
+		return false, errBadInput
 	}
 	var input []byte
 	if data == nil {
 		parsed, err := readPacket(m.conn)
 		if err != nil {
-			logger.Error(err.Error())
-			return false
+			return false, err
 		}
 		input = parsed
 	} else {
@@ -260,16 +279,16 @@ func (m *muxer) handleIncomingPacket(data []byte) bool {
 		if err != nil {
 			logger.Errorf("cannot handle ping: %s", err.Error())
 		}
-		return false
+		return false, nil
 	}
 	p, err := parsePacketFromBytes(input)
 	if err != nil {
 		logger.Error(err.Error())
-		return false
+		return false, err
 	}
 	if p.isACK() {
 		logger.Warn("muxer: got ACK (ignored)")
-		return false
+		return false, err
 	}
 	if p.isControl() {
 		logger.Infof("Got control packet: %d", len(data))
@@ -277,12 +296,12 @@ func (m *muxer) handleIncomingPacket(data []byte) bool {
 		// re-key (but I keep ignoring that case for now).
 		// we're doing nothing for now.
 		fmt.Println(hex.Dump(p.payload))
-		return false
+		return false, err
 	}
 	if !p.isData() {
 		logger.Warnf("unhandled data. (op: %d)", p.opcode)
 		fmt.Println(hex.Dump(data))
-		return false
+		return false, err
 	}
 
 	// at this point, the incoming packet should be
@@ -293,13 +312,13 @@ func (m *muxer) handleIncomingPacket(data []byte) bool {
 	if err != nil {
 		logger.Errorf("bad decryption: %s", err.Error())
 		// XXX I'm not sure returning false is the right thing to do here.
-		return false
+		return false, err
 	}
 
 	// all good! we write the plaintext into the read buffer.
 	// the caller is responsible for reading from there.
 	m.bufReader.Write(plaintext)
-	return true
+	return true, nil
 }
 
 // handleDataPing replies to an openvpn-ping with a canned response.
@@ -456,11 +475,19 @@ func (m *muxer) Write(b []byte) (int, error) {
 // user-view of the VPN connection reads. It returns the number of bytes read,
 // and an error if the operation could not succeed.
 func (m *muxer) Read(b []byte) (int, error) {
-	for !m.handleIncomingPacket(nil) {
+	for {
+		ok, err := m.handleIncomingPacket(nil)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			break
+		}
 	}
 	return m.bufReader.Read(b)
 }
 
 var (
-	ErrBadHandshake = errors.New("bad vpn handshake")
+	ErrBadHandshake     = errors.New("bad vpn handshake")
+	ErrBadDataHandshake = errors.New("bad data handshake")
 )

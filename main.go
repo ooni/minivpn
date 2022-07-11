@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,12 +10,13 @@ import (
 	"github.com/apex/log"
 	"github.com/pborman/getopt/v2"
 
-	"github.com/ooni/minivpn/extras"
+	"github.com/ooni/minivpn/extras/ping"
 	"github.com/ooni/minivpn/vpn"
 )
 
 var (
-	startTime = time.Now()
+	startTime           = time.Now()
+	extraTimeoutSeconds = 10 * time.Second
 )
 
 func printUsage() {
@@ -23,17 +25,35 @@ func printUsage() {
 	os.Exit(0)
 }
 
+func timeoutSecondsFromCount(count int) time.Duration {
+	waitOnLastOne := 2 * time.Second
+	return time.Duration(count)*time.Second + waitOnLastOne
+
+}
+
 // RunPinger takes an Option object, gets a Dialer, and runs a Pinger against
 // the passed target, for count packets.
 func RunPinger(opt *vpn.Options, target string, count uint32) error {
-	conn := vpn.NewRawDialer(opt)
-	pinger := extras.NewPinger(conn, target, int(count))
-	err := pinger.Run()
+
+	c := int(count)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutSecondsFromCount(c)+extraTimeoutSeconds)
+	defer cancel()
+
+	rawDialer := vpn.NewRawDialer(opt)
+	conn, err := rawDialer.DialContext(ctx)
 	if err != nil {
-		// TODO identify different errors
-		os.Exit(42)
+		return err
 	}
-	pinger.Stop()
+
+	pinger := ping.New(target, conn)
+	pinger.Count = c
+	pinger.Timeout = timeoutSecondsFromCount(c)
+	err = pinger.Run(ctx)
+	if err != nil {
+		return err
+	}
+	pinger.PrintStats()
+
 	return nil
 }
 
