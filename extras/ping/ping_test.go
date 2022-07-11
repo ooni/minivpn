@@ -2,6 +2,7 @@ package ping
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -386,7 +387,7 @@ func TestRunBadWrite(t *testing.T) {
 	pinger.Interval = 1 * time.Millisecond
 	pinger.Timeout = time.Second
 
-	err := pinger.Run()
+	err := pinger.Run(context.Background())
 	AssertTrue(t, err != nil)
 
 	stats := pinger.Statistics()
@@ -430,7 +431,7 @@ func TestRunBadRead(t *testing.T) {
 	pinger.Interval = time.Millisecond
 	pinger.Timeout = time.Second
 
-	err := pinger.Run()
+	err := pinger.Run(context.Background())
 	AssertTrue(t, err != nil)
 
 	stats := pinger.Statistics()
@@ -450,7 +451,7 @@ func TestPrintStats(t *testing.T) {
 	pinger.Target = "127.0.0.2"
 	pinger.Interval = time.Millisecond
 	pinger.Timeout = time.Second
-	_ = pinger.Run()
+	_ = pinger.Run(context.Background())
 	pinger.PrintStats()
 }
 

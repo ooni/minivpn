@@ -202,7 +202,7 @@ func parseProto(p []string, o *Options) error {
 
 func parseRemote(p []string, o *Options) error {
 	if len(p) != 2 {
-		return fmt.Errorf("%w:%s", errBadCfg, "remote needs two args")
+		return fmt.Errorf("%w: %s", errBadCfg, "remote needs two args")
 	}
 	o.Remote, o.Port = p[0], p[1]
 	return nil
@@ -210,7 +210,7 @@ func parseRemote(p []string, o *Options) error {
 
 func parseCipher(p []string, o *Options) error {
 	if len(p) != 1 {
-		return fmt.Errorf("%w:%s", errBadCfg, "cipher expects one arg")
+		return fmt.Errorf("%w: %s", errBadCfg, "cipher expects one arg")
 	}
 	cipher := p[0]
 	if !hasElement(cipher, supportedCiphers) {
@@ -222,7 +222,7 @@ func parseCipher(p []string, o *Options) error {
 
 func parseAuth(p []string, o *Options) error {
 	if len(p) != 1 {
-		return fmt.Errorf("%w:%s", errBadCfg, "invalid auth entry")
+		return fmt.Errorf("%w: %s", errBadCfg, "invalid auth entry")
 	}
 	auth := p[0]
 	if !hasElement(auth, supportedAuth) {
@@ -234,7 +234,7 @@ func parseAuth(p []string, o *Options) error {
 
 func parseAuthUser(p []string, o *Options) error {
 	if len(p) != 1 || !existsFile(p[0]) {
-		return fmt.Errorf("%w:%s", errBadCfg, "auth-user-pass expects a valid file")
+		return fmt.Errorf("%w: %s", errBadCfg, "auth-user-pass expects a valid file")
 	}
 	creds, err := getCredentialsFromFile(p[0])
 	if err != nil {
@@ -245,7 +245,7 @@ func parseAuthUser(p []string, o *Options) error {
 }
 
 func parseCA(p []string, o *Options, d string) error {
-	e := fmt.Errorf("%w:%s", errBadCfg, "ca expects a valid file")
+	e := fmt.Errorf("%w: %s", errBadCfg, "ca expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
@@ -258,7 +258,7 @@ func parseCA(p []string, o *Options, d string) error {
 }
 
 func parseCert(p []string, o *Options, d string) error {
-	e := fmt.Errorf("%w:%s", errBadCfg, "cert expects a valid file")
+	e := fmt.Errorf("%w: %s", errBadCfg, "cert expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
@@ -271,7 +271,7 @@ func parseCert(p []string, o *Options, d string) error {
 }
 
 func parseKey(p []string, o *Options, d string) error {
-	e := fmt.Errorf("%w:%s", errBadCfg, "key expects a valid file")
+	e := fmt.Errorf("%w: %s", errBadCfg, "key expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
@@ -285,7 +285,7 @@ func parseKey(p []string, o *Options, d string) error {
 
 func parseCompress(p []string, o *Options) error {
 	if len(p) > 1 {
-		return fmt.Errorf("%w:%s", errBadCfg, "compress: only empty/stub options supported")
+		return fmt.Errorf("%w: %s", errBadCfg, "compress: only empty/stub options supported")
 	}
 	if len(p) == 0 {
 		o.Compress = compressionEmpty
@@ -295,12 +295,12 @@ func parseCompress(p []string, o *Options) error {
 		o.Compress = compressionStub
 		return nil
 	}
-	return fmt.Errorf("%w:%s", errBadCfg, "compress: only empty/stub options supported")
+	return fmt.Errorf("%w: %s", errBadCfg, "compress: only empty/stub options supported")
 }
 
 func parseCompLZO(p []string, o *Options) error {
 	if p[0] != "no" {
-		return fmt.Errorf("%w:%s", errBadCfg, "comp-lzo: compression not supported")
+		return fmt.Errorf("%w: %s", errBadCfg, "comp-lzo: compression not supported")
 	}
 	o.Compress = "lzo-no"
 	return nil
@@ -324,7 +324,7 @@ func parseTLSVerMax(p []string, o *Options) error {
 
 func parseProxyOBFS4(p []string, o *Options) error {
 	if len(p) != 1 {
-		return fmt.Errorf("%w:%s", errBadCfg, "proto-obfs4: need a properly configured proxy")
+		return fmt.Errorf("%w: %s", errBadCfg, "proto-obfs4: need a properly configured proxy")
 	}
 	// TODO(ainghazal): can validate the obfs4://... scheme here
 	o.ProxyOBFS4 = p[0]

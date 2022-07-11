@@ -1,6 +1,7 @@
 package extras
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -26,6 +27,6 @@ func ExamplePinger() {
 	}
 	pinger := ping.New(target, conn)
 	pinger.Count = 3
-	pinger.Timeout = time.Duration(5) * time.Second
-	pinger.Run()
+	pinger.Timeout = 5 * time.Second
+	pinger.Run(context.Background())
 }

@@ -57,6 +57,7 @@ qa:
 	sleep 5 # 5secs should be enough, increase this if not.
 	@rm -rf data/tests
 	@mkdir -p data/tests && curl 172.17.0.2:8080/ > data/tests/config
+	@sleep 1
 	@cd data/tests && ../../tests/integration/extract.sh config
 	./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
 	@docker stop ovpn1
