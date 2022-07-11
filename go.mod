@@ -21,7 +21,6 @@ require (
 	gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d
 	golang.org/x/net v0.0.0-20220706163947-c90051bbdb60
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
-	golang.zx2c4.com/go118/netip v0.0.0-20211111135330-a4a02eeacf9d
 	golang.zx2c4.com/wireguard v0.0.0-20220703234212-c31a7b1ab478
 	golang.zx2c4.com/wireguard/tun/netstack v0.0.0-20220703234212-c31a7b1ab478
 )
