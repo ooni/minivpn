@@ -3,7 +3,7 @@ name: build
 on: push
 
 jobs:
-  build:
+  short-tests:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -45,6 +45,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: '1.18'
-      - name: run all tests
-        run: go test -v ./...
+      - name: run integration tests
+        run: go test -v ./tests/integration
 
