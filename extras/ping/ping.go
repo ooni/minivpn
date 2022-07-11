@@ -12,10 +12,12 @@ package ping
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"math"
-	"math/rand"
+	"math/big"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -40,7 +42,12 @@ var (
 // New returns a new Pinger struct pointer.  This function TAKES OWNERSHIP of
 // the conn argument and closes it when Run terminates.
 func New(addr string, conn net.Conn) *Pinger {
-	r := rand.New(rand.NewSource(getSeed()))
+	b := make([]byte, 2)
+	_, err := rand.Read(b)
+	if err != nil {
+		return &Pinger{}
+	}
+	id := binary.BigEndian.Uint16(b)
 	firstUUID := uuid.New()
 	var firstSequence = map[uuid.UUID]map[int]struct{}{}
 	firstSequence[firstUUID] = make(map[int]struct{})
@@ -53,7 +60,7 @@ func New(addr string, conn net.Conn) *Pinger {
 		Timeout:           time.Duration(math.MaxInt64),
 		addr:              addr,
 		done:              make(chan interface{}),
-		id:                r.Intn(math.MaxUint16),
+		id:                int(id),
 		trackerUUIDs:      []uuid.UUID{firstUUID},
 		ipaddr:            nil,
 		ipv4:              false,
@@ -418,8 +425,12 @@ func (b *expBackoff) Get() time.Duration {
 	if b.c < b.maxExp {
 		b.c++
 	}
+	r, err := rand.Int(rand.Reader, big.NewInt(1<<b.c))
+	if err != nil {
+		r = big.NewInt(b.c)
+	}
 
-	return b.baseDelay * time.Duration(rand.Int63n(1<<b.c))
+	return b.baseDelay * time.Duration(r.Uint64())
 }
 
 func newExpBackoff(baseDelay time.Duration, maxExp int64) expBackoff {
@@ -502,7 +513,6 @@ func (p *Pinger) processPacket(recv *packet) error {
 
 	timestamp := bytesToTime(pkt.Data[:timeSliceLength])
 	pkt.Rtt = receivedAt.Sub(timestamp)
-	pkt.Seq = pkt.Seq
 
 	if !p.Silent {
 		fmt.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms\n", pkt.SrcIP, pkt.Seq, pkt.Ttl, float64(pkt.Rtt.Microseconds()/1000))
