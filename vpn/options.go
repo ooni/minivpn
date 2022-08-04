@@ -128,7 +128,8 @@ func NewOptionsFromFilePath(filePath string) (*Options, error) {
 	return getOptionsFromLines(lines, dir)
 }
 
-// certsCertsFromPath returns true when the options object is configured to load certificates from paths; false when we have inline certificates.
+// certsFromPath returns true when the options object is configured to load
+// certificates from paths; false when we have inline certificates.
 func (o *Options) certsFromPath() bool {
 	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != ""
 }

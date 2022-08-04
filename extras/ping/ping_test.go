@@ -138,7 +138,7 @@ func TestProcessPacket_LargePacket(t *testing.T) {
 	AssertNoError(t, err)
 }
 
-// FIXME this one is failing
+// TODO this one is failing
 // func TestProcessPacket_PacketTooSmall(t *testing.T)
 
 // do not return err
@@ -474,4 +474,40 @@ func makeConn() *mocks.Conn {
 		return nil
 	}
 	return conn
+}
+
+type witness struct {
+	closed bool
+}
+
+func makeConnWitnessClose(w *witness) *mocks.Conn {
+	c := &mocks.Conn{}
+	c.MockClose = func() error {
+		w.closed = true
+		return nil
+	}
+	return c
+}
+
+func Test_NewFromSharedConnectionDoesNotCloseConn(t *testing.T) {
+	t.Run("shared connection does not close", func(t *testing.T) {
+		w := &witness{}
+		conn := makeConnWitnessClose(w)
+
+		p := NewFromSharedConnection("1.1.1.1", conn)
+		p.Run(context.Background())
+		if w.closed {
+			t.Error("should not have closed conn")
+		}
+	})
+	t.Run("default does close", func(t *testing.T) {
+		w := &witness{}
+		conn := makeConnWitnessClose(w)
+
+		p := New("1.1.1.1", conn)
+		p.Run(context.Background())
+		if !w.closed {
+			t.Error("should have closed conn")
+		}
+	})
 }
