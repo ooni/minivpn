@@ -92,11 +92,11 @@ func makeTestingSession() *session {
 func makeTestingOptions(t *testing.T, cipher, auth string) *Options {
 	crt, _ := writeTestingCerts(t.TempDir())
 	opt := &Options{
-		Cipher: cipher,
-		Auth:   auth,
-		Cert:   crt.cert,
-		Key:    crt.key,
-		Ca:     crt.ca,
+		Cipher:   cipher,
+		Auth:     auth,
+		CertPath: crt.cert,
+		KeyPath:  crt.key,
+		CaPath:   crt.ca,
 	}
 	return opt
 }

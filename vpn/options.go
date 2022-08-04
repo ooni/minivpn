@@ -94,9 +94,12 @@ type Options struct {
 	Proto     int
 	Username  string
 	Password  string
-	Ca        string
-	Cert      string
-	Key       string
+	CaPath    string
+	CertPath  string
+	KeyPath   string
+	Ca        []byte
+	Cert      []byte
+	Key       []byte
 	Compress  compression
 	Cipher    string
 	Auth      string
@@ -253,7 +256,7 @@ func parseCA(p []string, o *Options, d string) error {
 	if !existsFile(ca) {
 		return e
 	}
-	o.Ca = ca
+	o.CaPath = ca
 	return nil
 }
 
@@ -266,7 +269,7 @@ func parseCert(p []string, o *Options, d string) error {
 	if !existsFile(cert) {
 		return e
 	}
-	o.Cert = cert
+	o.CertPath = cert
 	return nil
 }
 
@@ -279,7 +282,7 @@ func parseKey(p []string, o *Options, d string) error {
 	if !existsFile(key) {
 		return e
 	}
-	o.Key = key
+	o.KeyPath = key
 	return nil
 }
 

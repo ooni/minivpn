@@ -228,6 +228,9 @@ type Statistics struct {
 	// Rtts is all of the round-trip times sent via this pinger.
 	Rtts []time.Duration
 
+	// TTLs is all of the time-to-live for the packages received by this pinger.
+	TTLs []time.Duration
+
 	// MinRtt is the minimum round-trip time sent via this pinger.
 	MinRtt time.Duration
 

@@ -50,9 +50,9 @@ type certPaths struct {
 	caPath   string
 }
 
-// loadCertAndCA parses the PEM certificates contained in the paths pointed by
-// certAuthConfig and return a certAuth with the client and CA certificates.
-func loadCertAndCA(pth certPaths) (*certConfig, error) {
+// loadCertAndCAFromPath parses the PEM certificates contained in the paths pointed by
+// the passed certPaths and return a certConfig with the client and CA certificates.
+func loadCertAndCAFromPath(pth certPaths) (*certConfig, error) {
 	ca := x509.NewCertPool()
 	caData, err := ioutil.ReadFile(pth.caPath)
 	if err != nil {
@@ -74,6 +74,24 @@ func loadCertAndCA(pth certPaths) (*certConfig, error) {
 	return cfg, nil
 }
 
+// certBytes holds the byte arrays for the cert, key, and ca used for OpenVPN
+// certificate authentication.
+type certBytes struct {
+	cert []byte
+	key  []byte
+	ca   []byte
+}
+
+// loadCertAndCAFromBytes parses the PEM certificates from the byte arrays in the
+// the passed certBytes, and return a certConfig with the client and CA certificates.
+func loadCertAndCAFromBytes(crt certBytes) (*certConfig, error) {
+	cfg := &certConfig{
+		//	ca:   ca,
+		//	cert: cert,
+	}
+	return cfg, nil
+}
+
 // authorityPinner is any object from which we can obtain a certpool containing
 // a pinned Certificate Authority for verification.
 type authorityPinner interface {
@@ -91,10 +109,17 @@ type certConfig struct {
 // from the paths specified in the passed Options object, and an error if it
 // could not be properly built.
 func newCertConfigFromOptions(o *Options) (*certConfig, error) {
-	return loadCertAndCA(certPaths{
-		certPath: o.Cert,
-		keyPath:  o.Key,
-		caPath:   o.Ca,
+	if o.CertPath != "" && o.KeyPath != "" && o.CaPath != "" {
+		return loadCertAndCAFromPath(certPaths{
+			certPath: o.CertPath,
+			keyPath:  o.KeyPath,
+			caPath:   o.CaPath,
+		})
+	}
+	return loadCertAndCAFromBytes(certBytes{
+		cert: o.Cert,
+		key:  o.Key,
+		ca:   o.Ca,
 	})
 }
 

@@ -20,9 +20,9 @@ import (
 
 func makeDummyOptionsForCertPaths() *Options {
 	return &Options{
-		Cert: "aa",
-		Key:  "aa",
-		Ca:   "aa",
+		CertPath: "aa",
+		KeyPath:  "aa",
+		CaPath:   "aa",
 	}
 }
 
@@ -59,9 +59,9 @@ func Test_initTLS(t *testing.T) {
 						t.Errorf("initTLS() cannot create certs for test %v", err.Error())
 					}
 					cfg, err := newCertConfigFromOptions(&Options{
-						Cert: crt.cert,
-						Key:  crt.key,
-						Ca:   crt.ca,
+						CertPath: crt.cert,
+						KeyPath:  crt.key,
+						CaPath:   crt.ca,
 					})
 					if err != nil {
 						t.Errorf("initTLS() cannot load config from opts %v", err.Error())
@@ -80,9 +80,9 @@ func Test_initTLS(t *testing.T) {
 					c, _ := writeTestingCerts("")
 					cfg, err := newCertConfigFromOptions(
 						&Options{
-							Cert: c.cert,
-							Key:  c.key,
-							Ca:   c.ca,
+							CertPath: c.cert,
+							KeyPath:  c.key,
+							CaPath:   c.ca,
 						})
 					if err != nil {
 						t.Errorf("error while testing: %v", err)
@@ -394,7 +394,7 @@ func Test_loadCertAndCA(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := loadCertAndCA(tt.args.pth)
+			got, err := loadCertAndCAFromPath(tt.args.pth)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("loadCertAndCA() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -415,9 +415,9 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 			t.Errorf("error while testing: %v", err)
 		}
 		cfg, err := newCertConfigFromOptions(&Options{
-			Cert: crt.cert,
-			Key:  crt.key,
-			Ca:   crt.ca,
+			CertPath: crt.cert,
+			KeyPath:  crt.key,
+			CaPath:   crt.ca,
 		})
 		if err != nil {
 			t.Errorf("error while testing: %v", err)

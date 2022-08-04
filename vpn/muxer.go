@@ -182,7 +182,7 @@ func (m *muxer) handshake() error {
 	// 2. TLS handshake.
 
 	// TODO(ainghazal): move the initialization step to an early phase and keep a ref in the muxer
-	if m.options.Cert == "" && m.options.Key == "" && m.options.Username == "" {
+	if m.options.CertPath == "" && m.options.KeyPath == "" && m.options.Username == "" {
 		return fmt.Errorf("%w: %s", errBadInput, "expected certificate or username/password")
 	}
 	certCfg, err := newCertConfigFromOptions(m.options)
