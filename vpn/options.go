@@ -1,17 +1,36 @@
 package vpn
 
+//
 // Parse VPN options.
-
+//
 // Mostly, this file conforms to the format in the reference implementation.
 // However, there are some additions that are specific. To avoid feature creep
 // and fat dependencies, the main `vpn` module only supports mainline
 // capabilities. It is still useful to carry all options in a single type,
 // so it's up to the user of this library to do something useful with
-// such options. The `extra` package provides some of these features, like
+// such options. The `extra` package provides some of these extra features, like
 // obfuscation support.
+//
+// Following the configuration format in the reference implementation, `minivpn`
+// allows including files in the main configuration file, but only for the `ca`,
+// `cert` and `key` options.
+//
+// Each inline file is started by the line <option> and ended by the line
+// </option>.
+//
+// Here is an example of an inline file usage:
+//
+// ```
+// <cert>
+// -----BEGIN CERTIFICATE-----
+// [...]
+// -----END CERTIFICATE-----
+// </cert>
+// ```
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -74,18 +93,6 @@ var supportedAuth = []string{
 	"SHA512",
 }
 
-/*
-// TODO(ainghazal): this could inform the selection of ciphers in initTLS
-// but some of these particular ciphermodes are problematic because stdlib in go
-// does not implement finite DH. adding them is gonna be hacky
-
-var supportedTLSCipher = []string{
-	// DHE-RSA-AES128-SHA -> riseup legacy; unsupported!
-	// TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
-	// TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
-}
-*/
-
 // Options make all the relevant configuration options accessible to the
 // different modules that need it.
 type Options struct {
@@ -94,9 +101,12 @@ type Options struct {
 	Proto     int
 	Username  string
 	Password  string
-	Ca        string
-	Cert      string
-	Key       string
+	CaPath    string
+	CertPath  string
+	KeyPath   string
+	Ca        []byte
+	Cert      []byte
+	Key       []byte
 	Compress  compression
 	Cipher    string
 	Auth      string
@@ -104,6 +114,28 @@ type Options struct {
 	// below are options that do not conform to the OpenVPN configuration format.
 	ProxyOBFS4 string
 	Log        Logger
+}
+
+// CertsCertsFromPath returns true when the options object is configured to load certificates from paths; false when we have inline certificates.
+func (o *Options) CertsFromPath() bool {
+	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != ""
+}
+
+// HasAuthInfo return true if:
+// - we have paths for cert, key and ca
+// - we have inline byte arrays for cert, key and ca
+// - we have username + password info.
+func (o *Options) HasAuthInfo() bool {
+	if o.CertPath != "" && o.KeyPath != "" && o.CaPath != "" {
+		return true
+	}
+	if len(o.Cert) != 0 && len(o.Key) != 0 && len(o.Ca) != 0 {
+		return true
+	}
+	if o.Username != "" && o.Password != "" {
+		return true
+	}
+	return false
 }
 
 const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
@@ -253,7 +285,7 @@ func parseCA(p []string, o *Options, d string) error {
 	if !existsFile(ca) {
 		return e
 	}
-	o.Ca = ca
+	o.CaPath = ca
 	return nil
 }
 
@@ -266,7 +298,7 @@ func parseCert(p []string, o *Options, d string) error {
 	if !existsFile(cert) {
 		return e
 	}
-	o.Cert = cert
+	o.CertPath = cert
 	return nil
 }
 
@@ -279,7 +311,7 @@ func parseKey(p []string, o *Options, d string) error {
 	if !existsFile(key) {
 		return e
 	}
-	o.Key = key
+	o.KeyPath = key
 	return nil
 }
 
@@ -370,13 +402,51 @@ func parseOption(o *Options, dir, key string, p []string) error {
 // getOptionsFromLines tries to parse all the lines coming from a config file
 // and raises validation errors if the values do not conform to the expected
 // format.
+// the config file supports inline file inclusion for <ca>, <cert> and <key>.
 func getOptionsFromLines(lines []string, dir string) (*Options, error) {
-	s := &Options{}
+	opt := &Options{}
+
+	// tag and inlineBuf are used to parse inline files.
+	// these follow the format used by the reference openvpn implementation.
+	// each block (any of ca, key, cert) is marked by a <option> line, and
+	// closed by a </option> line; lines in between are expected to contain
+	// the crypto block.
+	tag := ""
+	inlineBuf := new(bytes.Buffer)
 
 	for _, l := range lines {
 		if strings.HasPrefix(l, "#") {
 			continue
 		}
+		l = strings.TrimSpace(l)
+
+		// inline certs
+		if isClosingTag(l) {
+			// we expect an already existing inlineBuf
+			e := parseInlineTag(opt, tag, inlineBuf)
+			if e != nil {
+				return nil, e
+			}
+			tag = ""
+			inlineBuf = new(bytes.Buffer)
+			continue
+		}
+		if tag != "" {
+			inlineBuf.Write([]byte(l))
+			inlineBuf.Write([]byte("\n"))
+			continue
+		}
+		if isOpeningTag(l) {
+			if len(inlineBuf.Bytes()) != 0 {
+				// something wrong: an opening tag should not be found
+				// when we still have bytes in the inline buffer.
+				return opt, fmt.Errorf("%w: %s", errBadInput, "tag not closed")
+			}
+			tag = parseTag(l)
+			continue
+		}
+
+		// parse parts in the same line
 		p := strings.Split(l, " ")
 		if len(p) == 0 {
 			continue
@@ -390,14 +460,67 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 		} else {
 			key, parts = p[0], p[1:]
 		}
-		e := parseOption(s, dir, key, parts)
+		e := parseOption(opt, dir, key, parts)
 		if e != nil {
 			return nil, e
 		}
 	}
-	return s, nil
+	return opt, nil
 }
 
+func isOpeningTag(key string) bool {
+	switch key {
+	case "<ca>", "<cert>", "<key>":
+		return true
+	default:
+		return false
+	}
+}
+
+func isClosingTag(key string) bool {
+	switch key {
+	case "</ca>", "</cert>", "</key>":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseTag(tag string) string {
+	switch tag {
+	case "<ca>", "</ca>":
+		return "ca"
+	case "<cert>", "</cert>":
+		return "cert"
+	case "<key>", "</key>":
+		return "key"
+	default:
+		return ""
+	}
+}
+
+// parseInlineTag
+func parseInlineTag(o *Options, tag string, buf *bytes.Buffer) error {
+	b := buf.Bytes()
+	if len(b) == 0 {
+		return fmt.Errorf("%w: empty inline tag: %d", errBadInput, len(b))
+	}
+	switch tag {
+	case "ca":
+		o.Ca = b
+	case "cert":
+		o.Cert = b
+	case "key":
+		o.Key = b
+	default:
+		return fmt.Errorf("%w: unknown tag: %s", errBadInput, tag)
+
+	}
+	return nil
+}
+
+// hasElement checks if a given string is present in a string array. returns
+// true if that is the case, false otherwise.
 func hasElement(el string, arr []string) bool {
 	for _, v := range arr {
 		if v == el {
@@ -407,11 +530,15 @@ func hasElement(el string, arr []string) bool {
 	return false
 }
 
+// existsFile returns true if the file to which the path refers to exists and
+// is a regular file.
 func existsFile(path string) bool {
-	_, err := os.Stat(path)
-	return !errors.Is(err, os.ErrNotExist)
+	statbuf, err := os.Stat(path)
+	return !errors.Is(err, os.ErrNotExist) && statbuf.Mode().IsRegular()
 }
 
+// getLinesFromFile accepts a path parameter, and return a string array with
+// its content and an error if the operation cannot be completed.
 func getLinesFromFile(path string) ([]string, error) {
 	f, err := os.Open(path) //#nosec G304
 	defer func() {
@@ -435,6 +562,9 @@ func getLinesFromFile(path string) ([]string, error) {
 	return lines, nil
 }
 
+// getCredentialsFromFile accepts a path string parameter, and return a string
+// array containing the credentials in that file, and an error if the operation
+// could not be completed.
 func getCredentialsFromFile(path string) ([]string, error) {
 	lines, err := getLinesFromFile(path)
 	if err != nil {

@@ -41,6 +41,33 @@ SPDX-License-Identifier: GPL-3.0-or-later
 proxy-obfs4 obfs4://RHOST:RPORT?cert=BASE64ENCODED_CERT&iat-mode=0
 ```
 
+## Configuration
+
+The public constructor for `vpn.CLient` allows you to instantiate a `Client` from a
+correctly initialized `Options` object.
+
+For convenience, `minivpn` also understands how to parse a minimal subset of the
+configuration options that can be written in an openvpn config file.
+
+### Inline file support
+
+Following the configuration format in the reference implementation, `minivpn`
+allows including files in the main configuration file, but only for the ` ca`,
+`cert` and `key` options.
+
+Each inline file is started by the line <option> and ended by the line
+</option>.
+
+Here is an example of an inline file usage:
+
+```
+<cert>
+-----BEGIN CERTIFICATE-----
+[...]
+-----END CERTIFICATE-----
+</cert>
+```
+
 ## Tests
 
 You can run a `connect+ping` test against a given provider (but be aware that

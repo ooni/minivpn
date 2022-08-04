@@ -50,9 +50,9 @@ type certPaths struct {
 	caPath   string
 }
 
-// loadCertAndCA parses the PEM certificates contained in the paths pointed by
-// certAuthConfig and return a certAuth with the client and CA certificates.
-func loadCertAndCA(pth certPaths) (*certConfig, error) {
+// loadCertAndCAFromPath parses the PEM certificates contained in the paths pointed by
+// the passed certPaths and return a certConfig with the client and CA certificates.
+func loadCertAndCAFromPath(pth certPaths) (*certConfig, error) {
 	ca := x509.NewCertPool()
 	caData, err := ioutil.ReadFile(pth.caPath)
 	if err != nil {
@@ -64,6 +64,33 @@ func loadCertAndCA(pth certPaths) (*certConfig, error) {
 	}
 
 	cert, err := tls.LoadX509KeyPair(pth.certPath, pth.keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
+	}
+	cfg := &certConfig{
+		ca:   ca,
+		cert: cert,
+	}
+	return cfg, nil
+}
+
+// certBytes holds the byte arrays for the cert, key, and ca used for OpenVPN
+// certificate authentication.
+type certBytes struct {
+	cert []byte
+	key  []byte
+	ca   []byte
+}
+
+// loadCertAndCAFromBytes parses the PEM certificates from the byte arrays in the
+// the passed certBytes, and return a certConfig with the client and CA certificates.
+func loadCertAndCAFromBytes(crt certBytes) (*certConfig, error) {
+	ca := x509.NewCertPool()
+	ok := ca.AppendCertsFromPEM(crt.ca)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrBadCA, "cannot parse ca cert")
+	}
+	cert, err := tls.X509KeyPair(crt.cert, crt.key)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
 	}
@@ -91,11 +118,22 @@ type certConfig struct {
 // from the paths specified in the passed Options object, and an error if it
 // could not be properly built.
 func newCertConfigFromOptions(o *Options) (*certConfig, error) {
-	return loadCertAndCA(certPaths{
-		certPath: o.Cert,
-		keyPath:  o.Key,
-		caPath:   o.Ca,
-	})
+	var cfg *certConfig
+	var err error
+	if o.CertsFromPath() {
+		cfg, err = loadCertAndCAFromPath(certPaths{
+			certPath: o.CertPath,
+			keyPath:  o.KeyPath,
+			caPath:   o.CaPath,
+		})
+	} else {
+		cfg, err = loadCertAndCAFromBytes(certBytes{
+			cert: o.Cert,
+			key:  o.Key,
+			ca:   o.Ca,
+		})
+	}
+	return cfg, err
 }
 
 // authority implements authorityPinner interface.

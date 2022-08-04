@@ -44,35 +44,20 @@ func Test_newMuxerFromOptions(t *testing.T) {
 			},
 			wantErr: nil,
 		},
-		// TODO: Add test cases
+		// TODO: Add more test cases:
 		// failure on newSession()
 		// failure in newData()
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newMuxerFromOptions(tt.args.conn, tt.args.options, tt.args.tunnel)
+			_, err := newMuxerFromOptions(tt.args.conn, tt.args.options, tt.args.tunnel)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("newMuxerFromOptions() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !bytes.Equal(got.session.RemoteSessionID[:], tt.want.session.RemoteSessionID[:]) {
-				t.Errorf("newMuxerFromOptions() session = %v, want %v", got, tt.want)
-			}
-			if !bytes.Equal(got.session.LocalSessionID[:], tt.want.session.LocalSessionID[:]) {
-				t.Errorf(
-					"newMuxerFromOptions() session. = %v, want %v",
-					got.session.LocalSessionID[:],
-					tt.want.session.LocalSessionID[:],
-				)
-			}
 			// TODO(ainghazal): we cannot compare the options because the paths for the certs are going to be different
 			// I think this calls from separating the initial options from a more structured config
 			// with the parsed, loaded certs instead.
-			/*
-			 if !reflect.DeepEqual(got.options, tt.want.options) {
-			 	t.Errorf("newMuxerFromOptions() options = %v, want %v", got.options, tt.want.options)
-			 }
-			*/
 		})
 	}
 }
@@ -134,6 +119,14 @@ func (md *mockMuxerForHandshake) sendControlMessage() error {
 }
 
 func (md *mockMuxerForHandshake) readAndLoadRemoteKey() error {
+	return nil
+}
+
+type mockMuxerWithDummyHandshake struct {
+	mockMuxerForHandshake
+}
+
+func (md *mockMuxerWithDummyHandshake) Handshake(context.Context) error {
 	return nil
 }
 
@@ -274,14 +267,31 @@ func Test_muxer_handleIncomingPacket(t *testing.T) {
 	}
 
 	// replace dataHandler in muxer with a method that raises error on ReadPacket()
-	m = muxer{
-		data:      &mockDataHandlerBadReadPacket{},
-		bufReader: &bytes.Buffer{},
-	}
-	p = &packet{opcode: pDataV1}
-	if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
-		t.Errorf("muxer.handleIncomingPacket(): expected !ok with error in ReadPacket()")
-	}
+	t.Run("error in ReadPacket() should propagate", func(t *testing.T) {
+		m = muxer{
+			data:      &mockDataHandlerBadReadPacket{},
+			bufReader: &bytes.Buffer{},
+		}
+		p = &packet{opcode: pDataV1}
+		if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
+			t.Errorf("muxer.handleIncomingPacket(): expected !ok with error in ReadPacket()")
+		}
+	})
+
+	t.Run("null data raises error", func(t *testing.T) {
+		m = muxer{
+			data:      nil,
+			bufReader: &bytes.Buffer{},
+		}
+		p = &packet{opcode: pDataV1}
+		ok, err := m.handleIncomingPacket(p.Bytes())
+		if ok {
+			t.Errorf("muxer.handleIncomingPacket(): expected !ok with null data")
+		}
+		if err != errBadInput {
+			t.Errorf("muxer.handleIncomingPacket(): expected errBadInput")
+		}
+	})
 }
 
 func Test_muxer_Write(t *testing.T) {

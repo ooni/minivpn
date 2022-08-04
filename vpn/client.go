@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -55,6 +56,13 @@ type Client struct {
 	tunnel *tunnel
 
 	Log Logger
+
+	// muxerFactoryFn allows to inject a different factory
+	// for testing.
+	muxerFactoryFn muxFactory
+
+	startOnce sync.Once
+	startErr  error
 }
 
 var _ net.Conn = &Client{}  // Ensure that we implement net.Conn
@@ -77,22 +85,41 @@ func NewClientFromOptions(opt *Options) vpnClient {
 
 // Start starts the OpenVPN tunnel.
 func (c *Client) Start(ctx context.Context) error {
+	c.startOnce.Do(func() {
+		c.startErr = c.start(ctx)
+	})
+	return c.startErr
+}
+
+func (c *Client) start(ctx context.Context) error {
 	conn, err := c.Dial(ctx)
 	if err != nil {
 		return err
 	}
-	c.conn = conn
-
-	mux, err := newMuxerFromOptions(conn, c.Opts, c.tunnel)
+	muxFactory := c.muxerFactory()
+	mux, err := muxFactory(conn, c.Opts, c.tunnel)
 	if err != nil {
+		conn.Close()
 		return err
 	}
 	err = mux.Handshake(ctx)
 	if err != nil {
+		conn.Close()
 		return err
 	}
+	c.conn = conn
 	c.mux = mux
 	return nil
+}
+
+// muxerFactory returns the default muxer Factory, or any other one that has
+// been injected into the `muxerFactoryFn` private field in Client for testing.
+func (c *Client) muxerFactory() muxFactory {
+	muxFactory := newMuxerFromOptions
+	if c.muxerFactoryFn == nil {
+		return muxFactory
+	}
+	return c.muxerFactoryFn
 }
 
 // Dial opens a TCP/UDP socket against the remote, and creates an internal
@@ -138,7 +165,7 @@ func (c *Client) Write(b []byte) (int, error) {
 // Read reads bytes from the tunnel.
 func (c *Client) Read(b []byte) (int, error) {
 	if c.mux == nil {
-		return 0, fmt.Errorf("%w:%s", errBadInput, "nil muxer")
+		return 0, fmt.Errorf("%w: %s", errBadInput, "nil muxer")
 
 	}
 	return c.mux.Read(b)
