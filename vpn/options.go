@@ -12,6 +12,7 @@ package vpn
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -107,6 +108,11 @@ type Options struct {
 	// below are options that do not conform to the OpenVPN configuration format.
 	ProxyOBFS4 string
 	Log        Logger
+}
+
+// CertsCertsFromPath returns true when the options object is configured to load certificates from paths; false when we have inline certificates.
+func (o *Options) CertsFromPath() bool {
+	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != ""
 }
 
 const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
@@ -374,12 +380,40 @@ func parseOption(o *Options, dir, key string, p []string) error {
 // and raises validation errors if the values do not conform to the expected
 // format.
 func getOptionsFromLines(lines []string, dir string) (*Options, error) {
-	s := &Options{}
+	opt := &Options{}
+
+	tag := ""
+	inlineBuf := new(bytes.Buffer)
 
 	for _, l := range lines {
 		if strings.HasPrefix(l, "#") {
 			continue
 		}
+		l = strings.TrimSpace(l)
+
+		// inline certs
+		if isClosingTag(l) {
+			e := parseInlineTag(opt, tag, inlineBuf)
+			if e != nil {
+				return nil, e
+			}
+			tag = ""
+			inlineBuf = new(bytes.Buffer)
+			continue
+		}
+		if tag != "" {
+			inlineBuf.Write([]byte(l))
+			continue
+		}
+		if isOpeningTag(l) {
+			if len(inlineBuf.Bytes()) != 0 {
+				return opt, fmt.Errorf("%w: %s", errBadInput, "tag not closed")
+			}
+			tag = parseTag(l)
+			continue
+		}
+
+		// parse parts in the same line
 		p := strings.Split(l, " ")
 		if len(p) == 0 {
 			continue
@@ -393,14 +427,66 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 		} else {
 			key, parts = p[0], p[1:]
 		}
-		e := parseOption(s, dir, key, parts)
+		e := parseOption(opt, dir, key, parts)
 		if e != nil {
 			return nil, e
 		}
 	}
-	return s, nil
+	return opt, nil
 }
 
+func isOpeningTag(key string) bool {
+	switch key {
+	case "<ca>", "<cert>", "<key>":
+		return true
+	default:
+		return false
+	}
+}
+
+func isClosingTag(key string) bool {
+	switch key {
+	case "</ca>", "</cert>", "</key>":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseTag(tag string) string {
+	switch tag {
+	case "<ca>", "</ca>":
+		return "ca"
+	case "<cert>", "</cert>":
+		return "cert"
+	case "<key>", "</key>":
+		return "key"
+	default:
+		return ""
+	}
+}
+
+func parseInlineTag(o *Options, tag string, buf *bytes.Buffer) error {
+	b := buf.Bytes()
+	if len(b) == 0 {
+		return fmt.Errorf("%w: empty inline tag: %d", errBadInput, len(b))
+	}
+	switch tag {
+	case "ca":
+		o.Ca = b
+	case "cert":
+		o.Cert = b
+	case "key":
+		o.Key = b
+	default:
+		return fmt.Errorf("%w: unknown tag: %s", errBadInput, tag)
+
+	}
+	return nil
+}
+
+// hasElement checks if a given string is present in a string array. returns
+// true if that is the case, false otherwise.
 func hasElement(el string, arr []string) bool {
 	for _, v := range arr {
 		if v == el {
@@ -410,11 +496,14 @@ func hasElement(el string, arr []string) bool {
 	return false
 }
 
+// existsFile returns true if the file to which the path refers to exists.
 func existsFile(path string) bool {
 	_, err := os.Stat(path)
 	return !errors.Is(err, os.ErrNotExist)
 }
 
+// getLinesFromFile accepts a path parameter, and return a string array with
+// its content and an error if the operation cannot be completed.
 func getLinesFromFile(path string) ([]string, error) {
 	f, err := os.Open(path) //#nosec G304
 	defer func() {
@@ -438,6 +527,9 @@ func getLinesFromFile(path string) ([]string, error) {
 	return lines, nil
 }
 
+// getCredentialsFromFile accepts a path string parameter, and return a string
+// array containing the credentials in that file, and an error if the operation
+// could not be completed.
 func getCredentialsFromFile(path string) ([]string, error) {
 	lines, err := getLinesFromFile(path)
 	if err != nil {

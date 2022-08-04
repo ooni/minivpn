@@ -2,7 +2,6 @@ package vpn
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	fp "path/filepath"
 	"reflect"
@@ -110,14 +109,40 @@ func TestGetOptionsFromLines(t *testing.T) {
 	writeDummyCertFiles(d)
 	o, err := getOptionsFromLines(l, d)
 	if err != nil {
-		fmt.Println("error:", err)
-		t.Errorf("Good options should not fail")
+		t.Errorf("Good options should not fail: %s", err)
 	}
 	if o.Cipher != "AES-256-GCM" {
 		t.Errorf("Cipher not what expected")
 	}
 	if o.Auth != "SHA512" {
 		t.Errorf("Auth not what expected")
+	}
+}
+
+func TestGetOptionsFromLinesInlineCerts(t *testing.T) {
+	l := []string{
+		"<ca>",
+		"ca_string",
+		"</ca>",
+		"<cert>",
+		"cert_string",
+		"</cert>",
+		"<key>",
+		"key_string",
+		"</key>",
+	}
+	o, err := getOptionsFromLines(l, "")
+	if err != nil {
+		t.Errorf("Good options should not fail: %s", err)
+	}
+	if string(o.Ca) != "ca_string" {
+		t.Errorf("Expected ca_string, got: %s.", string(o.Ca))
+	}
+	if string(o.Cert) != "cert_string" {
+		t.Errorf("Expected cert_string, got: %s.", string(o.Cert))
+	}
+	if string(o.Key) != "key_string" {
+		t.Errorf("Expected key_string, got: %s.", string(o.Key))
 	}
 }
 

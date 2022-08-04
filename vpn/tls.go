@@ -109,18 +109,22 @@ type certConfig struct {
 // from the paths specified in the passed Options object, and an error if it
 // could not be properly built.
 func newCertConfigFromOptions(o *Options) (*certConfig, error) {
-	if o.CertPath != "" && o.KeyPath != "" && o.CaPath != "" {
-		return loadCertAndCAFromPath(certPaths{
+	var cfg *certConfig
+	var err error
+	if o.CertsFromPath() {
+		cfg, err = loadCertAndCAFromPath(certPaths{
 			certPath: o.CertPath,
 			keyPath:  o.KeyPath,
 			caPath:   o.CaPath,
 		})
+	} else {
+		cfg, err = loadCertAndCAFromBytes(certBytes{
+			cert: o.Cert,
+			key:  o.Key,
+			ca:   o.Ca,
+		})
 	}
-	return loadCertAndCAFromBytes(certBytes{
-		cert: o.Cert,
-		key:  o.Key,
-		ca:   o.Ca,
-	})
+	return cfg, err
 }
 
 // authority implements authorityPinner interface.
