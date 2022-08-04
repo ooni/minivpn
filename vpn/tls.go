@@ -85,9 +85,18 @@ type certBytes struct {
 // loadCertAndCAFromBytes parses the PEM certificates from the byte arrays in the
 // the passed certBytes, and return a certConfig with the client and CA certificates.
 func loadCertAndCAFromBytes(crt certBytes) (*certConfig, error) {
+	ca := x509.NewCertPool()
+	ok := ca.AppendCertsFromPEM(crt.ca)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrBadCA, "cannot parse ca cert")
+	}
+	cert, err := tls.X509KeyPair(crt.cert, crt.key)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
+	}
 	cfg := &certConfig{
-		//	ca:   ca,
-		//	cert: cert,
+		ca:   ca,
+		cert: cert,
 	}
 	return cfg, nil
 }

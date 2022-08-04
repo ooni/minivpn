@@ -115,6 +115,23 @@ func (o *Options) CertsFromPath() bool {
 	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != ""
 }
 
+// HasAuthInfo return true if:
+// - we have paths for cert, key and ca
+// - we have inline byte arrays for cert, key and ca
+// - we have username + password info.
+func (o *Options) HasAuthInfo() bool {
+	if o.CertPath != "" && o.KeyPath != "" && o.CaPath != "" {
+		return true
+	}
+	if len(o.Cert) != 0 && len(o.Key) != 0 && len(o.Ca) != 0 {
+		return true
+	}
+	if o.Username != "" && o.Password != "" {
+		return true
+	}
+	return false
+}
+
 const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
 
 func (o *Options) String() string {
@@ -403,6 +420,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 		}
 		if tag != "" {
 			inlineBuf.Write([]byte(l))
+			inlineBuf.Write([]byte("\n"))
 			continue
 		}
 		if isOpeningTag(l) {

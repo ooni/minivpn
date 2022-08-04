@@ -135,13 +135,13 @@ func TestGetOptionsFromLinesInlineCerts(t *testing.T) {
 	if err != nil {
 		t.Errorf("Good options should not fail: %s", err)
 	}
-	if string(o.Ca) != "ca_string" {
+	if string(o.Ca) != "ca_string\n" {
 		t.Errorf("Expected ca_string, got: %s.", string(o.Ca))
 	}
-	if string(o.Cert) != "cert_string" {
+	if string(o.Cert) != "cert_string\n" {
 		t.Errorf("Expected cert_string, got: %s.", string(o.Cert))
 	}
-	if string(o.Key) != "key_string" {
+	if string(o.Key) != "key_string\n" {
 		t.Errorf("Expected key_string, got: %s.", string(o.Key))
 	}
 }
