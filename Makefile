@@ -8,6 +8,12 @@ COVERAGE_THRESHOLD := 88
 build:
 	@go build
 
+build-rel:
+	@go build -ldflags="-w -s" -buildvcs=false -o minivpn
+	@upx --brute minivpn
+	@GOOS=darwin go build -ldflags="-w -s" -buildvcs=false -o minivpn-osx
+	@GOOS=windows go build -ldflags="-w -s" -buildvcs=false -o minivpn.exe
+
 build-race:
 	@go build -race
 
