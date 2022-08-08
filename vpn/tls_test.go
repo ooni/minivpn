@@ -329,7 +329,7 @@ func writeTestingCertsBadCert(dir string) (testingCert, error) {
 	return testingCert, nil
 }
 
-func Test_loadCertAndCA(t *testing.T) {
+func Test_loadCertAndCAFromPath(t *testing.T) {
 	type args struct {
 		pth certPaths
 	}
@@ -406,6 +406,69 @@ func Test_loadCertAndCA(t *testing.T) {
 	}
 }
 
+func Test_loadCertAndCAFromBytes(t *testing.T) {
+	type args struct {
+		crt certBytes
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *certConfig
+		wantErr error
+	}{
+		{
+			name: "bad ca should fail",
+			args: args{crt: certBytes{
+				ca:   pemTestingCa[:len(pemTestingCa)-10],
+				cert: pemTestingCertificate,
+				key:  pemTestingKey}},
+			want:    nil,
+			wantErr: ErrBadCA,
+		},
+		{
+			name: "bad cert should fail",
+			args: args{crt: certBytes{
+				ca:   pemTestingCa,
+				cert: pemTestingCertificate[:len(pemTestingCertificate)-10],
+				key:  pemTestingKey}},
+			want:    nil,
+			wantErr: ErrBadKeypair,
+		},
+		{
+			name: "bad key should fail",
+			args: args{crt: certBytes{
+				ca:   pemTestingCa,
+				cert: pemTestingCertificate,
+				key:  pemTestingKey[10:]}},
+			want:    nil,
+			wantErr: ErrBadKeypair,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := loadCertAndCAFromBytes(tt.args.crt)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("loadCertAndCAFromBytes() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("loadCertAndCAFromBytes() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+	t.Run("sunny path should not fail", func(t *testing.T) {
+		crt := certBytes{
+			ca:   pemTestingCa,
+			cert: pemTestingCertificate,
+			key:  pemTestingKey,
+		}
+		_, err := loadCertAndCAFromBytes(crt)
+		if err != nil {
+			t.Errorf("loadCertAndCAFromBytes() err = %v, want %v", err, nil)
+		}
+	})
+}
+
 func Test_initTLSLoadTestCertificates(t *testing.T) {
 
 	t.Run("default options should not fail", func(t *testing.T) {
@@ -423,6 +486,22 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 			t.Errorf("error while testing: %v", err)
 		}
 
+		_, err = initTLS(session, cfg)
+		if err != nil {
+			t.Errorf("initTLS() error = %v, want: nil", err)
+		}
+	})
+
+	t.Run("default options from bytes should not fail", func(t *testing.T) {
+		session := makeTestingSession()
+		cfg, err := newCertConfigFromOptions(&Options{
+			Cert: pemTestingCertificate,
+			Key:  pemTestingKey,
+			Ca:   pemTestingCa,
+		})
+		if err != nil {
+			t.Errorf("error while testing: %v", err)
+		}
 		_, err = initTLS(session, cfg)
 		if err != nil {
 			t.Errorf("initTLS() error = %v, want: nil", err)

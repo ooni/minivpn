@@ -127,6 +127,7 @@ func makeTestingClient(opt *Options) vpnClient {
 	client := &Client{Opts: opt}
 	client.conn = makeTestingConnForHandshake("udp", "10.0.0.1", 42)
 	client.tunnel = &tunnel{ip: "10.0.0.1", mtu: 1500}
+	client.mux = &mockMuxerForClient{}
 	return client
 }
 
@@ -370,7 +371,6 @@ func TestTunDialer_DialContext(t *testing.T) {
 			},
 			wantErr: nil,
 		},
-		// TODO: Add test cases.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -391,24 +391,20 @@ func TestTunDialer_DialContext(t *testing.T) {
 	}
 }
 
-func TestNewRawDialer(t *testing.T) {
-	type args struct {
-		opts *Options
+func Test_RawDialerDial(t *testing.T) {
+	raw := makeTestingRawDialer(t)
+	raw.clientFactory = makeTestingClient
+	mockedRaw := &mockRawDialer{raw}
+	//mockedRaw.clientFactory = makeTestingClient
+	_, err := mockedRaw.Dial()
+	if err != nil {
+		t.Errorf("mocked dialer should not raise error: %v", err)
 	}
-	tests := []struct {
-		name string
-		args args
-		want *RawDialer
-	}{
-		// TODO: Add test cases.
+	_, err = mockedRaw.DialContext(context.Background())
+	if err != nil {
+		t.Errorf("mocked dialer should not raise error: %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NewRawDialer(tt.args.opts); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewRawDialer() = %v, want %v", got, tt.want)
-			}
-		})
-	}
+
 }
 
 func Test_device_Up(t *testing.T) {

@@ -83,15 +83,17 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 	c.conn = conn
 
-	mux, err := newMuxerFromOptions(conn, c.Opts, c.tunnel)
-	if err != nil {
-		return err
+	if c.mux == nil {
+		mux, err := newMuxerFromOptions(conn, c.Opts, c.tunnel)
+		if err != nil {
+			return err
+		}
+		err = mux.Handshake(ctx)
+		if err != nil {
+			return err
+		}
+		c.mux = mux
 	}
-	err = mux.Handshake(ctx)
-	if err != nil {
-		return err
-	}
-	c.mux = mux
 	return nil
 }
 

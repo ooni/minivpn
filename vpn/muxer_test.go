@@ -274,14 +274,31 @@ func Test_muxer_handleIncomingPacket(t *testing.T) {
 	}
 
 	// replace dataHandler in muxer with a method that raises error on ReadPacket()
-	m = muxer{
-		data:      &mockDataHandlerBadReadPacket{},
-		bufReader: &bytes.Buffer{},
-	}
-	p = &packet{opcode: pDataV1}
-	if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
-		t.Errorf("muxer.handleIncomingPacket(): expected !ok with error in ReadPacket()")
-	}
+	t.Run("error in ReadPacket() should propagate", func(t *testing.T) {
+		m = muxer{
+			data:      &mockDataHandlerBadReadPacket{},
+			bufReader: &bytes.Buffer{},
+		}
+		p = &packet{opcode: pDataV1}
+		if ok, _ := m.handleIncomingPacket(p.Bytes()); ok {
+			t.Errorf("muxer.handleIncomingPacket(): expected !ok with error in ReadPacket()")
+		}
+	})
+
+	t.Run("null data raises error", func(t *testing.T) {
+		m = muxer{
+			data:      nil,
+			bufReader: &bytes.Buffer{},
+		}
+		p = &packet{opcode: pDataV1}
+		ok, err := m.handleIncomingPacket(p.Bytes())
+		if ok {
+			t.Errorf("muxer.handleIncomingPacket(): expected !ok with null data")
+		}
+		if err != errBadInput {
+			t.Errorf("muxer.handleIncomingPacket(): expected errBadInput")
+		}
+	})
 }
 
 func Test_muxer_Write(t *testing.T) {
