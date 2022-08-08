@@ -56,6 +56,7 @@ func New(addr string, conn net.Conn) *Pinger {
 		Count:             -1,
 		Interval:          time.Second,
 		RecordRtts:        true,
+		RecordTTLs:        true,
 		Size:              timeSliceLength + trackerLength,
 		Timeout:           time.Duration(math.MaxInt64),
 		addr:              addr,
@@ -116,8 +117,15 @@ type Pinger struct {
 	// Set to false to avoid memory bloat for long running pings.
 	RecordRtts bool
 
-	// rtts is all of the Rtts
-	rtts []time.Duration
+	// If true, keep a record of ttls of all received packets.
+	// Set to false to avoid memory bloat for long running pings.
+	RecordTTLs bool
+
+	// rtts is all of the Rtts, in milliseconds
+	rtts []int64
+
+	// TTLs is all of the TTLs.
+	ttls []int
 
 	// OnSetup is called when Pinger has finished setting up the listening socket
 	OnSetup func()
@@ -225,8 +233,11 @@ type Statistics struct {
 	// Addr is the string address of the host being pinged.
 	Addr string
 
+	// TTLs is all of the TTL sent via this pinger.
+	TTLs []int
+
 	// Rtts is all of the round-trip times sent via this pinger.
-	Rtts []time.Duration
+	Rtts []int64
 
 	// MinRtt is the minimum round-trip time sent via this pinger.
 	MinRtt time.Duration
@@ -248,7 +259,11 @@ func (p *Pinger) updateStatistics(pkt *Packet) {
 
 	p.PacketsRecv++
 	if p.RecordRtts {
-		p.rtts = append(p.rtts, pkt.Rtt)
+		p.rtts = append(p.rtts, pkt.Rtt.Milliseconds())
+	}
+
+	if p.RecordTTLs {
+		p.ttls = append(p.ttls, pkt.Ttl)
 	}
 
 	if p.PacketsRecv == 1 || pkt.Rtt < p.minRtt {
@@ -405,6 +420,7 @@ func (p *Pinger) Statistics() *Statistics {
 		PacketsRecvDuplicates: p.PacketsRecvDuplicates,
 		PacketLoss:            loss,
 		Rtts:                  p.rtts,
+		TTLs:                  p.ttls,
 		Addr:                  p.addr,
 		IPAddr:                p.ipaddr,
 		MaxRtt:                p.maxRtt,
