@@ -21,16 +21,36 @@ func makeTestingClientConn() (*Client, *MockTLSConn) {
 }
 
 func TestNewClientFromOptions(t *testing.T) {
-	randomFn = func(int) ([]byte, error) {
-		return []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}, nil
-	}
-	opts := makeTestingOptions(t, "AES-128-GCM", "sha512")
-	_ = NewClientFromOptions(opts)
+	t.Run("proper options does not fail getting client", func(t *testing.T) {
+		randomFn = func(int) ([]byte, error) {
+			return []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}, nil
+		}
+		opts := makeTestingOptions(t, "AES-128-GCM", "sha512")
+		_ = NewClientFromOptions(opts)
+	})
 
-	c := NewClientFromOptions(nil)
-	if !reflect.DeepEqual(c, &Client{}) {
-		t.Error("Client.NewClientFromOptions(): expected empty client with nil options")
-	}
+	t.Run("nil options return empty client", func(t *testing.T) {
+		c := NewClientFromOptions(nil)
+		if !reflect.DeepEqual(c, &Client{}) {
+			t.Error("Client.NewClientFromOptions(): expected empty client with nil options")
+		}
+	})
+
+	t.Run("logger gets passed from Options", func(t *testing.T) {
+		l := &defaultLogger{}
+		globalLogger := logger
+		defer func() {
+			logger = globalLogger
+		}()
+		opts := makeTestingOptions(t, "AES-128-GCM", "sha512")
+		opts.Log = l
+		_ = NewClientFromOptions(opts)
+		if logger != l {
+			t.Errorf("logger was not overriden")
+		}
+
+	})
+
 }
 
 type mockMuxerForClient struct {
@@ -47,6 +67,14 @@ func (mm *mockMuxerForClient) Read([]byte) (int, error) {
 func (mm *mockMuxerForClient) Write(b []byte) (int, error) {
 	mm.writeCalled = true
 	return len(b), nil
+}
+
+func mockMuxerFactory() muxFactory {
+	fn := func(net.Conn, *Options, *tunnel) (vpnMuxer, error) {
+		m := &mockMuxerWithDummyHandshake{}
+		return m, nil
+	}
+	return fn
 }
 
 func TestClient_Write(t *testing.T) {
@@ -186,5 +214,47 @@ func TestClient_DialFailsWithBadOptions(t *testing.T) {
 	wantErr = ErrDialError
 	if !errors.Is(err, wantErr) {
 		t.Errorf("Client.Dial(): should fail with ErrDialError, err = %v", err)
+	}
+}
+
+func TestCient_DialRaisesError(t *testing.T) {
+	c := &Client{
+		Opts: &Options{
+			Proto: TCPMode,
+		},
+	}
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err := c.Dial(ctx)
+	if err != context.Canceled {
+		t.Errorf("Client.Dial(): expected context.Canceled, err = %v", err)
+	}
+}
+
+func TestClient_StartRaisesDialError(t *testing.T) {
+	c := &Client{
+		Opts: &Options{
+			Proto: TCPMode,
+		},
+		Dialer: &badDialer{},
+	}
+	err := c.Start(context.Background())
+	if !errors.Is(err, ErrDialError) {
+		t.Errorf("Client.Start(): expected = %v, got = %v", ErrDialError, err)
+	}
+}
+
+func TestClientStartWithMockedMuxerFactory(t *testing.T) {
+	c := &Client{
+		Opts: &Options{
+			Proto: TCPMode,
+		},
+		Dialer: &mockedDialerContext{},
+	}
+	c.muxerFactoryFn = mockMuxerFactory()
+	err := c.Start(context.Background())
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
 	}
 }

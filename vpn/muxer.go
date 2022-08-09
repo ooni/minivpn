@@ -124,9 +124,11 @@ type dataHandler interface {
 // muxer initialization
 //
 
+type muxFactory func(conn net.Conn, options *Options, tunnel *tunnel) (vpnMuxer, error)
+
 // newMuxerFromOptions returns a configured muxer, and any error if the
 // operation could not be completed.
-func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (*muxer, error) {
+func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (vpnMuxer, error) {
 	control := &control{}
 	session, err := newSession()
 	if err != nil {
@@ -345,26 +347,26 @@ func (m *muxer) readAndLoadRemoteKey() error {
 		return err
 	}
 	if !isControlMessage(data) {
-		return fmt.Errorf("%w:%s", errBadControlMessage, "expected null header")
+		return fmt.Errorf("%w: %s", errBadControlMessage, "expected null header")
 	}
 
 	// Parse the received data: we expect remote key and remote options.
 	remoteKey, opts, err := m.control.ReadControlMessage(data)
 	if err != nil {
 		logger.Errorf("cannot parse control message")
-		return fmt.Errorf("%w:%s", ErrBadHandshake, err)
+		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
 	}
 
 	// Store the remote key.
 	key, err := m.session.ActiveKey()
 	if err != nil {
 		logger.Errorf("cannot get active key")
-		return fmt.Errorf("%w:%s", ErrBadHandshake, err)
+		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
 	}
 	err = key.addRemoteKey(remoteKey)
 	if err != nil {
 		logger.Errorf("cannot add remote key")
-		return fmt.Errorf("%w:%s", ErrBadHandshake, err)
+		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
 	}
 
 	// Parse and store the useful parts of the remote options.

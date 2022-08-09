@@ -395,7 +395,6 @@ func Test_RawDialerDial(t *testing.T) {
 	raw := makeTestingRawDialer(t)
 	raw.clientFactory = makeTestingClient
 	mockedRaw := &mockRawDialer{raw}
-	//mockedRaw.clientFactory = makeTestingClient
 	_, err := mockedRaw.Dial()
 	if err != nil {
 		t.Errorf("mocked dialer should not raise error: %v", err)
