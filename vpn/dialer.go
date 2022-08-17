@@ -109,9 +109,18 @@ func (td TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 		td.raw.dialer = td.Dialer
 	}
 
-	client, err := td.raw.dial(ctx)
-	if err != nil {
-		return nil, err
+	var client *Client
+	if c := td.raw.ReusableClient(); c != nil {
+		client = c
+		// we need to ensure we're not getting timeout errors
+		// if we had expired the ReadDeadline in previous runs.
+		client.SetReadDeadline(time.Now().Add(60 * time.Second))
+	} else {
+		c, err := td.raw.dial(ctx)
+		if err != nil {
+			return nil, err
+		}
+		client = c
 	}
 	localIP := client.LocalAddr().String()
 
@@ -191,6 +200,9 @@ type RawDialer struct {
 
 	// a client factory to facilitate testing with a mocked client
 	clientFactory func(*Options) vpnClient
+
+	// client allows to reuse an existing connection
+	client *Client
 }
 
 // NewRawDialer returns a new *RawDialer constructed from the passed options.
@@ -218,14 +230,29 @@ func (d *RawDialer) dial(ctx context.Context) (*Client, error) {
 	if d.clientFactory != nil {
 		cf = d.clientFactory
 	}
-	client := cf(d.Options)
+	client := cf(d.Options).(*Client)
 
 	if d.dialer != nil {
-		// TODO(ainghazal): add a proper setter
-		client.(*Client).Dialer = d.dialer
+		client.Dialer = d.dialer
 	}
 
-	log.Println("starting client...")
+	log.Println("Starting client...")
 	err := client.Start(ctx)
-	return client.(*Client), err
+
+	return client, err
+}
+
+// ReuseClient allows this RawDialer to avoid creating a new client whenever
+// the caller needs to dial. It acepts a net.Conn interface that MUST be able
+// to be converted to a struct pointer to a Client (i.e., caller should pass
+// the return of a previous Dial or DialContext call).
+func (d *RawDialer) ReuseClient(conn net.Conn) {
+	d.client = conn.(*Client)
+}
+
+// ReusableClient returns a struct pointer to any Client that has been
+// previously set by a call to ReuseClient. If you use this, it's YOUR
+// RESPONSIBILITY to close the connection after use.
+func (d *RawDialer) ReusableClient() *Client {
+	return d.client
 }

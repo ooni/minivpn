@@ -58,11 +58,11 @@ func (dl *defaultLogger) Debugf(format string, v ...interface{}) {
 }
 
 func (dl *defaultLogger) Info(msg string) {
-	log.Printf("info :%s\n", msg)
+	log.Printf("info : %s\n", msg)
 }
 
 func (dl *defaultLogger) Infof(format string, v ...interface{}) {
-	log.Printf("info :"+format, v...)
+	log.Printf("info : "+format, v...)
 }
 
 func (dl *defaultLogger) Warn(msg string) {

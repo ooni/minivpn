@@ -52,6 +52,7 @@ func New(addr string, conn net.Conn) *Pinger {
 	var firstSequence = map[uuid.UUID]map[int]struct{}{}
 	firstSequence[firstUUID] = make(map[int]struct{})
 	return &Pinger{
+		sharedConnection:  false,
 		Target:            addr,
 		Count:             -1,
 		Interval:          time.Second,
@@ -73,9 +74,18 @@ func New(addr string, conn net.Conn) *Pinger {
 	}
 }
 
+// NewFromSharedConnection returns a new Pinger struct pointer.
+// This function TAKES OWNERSHIP of the conn argument, BUT it DOES NOT CLOSE IT
+// when Run terminates.
+func NewFromSharedConnection(addr string, conn net.Conn) *Pinger {
+	pinger := New(addr, conn)
+	pinger.sharedConnection = true
+	return pinger
+}
+
 // Pinger represents a packet sender/receiver.
 type Pinger struct {
-	// Target is a string with the target host IP
+	// Target is a string with the target host IP.
 	Target string
 
 	// Interval is the wait time between each packet send. Default is 1s.
@@ -175,6 +185,10 @@ type Pinger struct {
 
 	// conn is the connection we write to and read from
 	conn net.Conn
+
+	// sharedConnection will avoid closing the connection after we're done
+	// if set to true.
+	sharedConnection bool
 }
 
 type packet struct {
@@ -295,7 +309,9 @@ func (p *Pinger) Run(ctx context.Context) (err error) {
 		if p.Size < timeSliceLength+trackerLength {
 			errch <- fmt.Errorf("size %d is less than minimum required size %d", p.Size, timeSliceLength+trackerLength)
 		}
-		defer p.conn.Close()
+		if !p.sharedConnection {
+			defer p.conn.Close()
+		}
 		errch <- p.run(p.conn)
 	}()
 	select {
@@ -307,7 +323,6 @@ func (p *Pinger) Run(ctx context.Context) (err error) {
 }
 
 func (p *Pinger) run(conn net.Conn) error {
-
 	defer p.finish()
 
 	recv := make(chan *packet, 5)
