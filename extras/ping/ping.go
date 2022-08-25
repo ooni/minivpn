@@ -307,7 +307,12 @@ func (p *Pinger) Run(ctx context.Context) (err error) {
 }
 
 func (p *Pinger) run(conn net.Conn) error {
-
+	if !p.sharedConnection {
+		defer p.conn.Close()
+	}
+	if p.Count <= 0 {
+		return nil
+	}
 	defer p.finish()
 
 	recv := make(chan *packet, 5)
@@ -454,6 +459,8 @@ func newExpBackoff(baseDelay time.Duration, maxExp int64) expBackoff {
 }
 
 func (p *Pinger) recvICMP(recv chan<- *packet) error {
+	assert(p.conn != nil, "not initialized")
+
 	// Start by waiting for 100 µs, and increment until a 10e3 multiplier
 	expBackoff := newExpBackoff(100*time.Microsecond, 10)
 	delay := expBackoff.Get()
@@ -531,7 +538,7 @@ func (p *Pinger) processPacket(recv *packet) error {
 	pkt.Rtt = receivedAt.Sub(timestamp)
 
 	if !p.Silent {
-		fmt.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms\n", pkt.SrcIP, pkt.Seq, pkt.Ttl, float64(pkt.Rtt.Microseconds()/1000))
+		fmt.Printf("reply from %s: icmp_seq=%d ttl=%d time=%.1f ms\n", pkt.SrcIP, pkt.Seq, pkt.Ttl, pkt.Rtt.Seconds()*1e3)
 	}
 
 	// If we've already received this sequence, ignore it.

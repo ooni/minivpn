@@ -561,3 +561,42 @@ func Test_muxer_readPushReply(t *testing.T) {
 		})
 	}
 }
+
+func Test_muxer_emitSendsToListener(t *testing.T) {
+	t.Run("emit writes event if listener not null", func(t *testing.T) {
+		l := make(chan uint16, 2)
+		m := &muxer{}
+		m.SetEventListener(l)
+		sent := uint16(2)
+		m.emit(sent)
+		got := <-l
+		if got != sent {
+			t.Errorf("expected %v, got %v", sent, got)
+		}
+	})
+	t.Run("emit is a noop if evenlistener not set", func(t *testing.T) {
+		m := &muxer{}
+		sent := uint16(2)
+		m.emit(sent)
+	})
+	t.Run("listener receives several events", func(t *testing.T) {
+		l := make(chan uint16, 5)
+		m := &muxer{}
+		m.SetEventListener(l)
+		received := []uint16{}
+		sent := []uint16{1, 2, 3, 4, 5}
+		for _, i := range sent {
+			m.emit(i)
+		}
+		for _ = range sent {
+			got := <-l
+			received = append(received, got)
+		}
+		for i := range sent {
+			if sent[i] != received[i] {
+				t.Errorf("at [%d]: expected %v, got %v", i, sent, received)
+				return
+			}
+		}
+	})
+}

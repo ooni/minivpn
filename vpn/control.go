@@ -156,8 +156,8 @@ func (c *control) PushRequest() []byte {
 // For now, this is a single string containing _only_ the tunnel ip,
 // but we might want to pass a pointer to the tunnel struct in the
 // future.
-func (*control) ReadPushResponse(b []byte) string {
-	return parsePushedOptions(b)
+func (*control) ReadPushResponse(b []byte) map[string][]string {
+	return pushedOptionsAsMap(b)
 }
 
 // ControlMessage returns a byte array containing a message over the control

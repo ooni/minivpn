@@ -14,11 +14,16 @@ import (
 // OpenVPN Multiplexer
 //
 
-/*
- muxer is the VPN transport multiplexer.
+var (
+	ErrBadHandshake     = errors.New("bad vpn handshake")
+	ErrBadDataHandshake = errors.New("bad data handshake")
+)
 
- One important limitation of the implementation at this moment is that the
- processing of incoming packets needs to be driven by reads from the user of
+/*
+ The vpnMuxer interface represents the VPN transport multiplexer.
+
+ One important limitation of the current implementation at this moment is that
+ the processing of incoming packets needs to be driven by reads from the user of
  the library. This means that if you don't do reads during some time, any packets
  on the control channel that the server sends us (e.g., openvpn-pings) will not
  be processed (and so, not acknowledged) until triggered by a muxer.Read().
@@ -52,6 +57,8 @@ completely independent of one another, i.e. the sequence number is embedded
 inside the HMAC-signed envelope and is not used for authentication purposes."
 
 */
+
+// muxer implements vpnMuxer
 type muxer struct {
 
 	// A net.Conn that has access to the "wire" transport. this can
@@ -83,6 +90,10 @@ type muxer struct {
 	// Options are OpenVPN options that come from parsing a subset of the OpenVPN
 	// configuration directives, plus some non-standard config directives.
 	options *Options
+
+	// eventListener is a channel to which Event_*- will be sent if
+	// the channel is not nil.
+	eventListener chan uint16
 }
 
 var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
@@ -106,7 +117,7 @@ type controlHandler interface {
 	ParseHardReset([]byte) (sessionID, error)
 	SendACK(net.Conn, *session, packetID) error
 	PushRequest() []byte
-	ReadPushResponse([]byte) string
+	ReadPushResponse([]byte) map[string][]string
 	ControlMessage(*session, *Options) ([]byte, error)
 	ReadControlMessage([]byte) (*keySource, string, error)
 }
@@ -124,6 +135,10 @@ type dataHandler interface {
 // muxer initialization
 //
 
+// muxFactory acepts a net.Conn, a pointer to an Options object, and another
+// pointer to a tunnelInfo object, and returns a vpnMuxer and an error if it
+// could not be initialized. This type is used to be able to mock a muxer while
+// testing the Client.
 type muxFactory func(conn net.Conn, options *Options, tunnel *tunnelInfo) (vpnMuxer, error)
 
 // newMuxerFromOptions returns a configured muxer, and any error if the
@@ -153,6 +168,25 @@ func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnelInfo) (v
 }
 
 //
+// observability
+//
+
+// SetEvenSetEventListener assigns the passed channel as the event listener for
+// this muxer.
+func (m *muxer) SetEventListener(el chan uint16) {
+	m.eventListener = el
+}
+
+// emit sends the passed stage into any configured EventListener
+func (m *muxer) emit(stage uint16) {
+	select {
+	case m.eventListener <- stage:
+	default:
+		// do not deliver
+	}
+}
+
+//
 // muxer handshake
 //
 
@@ -176,6 +210,8 @@ func (m *muxer) handshake() error {
 
 	// 1. control channel sends reset, parse response.
 
+	m.emit(EventReset)
+
 	if err := m.Reset(m.conn, m.session); err != nil {
 		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
 
@@ -198,14 +234,22 @@ func (m *muxer) handshake() error {
 
 	}
 	tlsConn, err := newControlChannelTLSConn(m.conn, m.session)
+	m.emit(EventTLSConn)
+
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 	}
+
+	m.emit(EventTLSHandshake)
+
 	tls, err := tlsHandshakeFn(tlsConn, tlsConf)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 
 	}
+
+	m.emit(EventTLSHandshakeDone)
+
 	m.tls = tls
 	logger.Info("TLS handshake done")
 
@@ -215,6 +259,8 @@ func (m *muxer) handshake() error {
 		return fmt.Errorf("%w: %s", ErrBadDataHandshake, err)
 
 	}
+
+	m.emit(EventDataInitDone)
 
 	logger.Info("VPN handshake done")
 	return nil
@@ -240,7 +286,7 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 	// here we could check if we have received a remote session id but
 	// our session.remoteSessionID is != from all zeros
 	if err != nil {
-		return fmt.Errorf("%s: %w", ErrBadHandshake, err)
+		return err
 	}
 	m.session.RemoteSessionID = remoteSessionID
 
@@ -351,7 +397,7 @@ func (m *muxer) readAndLoadRemoteKey() error {
 	}
 
 	// Parse the received data: we expect remote key and remote options.
-	remoteKey, opts, err := m.control.ReadControlMessage(data)
+	remoteKey, remoteOptStr, err := m.control.ReadControlMessage(data)
 	if err != nil {
 		logger.Errorf("cannot parse control message")
 		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
@@ -369,8 +415,9 @@ func (m *muxer) readAndLoadRemoteKey() error {
 		return fmt.Errorf("%w: %s", ErrBadHandshake, err)
 	}
 
-	// Parse and store the useful parts of the remote options.
-	m.tunnel = parseRemoteOptions(m.tunnel, opts)
+	// Parse and update the useful fields from the remote options (mtu).
+	ti := newTunnelInfoFromRemoteOptionsString(remoteOptStr)
+	m.tunnel.mtu = ti.mtu
 	return nil
 }
 
@@ -403,9 +450,15 @@ func (m *muxer) readPushReply() error {
 		return fmt.Errorf("%w:%s", errBadServerReply, "expected push reply")
 	}
 
-	ip := m.control.ReadPushResponse(resp)
-	m.tunnel.ip = ip
-	logger.Infof("Tunnel IP: %s", ip)
+	optsMap := m.control.ReadPushResponse(resp)
+	ti := newTunnelInfoFromPushedOptions(optsMap)
+
+	m.tunnel.ip = ti.ip
+	m.tunnel.gw = ti.gw
+
+	logger.Infof("Tunnel IP: %s", m.tunnel.ip)
+	logger.Infof("Gateway IP: %s", m.tunnel.gw)
+
 	return nil
 }
 
@@ -488,8 +541,3 @@ func (m *muxer) Read(b []byte) (int, error) {
 	}
 	return m.bufReader.Read(b)
 }
-
-var (
-	ErrBadHandshake     = errors.New("bad vpn handshake")
-	ErrBadDataHandshake = errors.New("bad data handshake")
-)

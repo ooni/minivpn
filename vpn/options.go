@@ -175,12 +175,17 @@ func (o *Options) String() string {
 	return s
 }
 
-// parseRemoteOptions parses the options returned or pushed by server. it
-// returns the tunnel object where the needed fields have been updated.
-func parseRemoteOptions(tunnel *tunnelInfo, remoteOpts string) *tunnelInfo {
+// newTunnelInfoFromRemoteOptionsString parses the options string returned by
+// server. it returns a new tunnel object where the needed fields have been
+// updated. At the moment, we only parse the tun-mtu parameter.
+func newTunnelInfoFromRemoteOptionsString(remoteOpts string) *tunnelInfo {
+	t := &tunnelInfo{}
 	opts := strings.Split(remoteOpts, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
+		if len(vals) < 2 {
+			continue
+		}
 		k, v := vals[0], vals[1:]
 		if k == "tun-mtu" {
 			mtu, err := strconv.Atoi(v[0])
@@ -188,32 +193,44 @@ func parseRemoteOptions(tunnel *tunnelInfo, remoteOpts string) *tunnelInfo {
 				log.Println("bad mtu:", err)
 				continue
 			}
-			tunnel.mtu = mtu
+			t.mtu = mtu
 		}
 	}
-	return tunnel
+	return t
 }
 
-// I don't think I want to do much with the pushed options for now, other
-// than extracting the tunnel ip, but it can be useful to parse them into a map
-// and compare if there's a strong disagreement with the remote opts
-// XXX right now this only returns the ip. we could accept a tunnel struct and
-// write to it.
-func parsePushedOptions(pushedOptions []byte) string {
-	if pushedOptions == nil || len(pushedOptions) == 0 {
-		return ""
+// newTunnelInfoFromPushedOptions takes a map of string to array of strings, and returns
+// a new tunnel struct with the relevant info.
+func newTunnelInfoFromPushedOptions(opts map[string][]string) *tunnelInfo {
+	t := &tunnelInfo{}
+	gw := opts["route-gateway"]
+	if len(gw) >= 1 {
+		t.gw = gw[0]
 	}
+	ip := opts["ifconfig"]
+	if len(ip) >= 1 {
+		t.ip = ip[0]
+	}
+	return t
+}
+
+// pushedOptionsAsMap returns a map for the server-pushed options,
+// where the options are the keys and each space-separated value is the value.
+// This function always returns an initialized map, even if empty.
+func pushedOptionsAsMap(pushedOptions []byte) map[string][]string {
+	optMap := make(map[string][]string)
+	if pushedOptions == nil || len(pushedOptions) == 0 {
+		return optMap
+	}
+
 	optStr := string(pushedOptions[:len(pushedOptions)-1])
 	opts := strings.Split(optStr, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
-
 		k, v := vals[0], vals[1:]
-		if k == "ifconfig" {
-			return v[0]
-		}
+		optMap[k] = v
 	}
-	return ""
+	return optMap
 }
 
 func parseProto(p []string, o *Options) error {

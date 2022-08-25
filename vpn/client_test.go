@@ -35,22 +35,6 @@ func TestNewClientFromOptions(t *testing.T) {
 			t.Error("Client.NewClientFromOptions(): expected empty client with nil options")
 		}
 	})
-
-	t.Run("logger gets passed from Options", func(t *testing.T) {
-		l := &defaultLogger{}
-		globalLogger := logger
-		defer func() {
-			logger = globalLogger
-		}()
-		opts := makeTestingOptions(t, "AES-128-GCM", "sha512")
-		opts.Log = l
-		_ = NewClientFromOptions(opts)
-		if logger != l {
-			t.Errorf("logger was not overriden")
-		}
-
-	})
-
 }
 
 type mockMuxerForClient struct {
@@ -96,7 +80,7 @@ func TestClient_Read(t *testing.T) {
 	cl.mux = nil
 	b := make([]byte, 255)
 	_, err := cl.Read(b)
-	if !errors.Is(err, errBadInput) {
+	if !errors.Is(err, ErrNotReady) {
 		t.Errorf("Client.Read(): nil mux, expected error %v, got %v ", errBadInput, err)
 	}
 
@@ -126,8 +110,8 @@ func TestClient_LocalAddr(t *testing.T) {
 func TestClient_RemoteAddr(t *testing.T) {
 	cl, _ := makeTestingClientConn()
 	a := cl.RemoteAddr()
-	if a != nil {
-		t.Error("Client.RemoteAddr(): this was not implemented, please fix test")
+	if a.String() != "" {
+		t.Errorf("Client.RemoteAddr(): expected empty string, got %v", a.String())
 	}
 }
 
@@ -257,4 +241,46 @@ func TestClientStartWithMockedMuxerFactory(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
+}
+
+func TestClient_emitSendsToListener(t *testing.T) {
+	t.Run("emit writes event if listener not null", func(t *testing.T) {
+		l := make(chan uint16, 2)
+		c := &Client{}
+		c.EventListener = l
+		sent := uint16(2)
+		c.emit(sent)
+		got := <-l
+		if got != sent {
+			t.Errorf("expected %v, got %v", sent, got)
+		}
+	})
+	t.Run("emit is a noop if evenlistener not set", func(t *testing.T) {
+		c := &Client{}
+		sent := uint16(2)
+		c.emit(sent)
+		if c.EventListener != nil {
+			t.Errorf("expected EventListener to be nil")
+		}
+	})
+	t.Run("listener receives several events", func(t *testing.T) {
+		l := make(chan uint16, 5)
+		c := &Client{}
+		c.EventListener = l
+		received := []uint16{}
+		sent := []uint16{1, 2, 3, 4, 5}
+		for _, i := range sent {
+			c.emit(i)
+		}
+		for _ = range sent {
+			got := <-l
+			received = append(received, got)
+		}
+		for i := range sent {
+			if sent[i] != received[i] {
+				t.Errorf("at [%d]: expected %v, got %v", i, sent, received)
+				return
+			}
+		}
+	})
 }
