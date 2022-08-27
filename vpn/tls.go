@@ -120,7 +120,7 @@ type certConfig struct {
 func newCertConfigFromOptions(o *Options) (*certConfig, error) {
 	var cfg *certConfig
 	var err error
-	if o.CertsFromPath() {
+	if o.certsFromPath() {
 		cfg, err = loadCertAndCAFromPath(certPaths{
 			certPath: o.CertPath,
 			keyPath:  o.KeyPath,
@@ -206,7 +206,7 @@ func initTLS(session *session, cfg *certConfig) (*tls.Config, error) {
 
 // tlsHandshake performs the TLS handshake over the control channel, and return
 // the TLS Client as a net.Conn; returns also any error during the handshake.
-func tlsHandshake(tlsConn *TLSConn, tlsConf *tls.Config) (net.Conn, error) {
+func tlsHandshake(tlsConn *controlChannelTLSConn, tlsConf *tls.Config) (net.Conn, error) {
 	tlsClient, err := tlsFactoryFn(tlsConn, tlsConf)
 	if err != nil {
 		return nil, err

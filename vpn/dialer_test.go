@@ -15,94 +15,166 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
+func makeTestingClient(opt *Options) *Client {
+	client := &Client{Opts: opt}
+	client.conn = makeTestingConnForHandshake("udp", "10.0.0.1", 42)
+	client.tunInfo = &tunnelInfo{ip: "10.0.0.1", mtu: 1500}
+	client.mux = &mockMuxerForClient{}
+	return client
+}
+
 func TestNewTunDialer(t *testing.T) {
+	opt := makeTestingOptions(t, "AES-128-GCM", "sha512")
+	mockClient := makeTestingClient(opt)
 	type args struct {
-		raw *RawDialer
+		client *Client
 	}
 	tests := []struct {
 		name string
 		args args
-		want TunDialer
+		want *TunDialer
 	}{
 		{
 			name: "get dialer ok",
 			args: args{
-				raw: &RawDialer{},
+				client: mockClient,
 			},
-			want: TunDialer{
-				raw: &RawDialer{},
-				ns1: openDNSPrimary,
-				ns2: openDNSSecondary,
+			want: &TunDialer{
+				client: mockClient,
+				ns1:    openDNSPrimary,
+				ns2:    openDNSSecondary,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewTunDialer(tt.args.raw); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewTunDialer() = %v, want %v", got, tt.want)
+			got := NewTunDialer(tt.args.client)
+			if tt.want != nil && got == nil {
+				t.Errorf("expected non-nil result")
+				return
+			}
+			if got.client == nil {
+				t.Errorf("client should not be nil")
+				return
+			}
+			if !reflect.DeepEqual(got.client.Opts, tt.want.client.Opts) {
+				t.Errorf("NewTunDialerFromOptions() = %v, want %v", got, tt.want)
+				return
 			}
 		})
 	}
 }
 
 func TestNewTunDialerWithNameservers(t *testing.T) {
+	opt := makeTestingOptions(t, "AES-128-GCM", "sha512")
+	mockClient := makeTestingClient(opt)
 	type args struct {
-		raw *RawDialer
-		ns1 string
-		ns2 string
+		client *Client
+		ns1    string
+		ns2    string
 	}
 	tests := []struct {
 		name string
 		args args
-		want TunDialer
+		want *TunDialer
 	}{
 		{
 			name: "get tundialer with passed nameservers",
 			args: args{
-				raw: &RawDialer{},
-				ns1: "8.8.8.8",
-				ns2: "8.8.4.4",
+				client: mockClient,
+				ns1:    "8.8.8.8",
+				ns2:    "8.8.4.4",
 			},
-			want: TunDialer{
-				raw: &RawDialer{},
-				ns1: "8.8.8.8",
-				ns2: "8.8.4.4",
+			want: &TunDialer{
+				client: mockClient,
+				ns1:    "8.8.8.8",
+				ns2:    "8.8.4.4",
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewTunDialerWithNameservers(tt.args.raw, tt.args.ns1, tt.args.ns2); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewTunDialerWithNameservers() = %v, want %v", got, tt.want)
+			got := NewTunDialerWithNameservers(tt.args.client, tt.args.ns1, tt.args.ns2)
+			if tt.want != nil && got == nil {
+				t.Errorf("expected non-nil result")
+				return
+			}
+			if got.client == nil {
+				t.Errorf("client should not be nil")
+				return
+			}
+			if got.ns1 != tt.want.ns1 {
+				t.Errorf("NewTunDialerWithNameservers() ns1 = %v, want %v", got.ns1, tt.want.ns1)
+			}
+			if got.ns2 != tt.want.ns2 {
+				t.Errorf("NewTunDialerWithNameservers() ns2 = %v, want %v", got.ns2, tt.want.ns2)
 			}
 		})
 	}
 }
 
-func TestNewTunDialerFromOptions(t *testing.T) {
-	options := makeTestingOptions(t, "AES-128-GCM", "sha512")
+type mockDialer struct {
+	called bool
+}
+
+func (d *mockDialer) DialContext(ctx context.Context, a, b string) (net.Conn, error) {
+	d.called = true
+	conn := makeTestingConnForHandshake("udp", "10.0.0.0", 42)
+	return conn, nil
+}
+
+func TestStartNewTunDialerFromOptions(t *testing.T) {
+	opt := makeTestingOptions(t, "AES-128-GCM", "sha512")
+
 	type args struct {
-		opt *Options
+		opt    *Options
+		dialer *mockDialer
 	}
 	tests := []struct {
-		name string
-		args args
-		want TunDialer
+		name    string
+		args    args
+		want    *TunDialer
+		wantErr error
 	}{
 		{
-			name: "get tundialer from options ok",
-			args: args{opt: options},
-			want: TunDialer{
-				raw: &RawDialer{Options: options},
-				ns1: openDNSPrimary,
-				ns2: openDNSSecondary,
+			name: "get tundialer from options calls start and fails on tls handshake",
+			args: args{
+				opt:    opt,
+				dialer: &mockDialer{},
 			},
+			want: nil,
+			// TODO(ainghazal): I'd like to return nil here, but that would force
+			// me to leak even more internals from the client
+			// initialization. maybe it's not a good idea to have a
+			// convenience function that returns an started client after all?
+			wantErr: ErrBadTLSHandshake,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewTunDialerFromOptions(tt.args.opt); !reflect.DeepEqual(got, tt.want) {
+			got, err := StartNewTunDialerFromOptions(tt.args.opt, tt.args.dialer)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected error %v, got %v", tt.wantErr, err)
+				return
+			}
+			if tt.want == nil && got == nil {
+				return
+			}
+			if tt.want != nil && got != nil {
+				t.Errorf("expected non-nil result")
+				return
+			}
+			if tt.want != nil || got.client == nil {
+				t.Errorf("client should not be nil")
+				return
+			}
+			if !tt.args.dialer.called {
+				t.Errorf("the mock Dialer has not been called")
+				return
+			}
+			if !reflect.DeepEqual(got.client.Opts, tt.want.client.Opts) {
 				t.Errorf("NewTunDialerFromOptions() = %v, want %v", got, tt.want)
+				return
 			}
 		})
 	}
@@ -113,22 +185,6 @@ type mockedDialerContext struct{}
 func (md *mockedDialerContext) DialContext(context.Context, string, string) (net.Conn, error) {
 	conn := makeTestingConnForHandshake("udp", "10.0.0.0", 42)
 	return conn, nil
-}
-
-type mockRawDialer struct {
-	RawDialer
-}
-
-func (mrd *mockRawDialer) dial() (*Client, error) {
-	return &Client{}, nil
-}
-
-func makeTestingClient(opt *Options) vpnClient {
-	client := &Client{Opts: opt}
-	client.conn = makeTestingConnForHandshake("udp", "10.0.0.1", 42)
-	client.tunnel = &tunnel{ip: "10.0.0.1", mtu: 1500}
-	client.mux = &mockMuxerForClient{}
-	return client
 }
 
 func makeTestingConnForReadWrite(network, addr string, n int) net.Conn {
@@ -169,19 +225,11 @@ func makeTestingConnForReadWrite(network, addr string, n int) net.Conn {
 	return mockConn
 }
 
-func makeTestingRawDialer(t *testing.T) RawDialer {
-	raw := RawDialer{
-		Options:       makeTestingOptions(t, "AES-128-GCM", "sha512"),
-		dialer:        &mockedDialerContext{},
-		clientFactory: makeTestingClient,
-	}
-	return raw
-}
-
+// TODO(https://github.com/ooni/minivpn/issues/28):
+// refactor test to use custom dialers
 func TestTunDialer_Dial(t *testing.T) {
-
-	raw := makeTestingRawDialer(t)
-	mockedRaw := &mockRawDialer{raw}
+	opt := makeTestingOptions(t, "AES-128-GCM", "sha512")
+	mockClient := makeTestingClient(opt)
 
 	orig := initTLSFn
 	defer func() {
@@ -191,14 +239,14 @@ func TestTunDialer_Dial(t *testing.T) {
 	initTLSFn = func(*session, *certConfig) (*tls.Config, error) {
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
-	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {
+	tlsHandshakeFn = func(tc *controlChannelTLSConn, tconf *tls.Config) (net.Conn, error) {
 		conn := makeTestingConnForReadWrite("udp", "10.1.1.1", 42)
 		return conn, nil
 	}
 
 	type fields struct {
 		Dialer          DialerContext
-		raw             *mockRawDialer
+		client          *Client
 		ns1             string
 		ns2             string
 		skipDeviceSetup bool
@@ -217,8 +265,7 @@ func TestTunDialer_Dial(t *testing.T) {
 		{
 			name: "dial ok with mocked dialFn",
 			fields: fields{
-				Dialer:          &mockedDialerContext{},
-				raw:             mockedRaw,
+				client:          mockClient,
 				ns1:             "8.8.8.8",
 				ns2:             "8.8.4.4",
 				skipDeviceSetup: true,
@@ -234,8 +281,7 @@ func TestTunDialer_Dial(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			td := TunDialer{
-				Dialer:          tt.fields.Dialer,
-				raw:             &tt.fields.raw.RawDialer,
+				client:          tt.fields.client,
 				ns1:             tt.fields.ns1,
 				ns2:             tt.fields.ns2,
 				skipDeviceSetup: tt.fields.skipDeviceSetup,
@@ -250,9 +296,12 @@ func TestTunDialer_Dial(t *testing.T) {
 	}
 }
 
+// TODO(https://github.com/ooni/minivpn/issues/28):
+// refactor test to use custom dialers
 func TestTunDialer_DialTimeout(t *testing.T) {
-	raw := makeTestingRawDialer(t)
-	mockedRaw := &mockRawDialer{raw}
+	opt := makeTestingOptions(t, "AES-128-GCM", "sha512")
+	mockClient := makeTestingClient(opt)
+
 	orig := initTLSFn
 	defer func() {
 		initTLSFn = orig
@@ -260,13 +309,12 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 	initTLSFn = func(*session, *certConfig) (*tls.Config, error) {
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
-	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {
+	tlsHandshakeFn = func(tc *controlChannelTLSConn, tconf *tls.Config) (net.Conn, error) {
 		conn := makeTestingConnForReadWrite("udp", "10.1.1.1", 42)
 		return conn, nil
 	}
 	type fields struct {
-		Dialer          DialerContext
-		raw             *mockRawDialer
+		client          *Client
 		ns1             string
 		ns2             string
 		skipDeviceSetup bool
@@ -286,8 +334,7 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 		{
 			name: "dial ok with mocked dialFn",
 			fields: fields{
-				Dialer:          &mockedDialerContext{},
-				raw:             mockedRaw,
+				client:          mockClient,
 				ns1:             "8.8.8.8",
 				ns2:             "8.8.4.4",
 				skipDeviceSetup: true,
@@ -304,8 +351,7 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			td := TunDialer{
-				Dialer:          tt.fields.Dialer,
-				raw:             &tt.fields.raw.RawDialer,
+				client:          tt.fields.client,
 				ns1:             tt.fields.ns1,
 				ns2:             tt.fields.ns2,
 				skipDeviceSetup: true,
@@ -320,9 +366,11 @@ func TestTunDialer_DialTimeout(t *testing.T) {
 	}
 }
 
+// TODO(https://github.com/ooni/minivpn/issues/28):
+// refactor test to use custom dialers
 func TestTunDialer_DialContext(t *testing.T) {
-	raw := makeTestingRawDialer(t)
-	mockedRaw := &mockRawDialer{raw}
+	opt := makeTestingOptions(t, "AES-128-GCM", "sha512")
+	mockClient := makeTestingClient(opt)
 
 	orig := initTLSFn
 	defer func() {
@@ -331,14 +379,13 @@ func TestTunDialer_DialContext(t *testing.T) {
 	initTLSFn = func(*session, *certConfig) (*tls.Config, error) {
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
-	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {
+	tlsHandshakeFn = func(tc *controlChannelTLSConn, tconf *tls.Config) (net.Conn, error) {
 		conn := makeTestingConnForReadWrite("udp", "10.1.1.1", 42)
 		return conn, nil
 	}
 
 	type fields struct {
-		Dialer          DialerContext
-		raw             *mockRawDialer
+		client          *Client
 		ns1             string
 		ns2             string
 		skipDeviceSetup bool
@@ -358,8 +405,7 @@ func TestTunDialer_DialContext(t *testing.T) {
 		{
 			name: "dial ok with mocked dialer",
 			fields: fields{
-				Dialer:          &mockedDialerContext{},
-				raw:             mockedRaw,
+				client:          mockClient,
 				ns1:             "8.8.8.8",
 				ns2:             "8.8.4.4",
 				skipDeviceSetup: true,
@@ -375,8 +421,7 @@ func TestTunDialer_DialContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			td := TunDialer{
-				Dialer:          tt.fields.Dialer,
-				raw:             &tt.fields.raw.RawDialer,
+				client:          tt.fields.client,
 				ns1:             tt.fields.ns1,
 				ns2:             tt.fields.ns2,
 				skipDeviceSetup: true,
@@ -388,20 +433,6 @@ func TestTunDialer_DialContext(t *testing.T) {
 			}
 			conn.Close()
 		})
-	}
-}
-
-func Test_RawDialerDial(t *testing.T) {
-	raw := makeTestingRawDialer(t)
-	raw.clientFactory = makeTestingClient
-	mockedRaw := &mockRawDialer{raw}
-	_, err := mockedRaw.Dial()
-	if err != nil {
-		t.Errorf("mocked dialer should not raise error: %v", err)
-	}
-	_, err = mockedRaw.DialContext(context.Background())
-	if err != nil {
-		t.Errorf("mocked dialer should not raise error: %v", err)
 	}
 }
 

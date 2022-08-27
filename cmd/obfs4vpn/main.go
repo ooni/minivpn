@@ -18,7 +18,7 @@ func main() {
 	if provider == "" {
 		log.Fatal("Export the PROVIDER variable")
 	}
-	opts, err := vpn.ParseConfigFile("data/" + provider + "/config")
+	opts, err := vpn.NewOptionsFromFilePath("data/" + provider + "/config")
 	if err != nil {
 		panic(err)
 	}
@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dialer := vpn.NewTunDialerFromOptions(opts)
+	dialer := vpn.StartNewTunDialerFromOptions(opts)
 
 	var obfs4Dialer vpn.DialerContext = obfs4.NewDialer(node)
 	dialer.Dialer = obfs4Dialer

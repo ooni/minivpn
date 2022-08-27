@@ -78,7 +78,7 @@ type muxer struct {
 	session *session
 
 	// Mutable state tied to a particular vpn run.
-	tunnel *tunnel
+	tunnel *tunnelInfo
 
 	// Options are OpenVPN options that come from parsing a subset of the OpenVPN
 	// configuration directives, plus some non-standard config directives.
@@ -124,11 +124,11 @@ type dataHandler interface {
 // muxer initialization
 //
 
-type muxFactory func(conn net.Conn, options *Options, tunnel *tunnel) (vpnMuxer, error)
+type muxFactory func(conn net.Conn, options *Options, tunnel *tunnelInfo) (vpnMuxer, error)
 
 // newMuxerFromOptions returns a configured muxer, and any error if the
 // operation could not be completed.
-func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnel) (vpnMuxer, error) {
+func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnelInfo) (vpnMuxer, error) {
 	control := &control{}
 	session, err := newSession()
 	if err != nil {
@@ -184,7 +184,7 @@ func (m *muxer) handshake() error {
 	// 2. TLS handshake.
 
 	// TODO(ainghazal): move the initialization step to an early phase and keep a ref in the muxer
-	if !m.options.HasAuthInfo() {
+	if !m.options.hasAuthInfo() {
 		return fmt.Errorf("%w: %s", errBadInput, "expected certificate or username/password")
 	}
 	certCfg, err := newCertConfigFromOptions(m.options)
@@ -197,7 +197,7 @@ func (m *muxer) handshake() error {
 		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 
 	}
-	tlsConn, err := NewTLSConn(m.conn, m.session)
+	tlsConn, err := newControlChannelTLSConn(m.conn, m.session)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 	}

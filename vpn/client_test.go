@@ -70,7 +70,7 @@ func (mm *mockMuxerForClient) Write(b []byte) (int, error) {
 }
 
 func mockMuxerFactory() muxFactory {
-	fn := func(net.Conn, *Options, *tunnel) (vpnMuxer, error) {
+	fn := func(net.Conn, *Options, *tunnelInfo) (vpnMuxer, error) {
 		m := &mockMuxerWithDummyHandshake{}
 		return m, nil
 	}
@@ -116,7 +116,7 @@ func TestClient_Read(t *testing.T) {
 
 func TestClient_LocalAddr(t *testing.T) {
 	cl, _ := makeTestingClientConn()
-	cl.tunnel = nil
+	cl.tunInfo = nil
 	a := cl.LocalAddr()
 	if a.String() != "" {
 		t.Errorf("Client.LocalAddr(): expected empty string, got %v", a.String())
@@ -185,9 +185,9 @@ func (bd *badDialer) DialContext(context.Context, string, string) (net.Conn, err
 	return nil, errors.New("cannot dial")
 }
 
-func TestClient_DialFailsWithBadOptions(t *testing.T) {
+func TestClient_dialFailsWithBadOptions(t *testing.T) {
 	c := &Client{}
-	_, err := c.Dial(context.Background())
+	_, err := c.dial(context.Background())
 	wantErr := errBadInput
 	if !errors.Is(err, wantErr) {
 		t.Error("Client.Dial(): should fail with nil options")
@@ -198,7 +198,7 @@ func TestClient_DialFailsWithBadOptions(t *testing.T) {
 			Proto: 3,
 		},
 	}
-	_, err = c.Dial(context.Background())
+	_, err = c.dial(context.Background())
 	wantErr = errBadInput
 	if !errors.Is(err, wantErr) {
 		t.Error("Client.Dial(): should fail with bad proto")
@@ -210,7 +210,7 @@ func TestClient_DialFailsWithBadOptions(t *testing.T) {
 		},
 		Dialer: &badDialer{},
 	}
-	_, err = c.Dial(context.Background())
+	_, err = c.dial(context.Background())
 	wantErr = ErrDialError
 	if !errors.Is(err, wantErr) {
 		t.Errorf("Client.Dial(): should fail with ErrDialError, err = %v", err)
@@ -226,7 +226,7 @@ func TestCient_DialRaisesError(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	cancel()
-	_, err := c.Dial(ctx)
+	_, err := c.dial(ctx)
 	if err != context.Canceled {
 		t.Errorf("Client.Dial(): expected context.Canceled, err = %v", err)
 	}

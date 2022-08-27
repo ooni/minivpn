@@ -31,21 +31,21 @@ func timeoutSecondsFromCount(count int) time.Duration {
 
 }
 
-// RunPinger takes an Option object, gets a Dialer, and runs a Pinger against
-// the passed target, for count packets.
+// RunPinger takes an Option object, starts a Client, and runs a Pinger against
+// the passed target, for a number count of packets.
 func RunPinger(opt *vpn.Options, target string, count uint32) error {
 
 	c := int(count)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutSecondsFromCount(c)+extraTimeoutSeconds)
 	defer cancel()
 
-	rawDialer := vpn.NewRawDialer(opt)
-	conn, err := rawDialer.DialContext(ctx)
+	tunnel := vpn.NewClientFromOptions(opt)
+	err := tunnel.Start(ctx)
 	if err != nil {
 		return err
 	}
 
-	pinger := ping.New(target, conn)
+	pinger := ping.New(target, tunnel)
 	pinger.Count = c
 	pinger.Timeout = timeoutSecondsFromCount(c)
 	err = pinger.Run(ctx)
@@ -99,7 +99,7 @@ func main() {
 	logger := &log.Logger{Level: verbosityLevel, Handler: &logHandler{Writer: os.Stderr}}
 	logger.Debugf("config file: %s", *optConfig)
 
-	opts, err := vpn.ParseConfigFile(*optConfig)
+	opts, err := vpn.NewOptionsFromFilePath(*optConfig)
 	if err != nil {
 		fmt.Println("fatal: " + err.Error())
 		os.Exit(1)

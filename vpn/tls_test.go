@@ -549,10 +549,10 @@ func errorRaisingTLSFactory(net.Conn, *tls.Config) (handshaker, error) {
 
 func Test_tlsHandshake(t *testing.T) {
 
-	makeConnAndConf := func() (*TLSConn, *tls.Config) {
+	makeConnAndConf := func() (*controlChannelTLSConn, *tls.Config) {
 		conn := &mocks.Conn{}
 		s := makeTestingSession()
-		tc, _ := NewTLSConn(conn, s)
+		tc, _ := newControlChannelTLSConn(conn, s)
 
 		conf := &tls.Config{
 			InsecureSkipVerify: true,

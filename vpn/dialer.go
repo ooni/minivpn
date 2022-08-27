@@ -1,13 +1,16 @@
 package vpn
 
+//
 // This file contains dialer types and functions that allow transparent use of
 // an OpenVPN connection.
+//
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"golang.zx2c4.com/wireguard/tun"
@@ -21,49 +24,70 @@ var (
 
 // A TunDialer contains options for obtaining a network connection tunneled
 // through an OpenVPN endpoint. It uses a userspace gVisor virtual device over
-// the raw VPN tunnel.
+// the raw OpenVPN tunnel.
+//
+// You need to be careful and create only one instance of TunDialer for each
+// Client, since the underlying virtual device will connect both ends of the
+// tunnel.
 type TunDialer struct {
+	// Dialer will be passed to the underlying Client constructor.
 	Dialer          DialerContext
-	raw             *RawDialer
+	client          *Client
 	ns1             string
 	ns2             string
 	skipDeviceSetup bool
+	device          *device
+	tun             *netstack.Net
+	mu              sync.Mutex
+
+	// dependency injection to test client start
+	clientStartFn func(context.Context) error
 }
 
 // NewTunDialer creates a new Dialer with the default nameservers (OpenDNS).
-func NewTunDialer(raw *RawDialer) TunDialer {
-	td := TunDialer{
-		raw: raw,
-		ns1: openDNSPrimary,
-		ns2: openDNSSecondary,
+func NewTunDialer(client *Client) *TunDialer {
+	td := &TunDialer{
+		client: client,
+		ns1:    openDNSPrimary,
+		ns2:    openDNSSecondary,
 	}
 	return td
 }
 
-// NewDialerWithNameservers creates a new Dialer with the passed nameservers.
+// NewTunDialerWithNameservers creates a new TunDialer with the passed nameservers.
 // You probably want to pass the nameservers for your own VPN service here.
-func NewTunDialerWithNameservers(raw *RawDialer, ns1, ns2 string) TunDialer {
-	td := TunDialer{
-		raw: raw,
-		ns1: ns1,
-		ns2: ns2,
+func NewTunDialerWithNameservers(client *Client, ns1, ns2 string) *TunDialer {
+	td := &TunDialer{
+		client: client,
+		ns1:    ns1,
+		ns2:    ns2,
 	}
 	return td
 }
 
-// NewDialerFromOptions creates a new Dialer directly from an Options object.
-func NewTunDialerFromOptions(opt *Options) TunDialer {
-	raw := NewRawDialer(opt)
-	td := TunDialer{
-		raw: raw,
-		ns1: openDNSPrimary,
-		ns2: openDNSSecondary,
+// StartNewTunDialerFromOptions creates a new Dialer directly from an Options
+// object. It also starts the underlying client.
+func StartNewTunDialerFromOptions(opt *Options, dialer DialerContext) (*TunDialer, error) {
+	if dialer == nil {
+		return nil, fmt.Errorf("%w: nil dialer", errBadInput)
 	}
-	return td
+	client := NewClientFromOptions(opt)
+	client.Dialer = dialer
+	err := client.Start(context.Background())
+	if err != nil {
+		defer client.Close()
+		return nil, err
+	}
+	td := &TunDialer{
+		client: client,
+		ns1:    openDNSPrimary,
+		ns2:    openDNSSecondary,
+	}
+	return td, nil
 }
 
 // Dial connects to the address on the named network, via the OpenVPN endpoint
-// that is configured in the dialer.
+// in the Client that this TunDialer is initialized with.
 //
 // The return value implements the net.Conn interface, but it is a socket created
 // on a virtual device, using gVisor userspace network stack. This means that the
@@ -73,9 +97,12 @@ func NewTunDialerFromOptions(opt *Options) TunDialer {
 // configured in the dialer. This feature uses wireguard's little custom DNS client
 // implementation.
 //
+// Dial calls DialContext with the background context. See documentation of
+// DialContext for more details.
+//
 // Known networks are "tcp", "tcp4" (IPv4-only), "tcp6" (IPv6-only),
 // "udp", "udp4" (IPv4-only), "udp6" (IPv6-only), "ping4", "ping6".
-func (td TunDialer) Dial(network, address string) (net.Conn, error) {
+func (td *TunDialer) Dial(network, address string) (net.Conn, error) {
 	ctx := context.Background()
 	tnet, err := td.createNetTUN(ctx)
 	if err != nil {
@@ -84,8 +111,26 @@ func (td TunDialer) Dial(network, address string) (net.Conn, error) {
 	return tnet.Dial(network, address)
 }
 
+// DialContext connects to the address on the named network using
+// the provided context.
+//
+// The underlying tun is created just once upon successive invocations of
+// DialContext.
+func (td *TunDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	if td.tun == nil {
+		tnet, err := td.createNetTUN(ctx)
+		if err != nil {
+			return nil, err
+		}
+		td.tun = tnet
+	}
+	return td.tun.DialContext(ctx, network, address)
+}
+
 // DialTimeout acts like Dial but takes a timeout.
-func (td TunDialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
+func (td *TunDialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
 	conn, err := td.Dial(network, address)
 	if err != nil {
 		return nil, err
@@ -94,26 +139,8 @@ func (td TunDialer) DialTimeout(network, address string, timeout time.Duration) 
 	return conn, err
 }
 
-// DialContext connects to the address on the named network using
-// the provided context.
-func (td TunDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	tnet, err := td.createNetTUN(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return tnet.DialContext(ctx, network, address)
-}
-
-func (td TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
-	if td.Dialer != nil {
-		td.raw.dialer = td.Dialer
-	}
-
-	client, err := td.raw.dial(ctx)
-	if err != nil {
-		return nil, err
-	}
-	localIP := client.LocalAddr().String()
+func (td *TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
+	localIP := td.client.LocalAddr().String()
 
 	// create a virtual device in userspace, courtesy of wireguard-go
 	tun, tnet, err := netstack.CreateNetTUN(
@@ -121,10 +148,11 @@ func (td TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 		[]netip.Addr{
 			netip.MustParseAddr(td.ns1),
 			netip.MustParseAddr(td.ns2)},
-		client.tunnel.mtu-100,
+		td.client.tunInfo.mtu-100,
 	)
-	// BUG(ainghazal): we cannot use the tun-mtu that the remote
-	// advertises, so we subtract a "safety" margin for now.
+	// TODO(https://github.com/ooni/minivpn/issues/26):
+	// we cannot use the tun-mtu that the remote advertises, so we subtract
+	// a "safety" margin for the time being.
 
 	if err != nil {
 		return nil, err
@@ -132,10 +160,10 @@ func (td TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 
 	// connect the virtual device to our openvpn tunnel
 	if !td.skipDeviceSetup {
-		dev := &device{tun, client}
+		dev := &device{tun, td.client}
 		dev.Up()
+		td.device = dev
 	}
-
 	return tnet, nil
 }
 
@@ -149,6 +177,8 @@ type device struct {
 }
 
 // Up spawns two goroutines that communicate the two halves of a device.
+// TODO(https://github.com/ooni/minivpn/issues/27): we probably want a way of
+// shutting them down too.
 func (d *device) Up() {
 	go func() {
 		b := make([]byte, 4096)
@@ -181,51 +211,4 @@ func (d *device) Up() {
 			}
 		}
 	}()
-}
-
-type RawDialer struct {
-	Options *Options
-	// dialer is the on-the-wire dialer object that will be passed to the
-	// OpenVPN client.
-	dialer DialerContext
-
-	// a client factory to facilitate testing with a mocked client
-	clientFactory func(*Options) vpnClient
-}
-
-// NewRawDialer returns a new *RawDialer constructed from the passed options.
-func NewRawDialer(opts *Options) *RawDialer {
-	return &RawDialer{Options: opts}
-}
-
-// Dial returns a net.Conn that writes to and reads (raw packets) from the VPN
-// tunnel.
-func (d *RawDialer) Dial() (net.Conn, error) {
-	return d.dial(context.Background())
-}
-
-// DialContext returns a net.Conn that writes to and reads (raw packets) from the VPN
-// tunnel.
-func (d *RawDialer) DialContext(ctx context.Context) (net.Conn, error) {
-	return d.dial(ctx)
-}
-
-// dial returns a vpn Client (that implements net.Conn). We do this because in
-// the TunDialer that access this we need to access some private fields from
-// the Client implementation.
-func (d *RawDialer) dial(ctx context.Context) (*Client, error) {
-	cf := NewClientFromOptions
-	if d.clientFactory != nil {
-		cf = d.clientFactory
-	}
-	client := cf(d.Options)
-
-	if d.dialer != nil {
-		// TODO(ainghazal): add a proper setter
-		client.(*Client).Dialer = d.dialer
-	}
-
-	log.Println("starting client...")
-	err := client.Start(ctx)
-	return client.(*Client), err
 }

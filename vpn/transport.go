@@ -65,11 +65,11 @@ func readPacketFromTCP(conn net.Conn) ([]byte, error) {
 	return buf, nil
 }
 
-// TLSModeTransporter is a transport for OpenVPN in TLS mode.
+// tlsModeTransporter is a transport for OpenVPN in TLS mode.
 //
 // See https://openvpn.net/community-resources/openvpn-protocol/ for documentation
 // on the protocol used by OpenVPN on the wire.
-type TLSModeTransporter interface {
+type tlsModeTransporter interface {
 	// ReadPacket reads an OpenVPN packet from the wire.
 	ReadPacket() (p *packet, err error)
 
@@ -95,8 +95,8 @@ type TLSModeTransporter interface {
 	RemoteAddr() net.Addr
 }
 
-// NewTLSModeTransport creates a new TLSModeTransporter using the given net.Conn.
-func NewTLSModeTransport(conn net.Conn, s *session) (TLSModeTransporter, error) {
+// newTLSModeTransport creates a new TLSModeTransporter using the given net.Conn.
+func newTLSModeTransport(conn net.Conn, s *session) (tlsModeTransporter, error) {
 	return &tlsTransport{Conn: conn, session: s}, nil
 }
 
@@ -149,32 +149,32 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	return err
 }
 
-var _ TLSModeTransporter = &tlsTransport{} // Ensure that we implement TLSModelTransporter
+var _ tlsModeTransporter = &tlsTransport{} // Ensure that we implement TLSModelTransporter
 
-// TLSConn implements net.Conn, and is passed to the tls.Client to perform a
+// controlChannelTLSConn implements net.Conn, and is passed to the tls.Client to perform a
 // TLS Handshake over OpenVPN control packets.
-type TLSConn struct {
+type controlChannelTLSConn struct {
 	conn      net.Conn
 	session   *session
-	transport TLSModeTransporter
+	transport tlsModeTransporter
 	// we need to buffer reads because the tls records request less than
 	// the payload we receive.
 	bufReader *bytes.Buffer
 
-	doReadFromConnFn  func(*TLSConn, []byte) (bool, int, error)
-	doReadFromQueueFn func(*TLSConn, []byte) (bool, int, error)
+	doReadFromConnFn  func(*controlChannelTLSConn, []byte) (bool, int, error)
+	doReadFromQueueFn func(*controlChannelTLSConn, []byte) (bool, int, error)
 }
 
-// NewTLSConn returns a TLSConn. It requires the on-the-wire net.Conn that will
-// be used underneath, and a configured session. It returns also an error if
-// the operation cannot be completed.
-func NewTLSConn(conn net.Conn, s *session) (*TLSConn, error) {
-	transport, err := NewTLSModeTransport(conn, s)
+// newControlChannelTLSConn returns a controlChannelTLSConn. It requires the on-the-wire
+// net.Conn that will be used underneath, and a configured session. It returns
+// also an error if the operation cannot be completed.
+func newControlChannelTLSConn(conn net.Conn, s *session) (*controlChannelTLSConn, error) {
+	transport, err := newTLSModeTransport(conn, s)
 	if err != nil {
-		return &TLSConn{}, err
+		return &controlChannelTLSConn{}, err
 	}
 	buf := bytes.NewBuffer(nil)
-	tlsConn := &TLSConn{
+	tlsConn := &controlChannelTLSConn{
 		conn:      conn,
 		session:   s,
 		transport: transport,
@@ -188,19 +188,19 @@ func NewTLSConn(conn net.Conn, s *session) (*TLSConn, error) {
 // Read over the control channel. This method implements the reliability layer:
 // it retries reads until the _next_ packet is received (according to the
 // packetID). Returns also an error if the operation cannot be completed.
-func (t *TLSConn) Read(b []byte) (int, error) {
-	if t.session == nil || t.session.ackQueue == nil {
+func (c *controlChannelTLSConn) Read(b []byte) (int, error) {
+	if c.session == nil || c.session.ackQueue == nil {
 		return 0, fmt.Errorf("%w:%s", errBadInput, "bad session in TLSConn.Read()")
 	}
 	for {
-		switch len(t.session.ackQueue) {
+		switch len(c.session.ackQueue) {
 		case 0:
-			ok, n, err := t.doReadFromConnFn(t, b)
+			ok, n, err := c.doReadFromConnFn(c, b)
 			if ok {
 				return n, err
 			}
 		default:
-			ok, n, err := t.doReadFromQueueFn(t, b)
+			ok, n, err := c.doReadFromQueueFn(c, b)
 			if ok {
 				return n, err
 			}
@@ -208,39 +208,39 @@ func (t *TLSConn) Read(b []byte) (int, error) {
 	}
 }
 
-func doReadFromConn(t *TLSConn, b []byte) (bool, int, error) {
-	p, err := t.doRead()
+func doReadFromConn(c *controlChannelTLSConn, b []byte) (bool, int, error) {
+	p, err := c.doRead()
 
 	if err != nil {
 		return true, 0, err
 	}
-	switch t.canRead(p) {
+	switch c.canRead(p) {
 	case true:
-		if err := sendACKFn(t.conn, t.session, p.id); err != nil {
+		if err := sendACKFn(c.conn, c.session, p.id); err != nil {
 			return true, 0, err
 		}
-		n, err := writeAndReadFromBufferFn(t.bufReader, b, p.payload)
+		n, err := writeAndReadFromBufferFn(c.bufReader, b, p.payload)
 		return true, n, err
 	case false:
 		if p != nil {
-			t.session.ackQueue <- p
+			c.session.ackQueue <- p
 		}
 	}
 
 	return false, 0, nil
 }
 
-func doReadFromQueue(t *TLSConn, b []byte) (bool, int, error) {
-	for p := range t.session.ackQueue {
-		if t.canRead(p) {
-			if err := sendACKFn(t.conn, t.session, p.id); err != nil {
+func doReadFromQueue(c *controlChannelTLSConn, b []byte) (bool, int, error) {
+	for p := range c.session.ackQueue {
+		if c.canRead(p) {
+			if err := sendACKFn(c.conn, c.session, p.id); err != nil {
 				return true, 0, err
 			}
-			n, err := writeAndReadFromBufferFn(t.bufReader, b, p.payload)
+			n, err := writeAndReadFromBufferFn(c.bufReader, b, p.payload)
 			return true, n, err
 		} else {
-			t.session.ackQueue <- p
-			return doReadFromConn(t, b)
+			c.session.ackQueue <- p
+			return doReadFromConn(c, b)
 		}
 	}
 	return false, 0, nil
@@ -248,18 +248,18 @@ func doReadFromQueue(t *TLSConn, b []byte) (bool, int, error) {
 
 // doRead() calls ReadPacket() in the underlying transport implementation. It
 // returns a packet and an error.
-func (t *TLSConn) doRead() (*packet, error) {
-	if t.transport == nil {
+func (c *controlChannelTLSConn) doRead() (*packet, error) {
+	if c.transport == nil {
 		return nil, fmt.Errorf("%w:%s", errBadInput, "tlsConn is missing transport")
 
 	}
-	return t.transport.ReadPacket()
+	return c.transport.ReadPacket()
 }
 
 // canRead returns true if the packet is not nil and its packetID is the next
 // integer in the expected sequence; returns false otherwise.
-func (t *TLSConn) canRead(p *packet) bool {
-	return p != nil && t.session.isNextPacket(p)
+func (c *controlChannelTLSConn) canRead(p *packet) bool {
+	return p != nil && c.session.isNextPacket(p)
 }
 
 // writeAndReadPayloadFromBuffer writes a given payload to a buffered reader, and returns
@@ -273,8 +273,8 @@ func writeAndReadFromBuffer(bb *bytes.Buffer, b []byte, payload []byte) (int, er
 var writeAndReadFromBufferFn = writeAndReadFromBuffer
 
 // Write writes the given data to the tls connection.
-func (t *TLSConn) Write(b []byte) (int, error) {
-	err := t.transport.WritePacket(uint8(pControlV1), b)
+func (c *controlChannelTLSConn) Write(b []byte) (int, error) {
+	err := c.transport.WritePacket(uint8(pControlV1), b)
 	if err != nil {
 		logger.Errorf("tls write: %s", err.Error())
 		return 0, err
@@ -283,28 +283,28 @@ func (t *TLSConn) Write(b []byte) (int, error) {
 }
 
 // Close closes the tls connection.
-func (t *TLSConn) Close() error {
-	return t.conn.Close()
+func (c *controlChannelTLSConn) Close() error {
+	return c.conn.Close()
 }
 
-func (t *TLSConn) LocalAddr() net.Addr {
-	return t.conn.LocalAddr()
+func (c *controlChannelTLSConn) LocalAddr() net.Addr {
+	return c.conn.LocalAddr()
 }
 
-func (t *TLSConn) RemoteAddr() net.Addr {
-	return t.conn.RemoteAddr()
+func (c *controlChannelTLSConn) RemoteAddr() net.Addr {
+	return c.conn.RemoteAddr()
 }
 
-func (t *TLSConn) SetDeadline(tt time.Time) error {
-	return t.conn.SetDeadline(tt)
+func (c *controlChannelTLSConn) SetDeadline(tt time.Time) error {
+	return c.conn.SetDeadline(tt)
 }
 
-func (t *TLSConn) SetReadDeadline(tt time.Time) error {
-	return t.conn.SetReadDeadline(tt)
+func (c *controlChannelTLSConn) SetReadDeadline(tt time.Time) error {
+	return c.conn.SetReadDeadline(tt)
 }
 
-func (t *TLSConn) SetWriteDeadline(tt time.Time) error {
-	return t.conn.SetWriteDeadline(tt)
+func (c *controlChannelTLSConn) SetWriteDeadline(tt time.Time) error {
+	return c.conn.SetWriteDeadline(tt)
 }
 
-var _ net.Conn = &TLSConn{} // Ensure that we implement net.Conn
+var _ net.Conn = &controlChannelTLSConn{} // Ensure that we implement net.Conn

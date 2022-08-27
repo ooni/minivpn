@@ -16,16 +16,13 @@ var (
 )
 
 func ExamplePinger() {
-	opts, err := vpn.ParseConfigFile(cfg)
+	opts, err := vpn.NewOptionsFromFilePath(cfg)
 	if err != nil {
 		os.Exit(1)
 	}
-	rawDialer := vpn.NewRawDialer(opts)
-	conn, err := rawDialer.Dial()
-	if err != nil {
-		panic(err)
-	}
-	pinger := ping.New(target, conn)
+	tunnel := vpn.NewClientFromOptions(opts)
+	tunnel.Start(context.Background())
+	pinger := ping.New(target, tunnel)
 	pinger.Count = 3
 	pinger.Timeout = 5 * time.Second
 	pinger.Run(context.Background())

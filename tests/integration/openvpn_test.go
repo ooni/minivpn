@@ -148,19 +148,16 @@ func TestClientAES256GCM(t *testing.T) {
 	// can assert that this is a remote line
 
 	// actual test begins
-	opt, err := vpn.ParseConfigFile(filepath.Join(tmp, "config"))
+	opt, err := vpn.NewOptionsFromFilePath(filepath.Join(tmp, "config"))
 	if err != nil {
 		log.Fatalf("Could not parse file: %s", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	rawDialer := vpn.NewRawDialer(opt)
-	conn, err := rawDialer.DialContext(ctx)
-	if err != nil {
-		log.Fatalf("cannot dial: %s", err)
-	}
-	pinger := ping.New(target, conn)
+	tunnel := vpn.NewClientFromOptions(opt)
+	tunnel.Start(ctx)
+	pinger := ping.New(target, tunnel)
 	pinger.Count = count
 	err = pinger.Run(ctx)
 	defer pinger.Stop()

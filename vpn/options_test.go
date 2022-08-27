@@ -90,7 +90,7 @@ func TestOptions_String(t *testing.T) {
 				Log:        tt.fields.Log,
 			}
 			if got := o.String(); got != tt.want {
-				t.Errorf("Options.String() = %v, want %v", got, tt.want)
+				t.Errorf("Options.string() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -287,7 +287,7 @@ func Test_ParseConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatal("ParseConfigFile(): cannot write cert needed for the test")
 	}
-	o, err := ParseConfigFile(f)
+	o, err := NewOptionsFromFilePath(f)
 	if err != nil {
 		t.Errorf("ParseConfigFile(): expected err=%v, got=%v", nil, err)
 	}
@@ -301,12 +301,12 @@ func Test_ParseConfigFile(t *testing.T) {
 	}
 
 	// expect error when parsing a bad filepath
-	_, err = ParseConfigFile("")
+	_, err = NewOptionsFromFilePath("")
 	if err == nil {
 		t.Errorf("expected error with empty file")
 	}
 
-	_, err = ParseConfigFile("http://example.com")
+	_, err = NewOptionsFromFilePath("http://example.com")
 	if err == nil {
 		t.Errorf("expected error with http uri")
 	}
@@ -469,71 +469,71 @@ func Test_parseOption(t *testing.T) {
 
 func Test_parseRemoteOptions(t *testing.T) {
 	type args struct {
-		tunnel     *tunnel
+		tunnel     *tunnelInfo
 		remoteOpts string
 	}
 	tests := []struct {
 		name string
 		args args
-		want *tunnel
+		want *tunnelInfo
 	}{
 		{
 			name: "parse good tun-mtu",
 			args: args{
-				tunnel:     &tunnel{},
+				tunnel:     &tunnelInfo{},
 				remoteOpts: "foo bar,tun-mtu 1500",
 			},
-			want: &tunnel{
+			want: &tunnelInfo{
 				mtu: 1500,
 			},
 		},
 		{
 			name: "empty string",
 			args: args{
-				tunnel:     &tunnel{mtu: 1500},
+				tunnel:     &tunnelInfo{mtu: 1500},
 				remoteOpts: "",
 			},
-			want: &tunnel{
+			want: &tunnelInfo{
 				mtu: 1500,
 			},
 		},
 		{
 			name: "update value",
 			args: args{
-				tunnel:     &tunnel{mtu: 1500},
+				tunnel:     &tunnelInfo{mtu: 1500},
 				remoteOpts: "tun-mtu 1200",
 			},
-			want: &tunnel{
+			want: &tunnelInfo{
 				mtu: 1200,
 			},
 		},
 		{
 			name: "empty field",
 			args: args{
-				tunnel:     &tunnel{mtu: 1500},
+				tunnel:     &tunnelInfo{mtu: 1500},
 				remoteOpts: "tun-mtu 1200,,",
 			},
-			want: &tunnel{
+			want: &tunnelInfo{
 				mtu: 1200,
 			},
 		},
 		{
 			name: "extra space",
 			args: args{
-				tunnel:     &tunnel{mtu: 1500},
+				tunnel:     &tunnelInfo{mtu: 1500},
 				remoteOpts: "tun-mtu  1200",
 			},
-			want: &tunnel{
+			want: &tunnelInfo{
 				mtu: 1500,
 			},
 		},
 		{
 			name: "mtu not an int",
 			args: args{
-				tunnel:     &tunnel{mtu: 1500},
+				tunnel:     &tunnelInfo{mtu: 1500},
 				remoteOpts: "tun-mtu aaa",
 			},
-			want: &tunnel{
+			want: &tunnelInfo{
 				mtu: 1500,
 			},
 		},

@@ -116,16 +116,28 @@ type Options struct {
 	Log        Logger
 }
 
-// CertsCertsFromPath returns true when the options object is configured to load certificates from paths; false when we have inline certificates.
-func (o *Options) CertsFromPath() bool {
+// NewOptionsFromFilePath expects a string with a path to a valid config file,
+// and returns a pointer to a Options struct after parsing the file, and an
+// error if the operation could not be completed.
+func NewOptionsFromFilePath(filePath string) (*Options, error) {
+	lines, err := getLinesFromFile(filePath)
+	dir, _ := filepath.Split(filePath)
+	if err != nil {
+		return nil, err
+	}
+	return getOptionsFromLines(lines, dir)
+}
+
+// certsCertsFromPath returns true when the options object is configured to load certificates from paths; false when we have inline certificates.
+func (o *Options) certsFromPath() bool {
 	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != ""
 }
 
-// HasAuthInfo return true if:
-// - we have paths for cert, key and ca
-// - we have inline byte arrays for cert, key and ca
+// hasAuthInfo returns true if:
+// - we have paths for cert, key and ca; or
+// - we have inline byte arrays for cert, key and ca; or
 // - we have username + password info.
-func (o *Options) HasAuthInfo() bool {
+func (o *Options) hasAuthInfo() bool {
 	if o.CertPath != "" && o.KeyPath != "" && o.CaPath != "" {
 		return true
 	}
@@ -140,6 +152,8 @@ func (o *Options) HasAuthInfo() bool {
 
 const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
 
+// String produces a comma-separated representation of the options, in the same
+// order and format that the openvpn server expects from us.
 func (o *Options) String() string {
 	if o.Cipher == "" {
 		return ""
@@ -163,7 +177,7 @@ func (o *Options) String() string {
 
 // parseRemoteOptions parses the options returned or pushed by server. it
 // returns the tunnel object where the needed fields have been updated.
-func parseRemoteOptions(tunnel *tunnel, remoteOpts string) *tunnel {
+func parseRemoteOptions(tunnel *tunnelInfo, remoteOpts string) *tunnelInfo {
 	opts := strings.Split(remoteOpts, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")
@@ -200,17 +214,6 @@ func parsePushedOptions(pushedOptions []byte) string {
 		}
 	}
 	return ""
-}
-
-// ParseConfigFile expects a path to a valid config file and returns an Option
-// object after parsing the file.
-func ParseConfigFile(filePath string) (*Options, error) {
-	lines, err := getLinesFromFile(filePath)
-	dir, _ := filepath.Split(filePath)
-	if err != nil {
-		return nil, err
-	}
-	return getOptionsFromLines(lines, dir)
 }
 
 func parseProto(p []string, o *Options) error {

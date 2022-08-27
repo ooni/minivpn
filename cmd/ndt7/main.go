@@ -35,7 +35,7 @@ func main() {
 	optCnt := getopt.IntLong("count", 'c', 1, "Repetitions count (default: 1)")
 	getopt.Parse()
 
-	opts, err := vpn.ParseConfigFile("data/" + provider + "/config")
+	opts, err := vpn.NewOptionsFromFilePath("data/" + provider + "/config")
 	if err != nil {
 		panic(err)
 	}
@@ -75,7 +75,7 @@ func main() {
 		log.Println("Run:", i)
 		log.Println()
 		if *optExp == "all" || *optExp == "download" {
-			dialer := vpn.NewTunDialerFromOptions(opts)
+			dialer := vpn.StartNewTunDialerFromOptions(opts)
 			if opts.ProxyOBFS4 != "" {
 				if direct {
 					log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")
@@ -98,7 +98,7 @@ func main() {
 
 		}
 		if *optExp == "all" || *optExp == "upload" {
-			dialer := vpn.NewTunDialerFromOptions(opts)
+			dialer := vpn.StartNewTunDialerFromOptions(opts)
 			if opts.ProxyOBFS4 != "" {
 				if direct {
 					log.Fatal("Cannot use proxy-obfs4 and BASE=1 at the same time")

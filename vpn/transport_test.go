@@ -185,7 +185,7 @@ func Test_readPacket(t *testing.T) {
 func Test_NewTLSConn(t *testing.T) {
 	conn := makeTestinConnFromNetwork("udp")
 	s := makeTestingSession()
-	_, err := NewTLSConn(conn, s)
+	_, err := newControlChannelTLSConn(conn, s)
 	if err != nil {
 		t.Errorf("NewTLSConn() error = %v, want = nil", err)
 	}
@@ -238,9 +238,9 @@ func makeConnForTransportTest() *MockTLSConn {
 	return c
 }
 
-func makeTestingTLSConn() (*TLSConn, *MockTLSConn) {
+func makeTestingTLSConn() (*controlChannelTLSConn, *MockTLSConn) {
 	c := makeConnForTransportTest()
-	t := &TLSConn{}
+	t := &controlChannelTLSConn{}
 	t.conn = c
 	return t, c
 }
@@ -270,12 +270,12 @@ func TestTLSConn_Read(t *testing.T) {
 	tc.session.ackQueue = ackQueue
 
 	// mock read functions
-	tc.doReadFromConnFn = func(tcn *TLSConn, b []byte) (bool, int, error) {
+	tc.doReadFromConnFn = func(tcn *controlChannelTLSConn, b []byte) (bool, int, error) {
 		readFromConnCalled = true
 		copy(b[:], payload)
 		return true, len(payload), nil
 	}
-	tc.doReadFromQueueFn = func(tcn *TLSConn, b []byte) (bool, int, error) {
+	tc.doReadFromQueueFn = func(tcn *controlChannelTLSConn, b []byte) (bool, int, error) {
 		readFromQueueCalled = true
 		copy(b[:], payload)
 		return true, len(payload), nil
@@ -354,7 +354,7 @@ func makePacketForTLSConnTest(id int, s *session) *packet {
 	return p
 }
 
-func makeTestingTLSConnForReadTest(payload []byte) *TLSConn {
+func makeTestingTLSConnForReadTest(payload []byte) *controlChannelTLSConn {
 	tc, _ := makeTestingTLSConn()
 	tt, _ := makeTestingTLSTransportFromPayload(payload)
 	tc.transport = tt
@@ -471,14 +471,14 @@ func Test_doReadFromQueue(t *testing.T) {
 
 func TestTLSConn_doRead(t *testing.T) {
 	tt, _ := makeTestingTLSTransport()
-	tc := &TLSConn{transport: tt}
+	tc := &controlChannelTLSConn{transport: tt}
 	_, err := tc.doRead()
 	if err != nil {
 		t.Errorf("TLSConn.doRead(): expected nil error")
 		return
 	}
 
-	tc = &TLSConn{}
+	tc = &controlChannelTLSConn{}
 	_, err = tc.doRead()
 	if !errors.Is(err, errBadInput) {
 		t.Errorf("TLSConn.doRead(): should fail with nil transport. got: %v, wanted: %v", err, errBadInput)
@@ -488,7 +488,7 @@ func TestTLSConn_doRead(t *testing.T) {
 }
 
 func TestTLSConn_canRead(t *testing.T) {
-	tc := &TLSConn{
+	tc := &controlChannelTLSConn{
 		session: makeTestingSession(),
 	}
 	canRead := tc.canRead(nil)
@@ -613,7 +613,7 @@ func TestTLSConn_Write(t *testing.T) {
 	}
 	s := makeTestingSession()
 	tlsTr := &tlsTransport{Conn: c, session: s}
-	tc := &TLSConn{transport: tlsTr, session: s}
+	tc := &controlChannelTLSConn{transport: tlsTr, session: s}
 
 	payload := []byte("this is fine")
 	want := append(

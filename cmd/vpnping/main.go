@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	opts, err := vpn.ParseConfigFile("data/riseup/config")
+	opts, err := vpn.NewOptionsFromFilePath("data/riseup/config")
 	if err != nil {
 		panic(err)
 	}

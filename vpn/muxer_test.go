@@ -21,7 +21,7 @@ func Test_newMuxerFromOptions(t *testing.T) {
 	type args struct {
 		conn    net.Conn
 		options *Options
-		tunnel  *tunnel
+		tunnel  *tunnelInfo
 	}
 	tests := []struct {
 		name    string
@@ -34,7 +34,7 @@ func Test_newMuxerFromOptions(t *testing.T) {
 			args: args{
 				conn:    makeTestingConnForWrite("udp", "10.0.42.2", 42),
 				options: makeTestingOptions(t, "AES-128-GCM", "sha1"),
-				tunnel:  &tunnel{},
+				tunnel:  &tunnelInfo{},
 			},
 			want: &muxer{
 				conn:    makeTestingConnForWrite("udp", "10.0.42.2", 42),
@@ -107,6 +107,9 @@ func makeTestingConnForHandshake(network, addr string, n int) net.Conn {
 
 		return 0, nil
 	}
+	c.MockClose = func() error {
+		return nil
+	}
 	return c
 }
 
@@ -140,7 +143,7 @@ func Test_muxer_Handshake(t *testing.T) {
 	m := &mockMuxerForHandshake{}
 	m.control = &control{}
 	m.data = makeData()
-	m.tunnel = &tunnel{}
+	m.tunnel = &tunnelInfo{}
 	s, err := newSession()
 	if err != nil {
 		t.Error("session failed, cannot run handshake test")
@@ -163,7 +166,7 @@ func Test_muxer_Handshake(t *testing.T) {
 	initTLSFn = func(*session, *certConfig) (*tls.Config, error) {
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
-	tlsHandshakeFn = func(tc *TLSConn, tconf *tls.Config) (net.Conn, error) {
+	tlsHandshakeFn = func(tc *controlChannelTLSConn, tconf *tls.Config) (net.Conn, error) {
 		return m.conn, nil
 	}
 
@@ -436,7 +439,7 @@ func Test_muxer_readTLSPacket(t *testing.T) {
 		data      dataHandler
 		bufReader *bytes.Buffer
 		session   *session
-		tunnel    *tunnel
+		tunnel    *tunnelInfo
 		options   *Options
 	}
 	tests := []struct {
@@ -479,7 +482,7 @@ func Test_muxer_readAndLoadRemoteKey(t *testing.T) {
 		data      dataHandler
 		bufReader *bytes.Buffer
 		session   *session
-		tunnel    *tunnel
+		tunnel    *tunnelInfo
 		options   *Options
 	}
 	tests := []struct {
@@ -516,7 +519,7 @@ func Test_muxer_readPushReply(t *testing.T) {
 		data      dataHandler
 		bufReader *bytes.Buffer
 		session   *session
-		tunnel    *tunnel
+		tunnel    *tunnelInfo
 		options   *Options
 	}
 	tests := []struct {

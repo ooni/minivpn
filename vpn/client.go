@@ -22,40 +22,46 @@ var (
 	ErrAlreadyStarted = errors.New("tunnel already started")
 )
 
-// tunnel holds state about the VPN tunnel that has longer duration than a
+// tunnelInfo holds state about the VPN tunnelInfo that has longer duration than a
 // given session.
-type tunnel struct {
+type tunnelInfo struct {
 	ip  string
 	mtu int
 }
 
-// vpnClient has a Start and a Dial method.
+// vpnClient is a net.Conn that uses the VPN tunnel. It is a net.Conn with an
+// additional `Start()` method.
 type vpnClient interface {
+	net.Conn
 	Start(ctx context.Context) error
-	Dial(ctx context.Context) (net.Conn, error)
 }
 
-type DialContextFn func(context.Context, string, string) (net.Conn, error)
+type dialContextFn func(context.Context, string, string) (net.Conn, error)
 
 // DialerContext is anything that features a net.Dialer-like DialContext method.
 type DialerContext interface {
 	DialContext(context.Context, string, string) (net.Conn, error)
 }
 
-// Client implements the OpenVPN protocol. If you're just interested in writing
-// to and reading from the tunnel you should use the dialer methods instead.
-// This type is only intended to be instantiated by users that need a finer control
-// of the protocol steps (i.e., you want to be sure that you are only calling
-// the handshake, etc.)
+// Client implements the OpenVPN protocol. A Client object satisfies the
+// net.Conn interface. plus Start().
+// The Read and Write operations send and receive bytes to and from the tunnel
+// - they are writing to and reading from the OpenVPN Data channel, with the
+// control channel being handled in the background.
+// To Dial sockets through the Tunnel, you should use the NewTunDialer constructor,
+// that accepts a Client object.
+// Client is only intended to be directly instantiated by users that need a
+// finer control of the protocol steps, or for the case in which you need the
+// equivalent of raw sockets.
 type Client struct {
 	Opts   *Options
 	Dialer DialerContext
 
-	conn   net.Conn
-	mux    vpnMuxer
-	tunnel *tunnel
-
 	Log Logger
+
+	conn    net.Conn
+	mux     vpnMuxer
+	tunInfo *tunnelInfo
 
 	// muxerFactoryFn allows to inject a different factory
 	// for testing.
@@ -69,7 +75,7 @@ var _ net.Conn = &Client{}  // Ensure that we implement net.Conn
 var _ vpnClient = &Client{} // Ensure that we implement vpnClient
 
 // NewClientFromOptions returns a Client configured with the given Options.
-func NewClientFromOptions(opt *Options) vpnClient {
+func NewClientFromOptions(opt *Options) *Client {
 	if opt == nil {
 		return &Client{}
 	}
@@ -77,9 +83,9 @@ func NewClientFromOptions(opt *Options) vpnClient {
 		logger = opt.Log
 	}
 	return &Client{
-		Opts:   opt,
-		tunnel: &tunnel{},
-		Dialer: &net.Dialer{},
+		Opts:    opt,
+		tunInfo: &tunnelInfo{},
+		Dialer:  &net.Dialer{},
 	}
 }
 
@@ -92,12 +98,12 @@ func (c *Client) Start(ctx context.Context) error {
 }
 
 func (c *Client) start(ctx context.Context) error {
-	conn, err := c.Dial(ctx)
+	conn, err := c.dial(ctx)
 	if err != nil {
 		return err
 	}
 	muxFactory := c.muxerFactory()
-	mux, err := muxFactory(conn, c.Opts, c.tunnel)
+	mux, err := muxFactory(conn, c.Opts, c.tunInfo)
 	if err != nil {
 		conn.Close()
 		return err
@@ -122,10 +128,10 @@ func (c *Client) muxerFactory() muxFactory {
 	return c.muxerFactoryFn
 }
 
-// Dial opens a TCP/UDP socket against the remote, and creates an internal
+// dial opens a TCP/UDP socket against the remote, and creates an internal
 // data channel. It is the second step in an OpenVPN connection (out of five).
 // (In UDP mode no network connection is done at this step).
-func (c *Client) Dial(ctx context.Context) (net.Conn, error) {
+func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	if c.Opts == nil {
 		return nil, fmt.Errorf("%w:%s", errBadInput, "nil options")
 
@@ -173,16 +179,19 @@ func (c *Client) Read(b []byte) (int, error) {
 
 // Close closes the tunnel connection.
 func (c *Client) Close() error {
-	return c.conn.Close()
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
 }
 
 // LocalAddr returns the local address on the tunnel virtual device.
 func (c *Client) LocalAddr() net.Addr {
-	if c.tunnel == nil {
+	if c.tunInfo == nil {
 		addr, _ := net.ResolveIPAddr("ip", "")
 		return addr
 	}
-	addr, _ := net.ResolveIPAddr("ip", c.tunnel.ip)
+	addr, _ := net.ResolveIPAddr("ip", c.tunInfo.ip)
 	return addr
 }
 
