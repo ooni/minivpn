@@ -335,12 +335,12 @@ func newServerHardReset(b []byte) (*serverHardReset, error) {
 // parseServerHardResetPacket returns the sessionID received from the server, or an
 // error if we could not parse the message.
 func parseServerHardResetPacket(p *serverHardReset) (sessionID, error) {
+	if len(p.payload) < 10 {
+		return sessionID{}, fmt.Errorf("%w: %s", errBadReset, "not enough bytes")
+	}
 	// BUG: this function assumes keyID == 0
 	if p.payload[0] != 0x40 {
 		return sessionID{}, fmt.Errorf("%w: %s", errBadReset, "bad header")
-	}
-	if len(p.payload) < 10 {
-		return sessionID{}, fmt.Errorf("%w: %s", errBadReset, "not enough bytes")
 	}
 	var rs sessionID
 	copy(rs[:], p.payload[1:9])

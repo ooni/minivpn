@@ -753,3 +753,9 @@ func Test_parseServerHardResetPacket(t *testing.T) {
 		})
 	}
 }
+
+// Regression test for MIV-01-001
+func Test_Crash_parseServerHardResetPacket(t *testing.T) {
+	p := &serverHardReset{}
+	parseServerHardResetPacket(p)
+}
