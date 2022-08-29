@@ -383,3 +383,8 @@ func Test_bytesPadPKCS7(t *testing.T) {
 		})
 	}
 }
+
+// Regression test for MIV-01-002
+func Test_Crash_bytesPadPCKS7(t *testing.T) {
+	bytesPadPKCS7(nil, 0)
+}
