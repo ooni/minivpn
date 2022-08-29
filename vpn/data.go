@@ -517,17 +517,20 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encrypted
 }
 
 func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
-	if len(buf) < 28 {
-		return &encryptedData{}, fmt.Errorf("%w: too short (%d bytes)", errBadInput, len(buf))
-	}
 	if state == nil || state.dataCipher == nil {
 		return &encryptedData{}, fmt.Errorf("%w: bad state", errBadInput)
 	}
-
 	hashSize := state.hmacSize
+	blockSize := state.dataCipher.blockSize()
+
+	minLen := hashSize + blockSize
+
+	if len(buf) < int(minLen) {
+		return &encryptedData{}, fmt.Errorf("%w: too short (%d bytes)", errBadInput, len(buf))
+	}
+
 	key := state.hmacKeyRemote[:hashSize]
 
-	blockSize := state.dataCipher.blockSize()
 	recvMAC := buf[:hashSize]
 	iv := buf[hashSize : hashSize+blockSize]
 	cipherText := buf[hashSize+blockSize:]
