@@ -259,23 +259,29 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 // done together in the same function.
 // TODO accept state for symmetry
 func (d *data) EncryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
+	if len(plaintext) == 0 {
+		return []byte{}, fmt.Errorf("%w: nothing to encrypt", errCannotEncrypt)
+	}
+	if dcs == nil || dcs.dataCipher == nil {
+		return []byte{}, fmt.Errorf("%w: %s", errCannotEncrypt, fmt.Errorf("data chan not initialized"))
+	}
 	blockSize := dcs.dataCipher.blockSize()
 
 	padded, err := maybeAddCompressPadding(plaintext, d.options.Compress, blockSize)
 	if err != nil {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
+		return []byte{}, fmt.Errorf("%w: %s", errCannotEncrypt, err)
 	}
 
 	encrypted, err := d.encryptEncodeFn(padded, d.session, d.state)
 	if err != nil {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotEncrypt, err)
+		return []byte{}, fmt.Errorf("%w: %s", errCannotEncrypt, err)
 	}
 	return encrypted, nil
 
 }
 
 // encryptAndEncodePayloadAEAD peforms encryption and encoding of the payload in AEAD modes (i.e., AES-GCM).
-// TODO for testing we can pass both the state object and the encryptFn FIXME refactor...
+// TODO(ainghazal): for testing we can pass both the state object and the encryptFn
 func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataChannelState) ([]byte, error) {
 	nextPacketID, err := session.LocalPacketID()
 	if err != nil {

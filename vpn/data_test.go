@@ -3,8 +3,10 @@ package vpn
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"reflect"
@@ -238,6 +240,7 @@ func Test_data_SetupKeys(t *testing.T) {
 }
 
 func Test_data_EncryptAndEncodePayload(t *testing.T) {
+	// TODO(ainghazal): this is exercising only one encryption method
 
 	opt := &Options{}
 
@@ -278,7 +281,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "empty plaintext does not fail",
+			name: "empty plaintext fails",
 			fields: fields{
 				options:  opt,
 				session:  makeTestingSession(),
@@ -293,7 +296,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 				dcs:       makeTestingState(),
 			},
 			want:    []byte{},
-			wantErr: nil,
+			wantErr: errCannotEncrypt,
 		},
 		{
 			name: "error on encryptEncodeFn gets propagated",
@@ -1303,4 +1306,92 @@ func Test_data_WritePacket(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Regression test for MIV-01-003
+func Test_Crash_EncryptAndEncodePayload(t *testing.T) {
+	opt := &Options{}
+	st := &dataChannelState{
+		hmacSize:        20,
+		hmac:            sha1.New,
+		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
+		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
+		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
+		hmacKeyRemote:   *(*keySlot)(bytes.Repeat([]byte{0x68}, 64)),
+	}
+	a := &data{
+		options:  opt,
+		session:  makeTestingSession(),
+		state:    st,
+		decodeFn: nil,
+		encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
+			return []byte{}, nil
+		},
+	}
+	a.EncryptAndEncodePayload(nil, a.state)
+}
+
+// Regression test for MIV-01-004
+func Test_Crash_maybeAddCompressPadding(t *testing.T) {
+	arr := []byte{}
+	maybeAddCompressPadding(arr, "stub", 16)
+}
+
+// Regression test for MIV-01-004
+func Test_Crash_EncryptAndEncodePayload_Zero_Len_Array(t *testing.T) {
+	opt := &Options{}
+	st := &dataChannelState{
+		hmacSize:        20,
+		hmac:            sha1.New,
+		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
+		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
+		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
+		hmacKeyRemote:   *(*keySlot)(bytes.Repeat([]byte{0x68}, 64)),
+	}
+	a := &data{
+		options:  opt,
+		session:  makeTestingSession(),
+		state:    st,
+		decodeFn: nil,
+		encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
+			if len(b) == 0 {
+				return nil, fmt.Errorf("should not receive zero len")
+			}
+			return []byte{}, nil
+		},
+	}
+	_, err := a.EncryptAndEncodePayload([]byte{}, a.state)
+	if err == nil || !errors.Is(err, errCannotEncrypt) {
+		t.Error("should not fail with zero len")
+	}
+}
+
+func base64Decode(str string) (string, bool) {
+	data, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return "", true
+	}
+	return string(data), false
+}
+
+// Regression test for MIV-01-004
+func Test_Crash_DecodeEncryptedPayload_Too_Short(t *testing.T) {
+	input, _ := base64Decode("////////mv//////////////////////////xxk=")
+	opt := &Options{}
+	type args struct {
+		encrypted []byte
+		dcs       *dataChannelState
+	}
+	a := &data{
+		options:  opt,
+		session:  makeTestingSession(),
+		state:    makeTestingState(),
+		decodeFn: nil,
+		encryptEncodeFn: func(b []byte, s *session, st *dataChannelState) ([]byte, error) {
+			return []byte{}, nil
+		},
+	}
+	a.decodeFn = decodeEncryptedPayloadNonAEAD
+	b := &args{[]byte(input), makeTestingState()}
+	a.DecodeEncryptedPayload(b.encrypted, b.dcs)
 }
