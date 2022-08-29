@@ -388,6 +388,9 @@ func maybeAddCompressStub(b []byte, opt *Options) ([]byte, error) {
 // traling bit into account. it returns the resulting byte array, and an error
 // if the operatio could not be completed.
 func maybeAddCompressPadding(b []byte, compress compression, blockSize uint8) ([]byte, error) {
+	if len(b) == 0 {
+		return nil, fmt.Errorf("%w: nothing to pad", errBadInput)
+	}
 	if compress == "stub" {
 		// if we're using the compression stub
 		// we need to account for the trailing byte
