@@ -107,6 +107,7 @@ type vpnMuxer interface {
 	Handshake(ctx context.Context) error
 	Reset(net.Conn, *session) error
 	InitDataWithRemoteKey() error
+	SetEventListener(chan uint16)
 	Write([]byte) (int, error)
 	Read([]byte) (int, error)
 }

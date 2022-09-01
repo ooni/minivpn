@@ -96,8 +96,9 @@ var supportedAuth = []string{
 // Options make all the relevant configuration options accessible to the
 // different modules that need it.
 type Options struct {
-	Remote    string
-	Port      string
+	Remote string
+	Port   string
+	//TODO(https://github.com/ooni/minivpn/issues/25): Proto should be changed to a string and checked against known types.
 	Proto     int
 	Username  string
 	Password  string

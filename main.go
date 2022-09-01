@@ -34,7 +34,6 @@ func timeoutSecondsFromCount(count int) time.Duration {
 // RunPinger takes an Option object, starts a Client, and runs a Pinger against
 // the passed target, for a number count of packets.
 func RunPinger(opt *vpn.Options, target string, count uint32) error {
-
 	c := int(count)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutSecondsFromCount(c)+extraTimeoutSeconds)
 	defer cancel()

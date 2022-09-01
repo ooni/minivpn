@@ -43,7 +43,7 @@ proxy-obfs4 obfs4://RHOST:RPORT?cert=BASE64ENCODED_CERT&iat-mode=0
 
 ## Configuration
 
-The public constructor for `vpn.CLient` allows you to instantiate a `Client` from a
+The public constructor for `vpn.Client` allows you to instantiate a `Client` from a
 correctly initialized `Options` object.
 
 For convenience, `minivpn` also understands how to parse a minimal subset of the

@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -37,6 +38,11 @@ const (
 var (
 	ipv4Proto = map[string]string{"icmp": "ip4:icmp", "udp": "udp4"}
 	ipv6Proto = map[string]string{"icmp": "ip6:ipv6-icmp", "udp": "udp6"}
+
+	errCannotWrite           = errors.New("cannot write")
+	errCannotRead            = errors.New("cannot read")
+	errCannotSetReadDeadline = errors.New("cannot set read readline")
+	errBadPacket             = errors.New("bad packet")
 )
 
 // New returns a new Pinger struct pointer.  This function TAKES OWNERSHIP of
@@ -56,8 +62,8 @@ func New(addr string, conn net.Conn) *Pinger {
 		Target:            addr,
 		Count:             -1,
 		Interval:          time.Second,
-		RecordRtts:        true,
-		RecordTTLs:        true,
+		RecordReplies:     true,
+		replies:           []PingReply{},
 		Size:              timeSliceLength + trackerLength,
 		Timeout:           time.Duration(math.MaxInt64),
 		addr:              addr,
@@ -81,6 +87,12 @@ func NewFromSharedConnection(addr string, conn net.Conn) *Pinger {
 	pinger := New(addr, conn)
 	pinger.sharedConnection = true
 	return pinger
+}
+
+type PingReply struct {
+	Seq int
+	TTL int
+	Rtt time.Duration
 }
 
 // Pinger represents a packet sender/receiver.
@@ -123,19 +135,11 @@ type Pinger struct {
 	// If true, omit all output during measurement.
 	Silent bool
 
-	// If true, keep a record of rtts of all received packets.
+	// If true, keep a record of replies of all received packets.
 	// Set to false to avoid memory bloat for long running pings.
-	RecordRtts bool
+	RecordReplies bool
 
-	// If true, keep a record of ttls of all received packets.
-	// Set to false to avoid memory bloat for long running pings.
-	RecordTTLs bool
-
-	// rtts is all of the Rtts, in milliseconds
-	rtts []int64
-
-	// TTLs is all of the TTLs.
-	ttls []int
+	replies []PingReply
 
 	// OnSetup is called when Pinger has finished setting up the listening socket
 	OnSetup func()
@@ -154,9 +158,6 @@ type Pinger struct {
 
 	// Size of packet being sent
 	Size int
-
-	// Tracker: Used to uniquely identify packets - Deprecated
-	Tracker uint64
 
 	// Source is the source IP address
 	Source string
@@ -247,11 +248,7 @@ type Statistics struct {
 	// Addr is the string address of the host being pinged.
 	Addr string
 
-	// TTLs is all of the TTL sent via this pinger.
-	TTLs []int
-
-	// Rtts is all of the round-trip times sent via this pinger.
-	Rtts []int64
+	Replies []PingReply
 
 	// MinRtt is the minimum round-trip time sent via this pinger.
 	MinRtt time.Duration
@@ -272,12 +269,16 @@ func (p *Pinger) updateStatistics(pkt *Packet) {
 	defer p.statsMu.Unlock()
 
 	p.PacketsRecv++
-	if p.RecordRtts {
-		p.rtts = append(p.rtts, pkt.Rtt.Milliseconds())
-	}
+	if p.RecordReplies {
+		reply := PingReply{
+			// Here we're normalizing to 1-indexed arrays, just
+			// like the ping utility.
+			Seq: int(pkt.Seq) + 1,
+			TTL: pkt.Ttl,
+			Rtt: pkt.Rtt,
+		}
+		p.replies = append(p.replies, reply)
 
-	if p.RecordTTLs {
-		p.ttls = append(p.ttls, pkt.Ttl)
 	}
 
 	if p.PacketsRecv == 1 || pkt.Rtt < p.minRtt {
@@ -328,7 +329,7 @@ func (p *Pinger) run(conn net.Conn) error {
 		return nil
 	}
 
-	recv := make(chan *packet, 5)
+	recv := make(chan *packet, p.Count)
 	defer close(recv)
 
 	if handler := p.OnSetup; handler != nil {
@@ -386,7 +387,7 @@ func (p *Pinger) runLoop(recvCh <-chan *packet) error {
 			icmpPacket := newIcmpData(&srcIP, &dstIP, 8, p.TTL, p.PacketsSent, p.id, currentUUID)
 			_, err := p.conn.Write(icmpPacket)
 			if err != nil {
-				return err
+				return fmt.Errorf("%w: %s", errCannotWrite, err)
 			}
 
 			// mark this sequence as in-flight
@@ -437,8 +438,7 @@ func (p *Pinger) Statistics() *Statistics {
 		PacketsRecv:           p.PacketsRecv,
 		PacketsRecvDuplicates: p.PacketsRecvDuplicates,
 		PacketLoss:            loss,
-		Rtts:                  p.rtts,
-		TTLs:                  p.ttls,
+		Replies:               p.replies,
 		Addr:                  p.addr,
 		IPAddr:                p.ipaddr,
 		MaxRtt:                p.maxRtt,
@@ -485,18 +485,17 @@ func (p *Pinger) recvICMP(recv chan<- *packet) error {
 		default:
 			buf := make([]byte, 512)
 			if err := p.conn.SetReadDeadline(time.Now().Add(delay)); err != nil {
-				return err
+				return fmt.Errorf("%w: %s", errCannotSetReadDeadline, err)
 			}
 			n, err := p.conn.Read(buf)
 			if err != nil {
-				if neterr, ok := err.(*net.OpError); ok {
-					if neterr.Timeout() {
-						// Read timeout
-						delay = expBackoff.Get()
-						continue
-					}
+				var netErr *net.OpError
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					// Read timeout
+					delay = expBackoff.Get()
+					continue
 				}
-				return err
+				return fmt.Errorf("%w: %s", errCannotRead, err)
 			}
 
 			select {
@@ -543,8 +542,7 @@ func (p *Pinger) processPacket(recv *packet) error {
 
 	pktUUID, err := p.getPacketUUID(pkt.Data)
 	if err != nil || pktUUID == nil {
-		log.Println("error", err)
-		return err
+		return fmt.Errorf("%w: %s", errBadPacket, err)
 	}
 
 	timestamp := bytesToTime(pkt.Data[:timeSliceLength])
@@ -602,7 +600,7 @@ func (p *Pinger) parseEchoReply(data []byte) *Packet {
 				return nil
 			}
 			if ip.SrcIP.String() != p.Target {
-				log.Println("warn: icmp response with wrong src")
+				log.Printf("warn: icmp response with wrong src: %s, expected: %s\n", ip.SrcIP.String(), p.Target)
 				return nil
 			}
 		case layers.LayerTypeICMPv4:
