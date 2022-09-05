@@ -55,8 +55,8 @@ Following the configuration format in the reference implementation, `minivpn`
 allows including files in the main configuration file, but only for the ` ca`,
 `cert` and `key` options.
 
-Each inline file is started by the line <option> and ended by the line
-</option>.
+Each inline file is started by the line `<option>` and ended by the line
+`</option>`.
 
 Here is an example of an inline file usage:
 
