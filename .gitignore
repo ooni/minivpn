@@ -1,5 +1,5 @@
 minivpn
-./obfs4vpn
+obfs4vpn
 ./vpnping
 ./geturl
 ndt7

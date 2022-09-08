@@ -23,6 +23,24 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+type DialFunc func(string, string) (net.Conn, error)
+
+type ObfuscationDialer struct {
+	node ProxyNode
+	// If dialer is set, it will be passed to the pluggable transport.
+	Dialer DialFunc
+}
+
+func NewDialer(node ProxyNode) *ObfuscationDialer {
+	return &ObfuscationDialer{node, nil}
+}
+
+func (d *ObfuscationDialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	// TODO(ainghazal): use the passed context
+	dialFn := dialer(d.node.Addr, d.Dialer)
+	return dialFn(network, address)
+}
+
 // The server certificate given to the client is in the following format:
 // obfs4://server_ip:443?cert=4UbQjIfjJEQHPOs8vs5sagrSXx1gfrDCGdVh2hpIPSKH0nklv1e4f29r7jb91VIrq4q5Jw&iat-mode=0'
 // be sure to urlencode the certificate you obtain from obfs4proxy or other software.
@@ -34,22 +52,8 @@ type obfs4Context struct {
 
 var obfs4Map = make(map[string]obfs4Context)
 
-type Dialer struct {
-	node Node
-}
-
-func NewDialer(node Node) *Dialer {
-	return &Dialer{node}
-}
-
-func (d *Dialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	// TODO(ainghazal): honor ctx
-	dialFn := dialer(d.node.Addr)
-	return dialFn(network, address)
-}
-
-// Obfs4ClientInit initializes the obfs4 client
-func Obfs4ClientInit(node Node) error {
+// Init initializes the obfs4 client
+func Init(node ProxyNode) error {
 	if _, ok := obfs4Map[node.Addr]; ok {
 		return fmt.Errorf("obfs4 context already initialized")
 	}
@@ -82,9 +86,8 @@ func Obfs4ClientInit(node Node) error {
 	return nil
 }
 
-type DialFunc func(string, string) (net.Conn, error)
-
-func dialer(nodeAddr string) DialFunc {
+// dialer returns a DialFunc for a given nodeAddr
+func dialer(nodeAddr string, dial DialFunc) DialFunc {
 	oc := obfs4Map[nodeAddr]
 	// From the documentation of the ClientFactory interface:
 	// https://github.com/Yawning/obfs4/blob/master/transports/base/base.go#L42
@@ -92,8 +95,10 @@ func dialer(nodeAddr string) DialFunc {
 	// (eg: handshaking) to get the connection to the point where it is
 	// ready to relay data.
 	// Dial(network, address string, dialFn DialFunc, args interface{}) (net.Conn, error)
-	dialFn := proxy.Direct.Dial
+	if dial == nil {
+		dial = proxy.Direct.Dial
+	}
 	return func(network, address string) (net.Conn, error) {
-		return oc.cf.Dial(network, nodeAddr, dialFn, oc.cargs)
+		return oc.cf.Dial(network, nodeAddr, base.DialFunc(dial), oc.cargs)
 	}
 }

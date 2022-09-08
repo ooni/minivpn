@@ -7,7 +7,6 @@ package vpn
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -21,6 +20,11 @@ var (
 	openDNSPrimary   = "208.67.222.222"
 	openDNSSecondary = "208.67.220.220"
 )
+
+// DialerContext is anything that features a net.Dialer-like DialContext method.
+type DialerContext interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+}
 
 // A TunDialer contains options for obtaining a network connection tunneled
 // through an OpenVPN endpoint. It uses a userspace gVisor virtual device over
@@ -65,14 +69,14 @@ func NewTunDialerWithNameservers(client *Client, ns1, ns2 string) *TunDialer {
 	return td
 }
 
+// TODO I might want to create a new constructor that can also accept a custom dialer. Right
+// now it's not possible to "create and start" a tundialer only from options
+// with an arbitrary dialer. But maybe it's not needed.
+
 // StartNewTunDialerFromOptions creates a new Dialer directly from an Options
 // object. It also starts the underlying client.
-func StartNewTunDialerFromOptions(opt *Options, dialer DialerContext) (*TunDialer, error) {
-	if dialer == nil {
-		return nil, fmt.Errorf("%w: nil dialer", errBadInput)
-	}
+func StartNewTunDialerFromOptions(opt *Options) (*TunDialer, error) {
 	client := NewClientFromOptions(opt)
-	client.Dialer = dialer
 	err := client.Start(context.Background())
 	if err != nil {
 		defer client.Close()

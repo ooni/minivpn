@@ -39,16 +39,14 @@ func RunPinger(opt *vpn.Options, target string, count uint32) error {
 	defer cancel()
 
 	tunnel := vpn.NewClientFromOptions(opt)
-	err := tunnel.Start(ctx)
-	if err != nil {
+	if err := tunnel.Start(ctx); err != nil {
 		return err
 	}
 
 	pinger := ping.New(target, tunnel)
 	pinger.Count = c
 	pinger.Timeout = timeoutSecondsFromCount(c)
-	err = pinger.Run(ctx)
-	if err != nil {
+	if err := pinger.Run(ctx); err != nil {
 		return err
 	}
 	pinger.PrintStats()

@@ -59,6 +59,9 @@ const (
 type (
 	// proto is the main vpn mode (e.g., TCP or UDP).
 	proto string
+
+	// proxy is the proxy type
+	proxy string
 )
 
 func (p proto) String() string {
@@ -71,6 +74,12 @@ const (
 
 	// protoUDP is used for vpn in UDP mode.
 	protoUDP = proto("udp")
+
+	// proxyOBFS4 is an obfs4 proxy
+	proxyOBFS4 = proxy("obfs4")
+
+	// nullProxy is no proxy
+	nullProxy = proxy("none")
 )
 
 var (
@@ -127,6 +136,13 @@ func NewOptionsFromFilePath(filePath string) (*Options, error) {
 		return nil, err
 	}
 	return getOptionsFromLines(lines, dir)
+}
+
+func (o *Options) ProxyType() proxy {
+	if o.ProxyOBFS4 != "" {
+		return proxyOBFS4
+	}
+	return nullProxy
 }
 
 // certsFromPath returns true when the options object is configured to load

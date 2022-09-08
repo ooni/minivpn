@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ooni/minivpn/obfs4"
 )
 
 var (
@@ -44,11 +46,6 @@ type vpnClient interface {
 }
 
 type dialContextFn func(context.Context, string, string) (net.Conn, error)
-
-// DialerContext is anything that features a net.Dialer-like DialContext method.
-type DialerContext interface {
-	DialContext(context.Context, string, string) (net.Conn, error)
-}
 
 // Client implements the OpenVPN protocol. A Client object satisfies the
 // net.Conn interface. plus Start().
@@ -96,7 +93,6 @@ func NewClientFromOptions(opt *Options) *Client {
 	return &Client{
 		Opts:    opt,
 		tunInfo: &tunnelInfo{},
-		Dialer:  &net.Dialer{},
 	}
 }
 
@@ -186,15 +182,50 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+		// TODO this message is not informative if obfuscation is set.
 		msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
 			c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
 		logger.Info(msg)
 
-		conn, err := c.Dialer.DialContext(ctx, proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
+		dialer, err := c.maybeWrapDialerForObfuscation()
+
+		conn, err := dialer.DialContext(ctx, proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrDialError, err)
 		}
 		return conn, nil
+	}
+}
+
+func (c *Client) getDialer() DialerContext {
+	if c.Dialer == nil {
+		return &net.Dialer{}
+	}
+	return c.Dialer
+}
+
+func (c *Client) maybeWrapDialerForObfuscation() (DialerContext, error) {
+	dialer := c.getDialer()
+
+	switch c.Opts.ProxyType() {
+	case proxyOBFS4:
+		obfsNode, err := obfs4.NewProxyNodeFromURI(c.Opts.ProxyOBFS4)
+		if err != nil {
+			return nil, err
+		}
+
+		err = obfs4.Init(obfsNode)
+		if err != nil {
+			return nil, err
+		}
+		obfsDialer := obfs4.NewDialer(obfsNode)
+		// TODO modify obfs4 to accept a context, right now it expects a DialFunc..
+		obfsDialer.Dialer = func(net, addr string) (net.Conn, error) {
+			return dialer.DialContext(context.Background(), net, addr)
+		}
+		return obfsDialer, nil
+	default:
+		return dialer, nil
 	}
 }
 
