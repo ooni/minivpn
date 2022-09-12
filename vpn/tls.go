@@ -63,13 +63,13 @@ func loadCertAndCAFromPath(pth certPaths) (*certConfig, error) {
 		return nil, fmt.Errorf("%w: %s", ErrBadCA, "cannot parse ca cert")
 	}
 
-	cert, err := tls.LoadX509KeyPair(pth.certPath, pth.keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
-	}
-	cfg := &certConfig{
-		ca:   ca,
-		cert: cert,
+	cfg := &certConfig{ca: ca}
+	if pth.certPath != "" && pth.keyPath != "" {
+		cert, err := tls.LoadX509KeyPair(pth.certPath, pth.keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
+		}
+		cfg.cert = cert
 	}
 	return cfg, nil
 }
@@ -90,13 +90,13 @@ func loadCertAndCAFromBytes(crt certBytes) (*certConfig, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrBadCA, "cannot parse ca cert")
 	}
-	cert, err := tls.X509KeyPair(crt.cert, crt.key)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
-	}
-	cfg := &certConfig{
-		ca:   ca,
-		cert: cert,
+	cfg := &certConfig{ca: ca}
+	if crt.cert != nil && crt.key != nil {
+		cert, err := tls.X509KeyPair(crt.cert, crt.key)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrBadKeypair, err)
+		}
+		cfg.cert = cert
 	}
 	return cfg, nil
 }

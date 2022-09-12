@@ -903,3 +903,69 @@ func Test_isSubdir(t *testing.T) {
 		})
 	}
 }
+
+func Test_newTunnelInfoFromPushedOptions(t *testing.T) {
+	type args struct {
+		opts map[string][]string
+	}
+	tests := []struct {
+		name string
+		args args
+		want *tunnelInfo
+	}{
+		{
+			name: "get route",
+			args: args{
+				map[string][]string{
+					"route": []string{"1.1.1.1"},
+				},
+			},
+			want: &tunnelInfo{
+				gw: "1.1.1.1",
+			},
+		},
+		{
+			name: "get route from gw",
+			args: args{
+				map[string][]string{
+					"route-gateway": []string{"1.1.2.2"},
+				},
+			},
+			want: &tunnelInfo{
+				gw: "1.1.2.2",
+			},
+		},
+		{
+			name: "get ip",
+			args: args{
+				map[string][]string{
+					"ifconfig": []string{"1.1.3.3", "foo", "bar"},
+				},
+			},
+			want: &tunnelInfo{
+				ip: "1.1.3.3",
+			},
+		},
+		{
+			name: "get ip and route",
+			args: args{
+				map[string][]string{
+					"ifconfig":      []string{"1.1.3.3", "foo", "bar"},
+					"route":         []string{"1.1.1.1"},
+					"route-gateway": []string{"1.1.2.2"},
+				},
+			},
+			want: &tunnelInfo{
+				ip: "1.1.3.3",
+				gw: "1.1.1.1",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := newTunnelInfoFromPushedOptions(tt.args.opts); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("newTunnelInfoFromPushedOptions() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

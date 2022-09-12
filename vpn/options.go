@@ -205,9 +205,10 @@ func newTunnelInfoFromRemoteOptionsString(remoteOpts string) *tunnelInfo {
 // a new tunnel struct with the relevant info.
 func newTunnelInfoFromPushedOptions(opts map[string][]string) *tunnelInfo {
 	t := &tunnelInfo{}
-	gw := opts["route-gateway"]
-	if len(gw) >= 1 {
-		t.gw = gw[0]
+	if r := opts["route"]; len(r) >= 1 {
+		t.gw = r[0]
+	} else if r := opts["route-gateway"]; len(r) >= 1 {
+		t.gw = r[0]
 	}
 	ip := opts["ifconfig"]
 	if len(ip) >= 1 {
