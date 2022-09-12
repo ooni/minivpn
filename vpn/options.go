@@ -286,24 +286,15 @@ func parseAuth(p []string, o *Options) error {
 	return nil
 }
 
-func parseAuthUser(p []string, o *Options) error {
-	if len(p) != 1 || !existsFile(p[0]) {
-		return fmt.Errorf("%w: %s", errBadCfg, "auth-user-pass expects a valid file")
-	}
-	creds, err := getCredentialsFromFile(p[0])
-	if err != nil {
-		return err
-	}
-	o.Username, o.Password = creds[0], creds[1]
-	return nil
-}
-
-func parseCA(p []string, o *Options, d string) error {
+func parseCA(p []string, o *Options, basedir string) error {
 	e := fmt.Errorf("%w: %s", errBadCfg, "ca expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
-	ca := filepath.Join(d, p[0])
+	ca := toAbs(p[0], basedir)
+	if sub, _ := isSubdir(basedir, ca); !sub {
+		return fmt.Errorf("%w: %s", errBadCfg, "ca must be below config path")
+	}
 	if !existsFile(ca) {
 		return e
 	}
@@ -311,12 +302,15 @@ func parseCA(p []string, o *Options, d string) error {
 	return nil
 }
 
-func parseCert(p []string, o *Options, d string) error {
+func parseCert(p []string, o *Options, basedir string) error {
 	e := fmt.Errorf("%w: %s", errBadCfg, "cert expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
-	cert := filepath.Join(d, p[0])
+	cert := toAbs(p[0], basedir)
+	if sub, _ := isSubdir(basedir, cert); !sub {
+		return fmt.Errorf("%w: %s", errBadCfg, "cert must be below config path")
+	}
 	if !existsFile(cert) {
 		return e
 	}
@@ -324,16 +318,42 @@ func parseCert(p []string, o *Options, d string) error {
 	return nil
 }
 
-func parseKey(p []string, o *Options, d string) error {
+func parseKey(p []string, o *Options, basedir string) error {
 	e := fmt.Errorf("%w: %s", errBadCfg, "key expects a valid file")
 	if len(p) != 1 {
 		return e
 	}
-	key := filepath.Join(d, p[0])
+	key := toAbs(p[0], basedir)
+	if sub, _ := isSubdir(basedir, key); !sub {
+		return fmt.Errorf("%w: %s", errBadCfg, "key must be below config path")
+	}
 	if !existsFile(key) {
 		return e
 	}
 	o.KeyPath = key
+	return nil
+}
+
+// parseAuthUser reads credentials from a given file, according to the openvpn
+// format (user and pass on a line each). To avoid path traversal / LFI, the
+// credentials file is expected to be in a subdirectory of the base dir.
+func parseAuthUser(p []string, o *Options, basedir string) error {
+	e := fmt.Errorf("%w: %s", errBadCfg, "auth-user-pass expects a valid file")
+	if len(p) != 1 {
+		return e
+	}
+	auth := toAbs(p[0], basedir)
+	if sub, _ := isSubdir(basedir, auth); !sub {
+		return fmt.Errorf("%w: %s", errBadCfg, "auth must be below config path")
+	}
+	if !existsFile(auth) {
+		return e
+	}
+	creds, err := getCredentialsFromFile(auth)
+	if err != nil {
+		return err
+	}
+	o.Username, o.Password = creds[0], creds[1]
 	return nil
 }
 
@@ -390,7 +410,6 @@ var pMap = map[string]interface{}{
 	"remote":          parseRemote,
 	"cipher":          parseCipher,
 	"auth":            parseAuth,
-	"auth-user-pass":  parseAuthUser,
 	"compress":        parseCompress,
 	"comp-lzo":        parseCompLZO,
 	"proxy-obfs4":     parseProxyOBFS4,
@@ -398,19 +417,20 @@ var pMap = map[string]interface{}{
 }
 
 var pMapDir = map[string]interface{}{
-	"ca":   parseCA,
-	"cert": parseCert,
-	"key":  parseKey,
+	"ca":             parseCA,
+	"cert":           parseCert,
+	"key":            parseKey,
+	"auth-user-pass": parseAuthUser,
 }
 
 func parseOption(o *Options, dir, key string, p []string) error {
 	switch key {
-	case "proto", "remote", "cipher", "auth", "auth-user-pass", "compress", "comp-lzo", "tls-version-max", "proxy-obfs4":
+	case "proto", "remote", "cipher", "auth", "compress", "comp-lzo", "tls-version-max", "proxy-obfs4":
 		fn := pMap[key].(func([]string, *Options) error)
 		if e := fn(p, o); e != nil {
 			return e
 		}
-	case "ca", "cert", "key":
+	case "ca", "cert", "key", "auth-user-pass":
 		fn := pMapDir[key].(func([]string, *Options, string) error)
 		if e := fn(p, o, dir); e != nil {
 			return e
@@ -602,4 +622,27 @@ func getCredentialsFromFile(path string) ([]string, error) {
 		return nil, fmt.Errorf("%w: %s", errBadCfg, "empty password in creds file")
 	}
 	return lines, nil
+}
+
+// toAbs return an absolute path if the given path is not already absolute; to
+// do so, it will append the path to the given basedir.
+func toAbs(path, basedir string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(basedir, path)
+}
+
+// isSubdir checks if a given path is a subdirectory of another. It returns
+// true if that's the case, and any error raise during the check.
+func isSubdir(parent, sub string) (bool, error) {
+	p, err := filepath.Abs(parent)
+	if err != nil {
+		return false, err
+	}
+	s, err := filepath.Abs(sub)
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(s, p), nil
 }

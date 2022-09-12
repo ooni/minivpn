@@ -625,7 +625,6 @@ func Test_parseAuth(t *testing.T) {
 }
 
 func Test_parseAuthUser(t *testing.T) {
-
 	makeCreds := func(credStr string) string {
 		f, err := os.CreateTemp(t.TempDir(), "tmpfile-")
 		if err != nil {
@@ -637,9 +636,14 @@ func Test_parseAuthUser(t *testing.T) {
 		return f.Name()
 	}
 
+	baseDir := func() string {
+		return os.TempDir()
+	}
+
 	type args struct {
 		p []string
 		o *Options
+		d string
 	}
 	tests := []struct {
 		name    string
@@ -651,14 +655,25 @@ func Test_parseAuthUser(t *testing.T) {
 			args: args{
 				p: []string{makeCreds("foo\nbar\n")},
 				o: &Options{},
+				d: baseDir(),
 			},
 			wantErr: nil,
+		},
+		{
+			name: "path traversal should fail",
+			args: args{
+				p: []string{"/tmp/../etc/passwd"},
+				o: &Options{},
+				d: baseDir(),
+			},
+			wantErr: errBadCfg,
 		},
 		{
 			name: "parse empty file should fail",
 			args: args{
 				p: []string{""},
 				o: &Options{},
+				d: baseDir(),
 			},
 			wantErr: errBadCfg,
 		},
@@ -667,6 +682,7 @@ func Test_parseAuthUser(t *testing.T) {
 			args: args{
 				p: []string{},
 				o: &Options{},
+				d: baseDir(),
 			},
 			wantErr: errBadCfg,
 		},
@@ -675,20 +691,21 @@ func Test_parseAuthUser(t *testing.T) {
 			args: args{
 				p: []string{makeCreds("foo\n")},
 				o: &Options{},
+				d: baseDir(),
 			},
 			wantErr: errBadCfg,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := parseAuthUser(tt.args.p, tt.args.o); !errors.Is(err, tt.wantErr) {
+			if err := parseAuthUser(tt.args.p, tt.args.o, tt.args.d); !errors.Is(err, tt.wantErr) {
 				t.Errorf("parseAuthUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-// TODO return options object so that it's testable too
+// TODO(ainghazal): return options object so that it's testable too
 func Test_parseTLSVerMax(t *testing.T) {
 	type args struct {
 		p []string
@@ -748,7 +765,6 @@ func Test_proto_String(t *testing.T) {
 }
 
 func Test_getCredentialsFromFile(t *testing.T) {
-
 	makeCreds := func(credStr string) string {
 		f, err := os.CreateTemp(t.TempDir(), "tmpfile-")
 		if err != nil {
@@ -808,21 +824,81 @@ func Test_getCredentialsFromFile(t *testing.T) {
 	}
 }
 
-func Test_newTunnelInfoFromPushedOptions(t *testing.T) {
+func Test_isSubdir(t *testing.T) {
 	type args struct {
-		opts map[string][]string
+		parent string
+		sub    string
 	}
 	tests := []struct {
-		name string
-		args args
-		want *tunnelInfo
+		name    string
+		args    args
+		want    bool
+		wantErr bool
 	}{
-		// TODO: Add test cases.
+		{
+			name: "sunny path",
+			args: args{
+				parent: "/foo/bar",
+				sub:    "/foo/bar/baz",
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "same dir",
+			args: args{
+				parent: "/foo/bar",
+				sub:    "/foo/bar",
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "same dir w/ slash",
+			args: args{
+				parent: "/foo/bar",
+				sub:    "/foo/bar/",
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "not subdir",
+			args: args{
+				parent: "/foo/bar",
+				sub:    "/foo",
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "path traversal",
+			args: args{
+				parent: "/foo/bar",
+				sub:    "/foo/bar/./../",
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "path traversal with .",
+			args: args{
+				parent: ".",
+				sub:    "/etc/",
+			},
+			want:    false,
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := newTunnelInfoFromPushedOptions(tt.args.opts); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("newTunnelInfoFromPushedOptions() = %v, want %v", got, tt.want)
+			got, err := isSubdir(tt.args.parent, tt.args.sub)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("isSubdir() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("isSubdir() = %v, want %v", got, tt.want)
 			}
 		})
 	}
