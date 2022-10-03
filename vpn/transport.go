@@ -10,7 +10,6 @@ package vpn
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -71,7 +70,8 @@ func readPacketFromTCP(conn net.Conn) ([]byte, error) {
 // on the protocol used by OpenVPN on the wire.
 type tlsModeTransporter interface {
 	// ReadPacket reads an OpenVPN packet from the wire.
-	ReadPacket() (p *packet, err error)
+	// TODO should select and return first packet??
+	ReadPacket() (*packet, error)
 
 	// WritePacket writes an OpenVPN packet to the wire.
 	WritePacket(opcodeKeyID uint8, data []byte) error
@@ -96,55 +96,64 @@ type tlsModeTransporter interface {
 }
 
 // newTLSModeTransport creates a new TLSModeTransporter using the given net.Conn.
-func newTLSModeTransport(conn net.Conn, s *session) (tlsModeTransporter, error) {
-	return &tlsTransport{Conn: conn, session: s}, nil
+func newTLSModeTransport(conn net.Conn, r *reliableTransport) (tlsModeTransporter, error) {
+	return &tlsTransport{Conn: conn, reliable: r}, nil
 }
 
 // tlsTransport implements TLSModeTransporter.
 type tlsTransport struct {
 	net.Conn
-	session *session
+	reliable *reliableTransport
 }
 
-// ReadPacket returns a packet reading from the underlying conn, and an error
-// if the read did not succeed.
+// ReadPacket will try to read a packet from the underlying conn, and hand it to reliableTransport for processing.
 func (t *tlsTransport) ReadPacket() (*packet, error) {
+	panicIfTrue(t.Conn == nil, "nil Conn in tlsTransport")
 	buf, err := readPacket(t.Conn)
 	if err != nil {
 		return nil, err
 	}
-
-	p, err := parsePacketFromBytes(buf)
-	if err != nil {
-		return &packet{}, err
+	var p *packet
+	// TODO(ainghazal): can delegate the rest of the method to reliableTransport
+	if p, err = parsePacketFromBytes(buf); err != nil {
+		return nil, err
 	}
 	if p.isACK() {
-		logger.Warn("tls: got ACK (ignored)")
-		return &packet{}, nil
+		t.reliable.processACK(p)
+		return nil, nil
 	}
+	if t.reliable.isPacketTooFar(p) {
+		// drop
+		logger.Warnf("Packet too far: %v", p.id)
+		return nil, nil
+	}
+	if dup, err := t.reliable.isDuplicatedPacket(p); dup || err != nil {
+		// drop
+		if err != nil {
+			logger.Warnf("Error comparing packets: %v", err)
+		} else {
+			logger.Warnf("Dup: %v", p.id)
+		}
+		return nil, nil
+	}
+	t.reliable.TrackIncomingPacket(p)
 	return p, nil
 }
 
-// WritePacket writes a packet to the underlying conn. It expect the opcode of the packet and a byte array containing the serialized data. It returns an error if the write did not succeed.
+// WritePacket writes a packet to the underlying conn. It expect the opcode of
+// the packet and a byte array containing the serialized data. It returns an
+// error if the write did not succeed.
 func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
-	if t.session == nil {
-		return fmt.Errorf("%w:%s", errBadInput, "tlsTransport badly initialized")
-
-	}
+	panicIfTrue(t.reliable.session == nil, "tlsTansport initialized with nil session")
 	p := newPacketFromPayload(opcodeKeyID, 0, data)
-	id, err := t.session.LocalPacketID()
+	id, err := t.reliable.session.LocalPacketID()
 	if err != nil {
 		return err
 	}
 	p.id = id
-	p.localSessionID = t.session.LocalSessionID
+	p.localSessionID = t.reliable.session.LocalSessionID
 	payload := p.Bytes()
-
 	out := maybeAddSizeFrame(t.Conn, payload)
-
-	logger.Debug(fmt.Sprintln("tls write:", len(out)))
-	logger.Debug(fmt.Sprintln(hex.Dump(out)))
-
 	_, err = t.Conn.Write(out)
 	return err
 }
@@ -155,117 +164,81 @@ var _ tlsModeTransporter = &tlsTransport{} // Ensure that we implement TLSModelT
 // TLS Handshake over OpenVPN control packets.
 type controlChannelTLSConn struct {
 	conn      net.Conn
-	session   *session
+	reliable  *reliableTransport
 	transport tlsModeTransporter
 	// we need to buffer reads because the tls records request less than
 	// the payload we receive.
 	bufReader *bytes.Buffer
 
-	doReadFromConnFn  func(*controlChannelTLSConn, []byte) (bool, int, error)
-	doReadFromQueueFn func(*controlChannelTLSConn, []byte) (bool, int, error)
+	// for testing
+	skipReadLoop bool
+	skipACK      bool
 }
 
 // newControlChannelTLSConn returns a controlChannelTLSConn. It requires the on-the-wire
 // net.Conn that will be used underneath, and a configured session. It returns
 // also an error if the operation cannot be completed.
-func newControlChannelTLSConn(conn net.Conn, s *session) (*controlChannelTLSConn, error) {
-	transport, err := newTLSModeTransport(conn, s)
+func newControlChannelTLSConn(conn net.Conn, r *reliableTransport) (*controlChannelTLSConn, error) {
+	transport, err := newTLSModeTransport(conn, r)
 	if err != nil {
 		return &controlChannelTLSConn{}, err
 	}
 	buf := bytes.NewBuffer(nil)
 	tlsConn := &controlChannelTLSConn{
 		conn:      conn,
-		session:   s,
+		reliable:  r,
 		transport: transport,
 		bufReader: buf,
 	}
-	tlsConn.doReadFromConnFn = doReadFromConn
-	tlsConn.doReadFromQueueFn = doReadFromQueue
 	return tlsConn, err
 }
 
-// Read over the control channel. This method implements the reliability layer:
-// it retries reads until the _next_ packet is received (according to the
-// packetID). Returns also an error if the operation cannot be completed.
+// Read over the control channel.  Returns number of read bytes, and an error
+// if the operation could not be completed.
 func (c *controlChannelTLSConn) Read(b []byte) (int, error) {
-	if c.session == nil || c.session.ackQueue == nil {
-		return 0, fmt.Errorf("%w: %s", errBadInput, "bad session in TLSConn.Read()")
-	}
+	panicIfTrue(c.reliable == nil, "controlChannelTLSConn: nil reliable (transport)")
+	panicIfTrue(c.transport == nil, "controlChannelTLSConn: nil transport")
+	panicIfTrue(c.reliable.session == nil, "controlChannelTLSConn: nil reliable.session")
+	panicIfTrue(c.reliable.tlsQueueChan == nil, "controlChannelTLSConn: nil reliable.tlsQueueChan")
+
+	var err error
 	for {
-		switch len(c.session.ackQueue) {
+		var p *packet
+
+		switch len(c.reliable.tlsQueueChan) {
+		// TODO should add a timeout here, perhaps
 		case 0:
-			ok, n, err := c.doReadFromConnFn(c, b)
-			if ok {
-				return n, err
+			p, err = c.transport.ReadPacket()
+			if err != nil {
+				logger.Errorf("cannot read packet: %v", err)
+				break
+			}
+			if !c.skipReadLoop {
+				continue
 			}
 		default:
-			ok, n, err := c.doReadFromQueueFn(c, b)
-			if ok {
-				return n, err
+			p = <-c.reliable.tlsQueueChan
+		}
+
+		if p == nil || err != nil {
+			return 0, err
+		}
+
+		if !c.skipACK {
+			if err := sendACKFn(c.conn, c.reliable, p.id); err != nil {
+				return 0, err
 			}
 		}
+		return writeAndReadFromBufferFn(c.bufReader, b, p.payload)
 	}
-}
-
-func doReadFromConn(c *controlChannelTLSConn, b []byte) (bool, int, error) {
-	p, err := c.doRead()
-
-	if err != nil {
-		return true, 0, err
-	}
-	switch c.canRead(p) {
-	case true:
-		if err := sendACKFn(c.conn, c.session, p.id); err != nil {
-			return true, 0, err
-		}
-		n, err := writeAndReadFromBufferFn(c.bufReader, b, p.payload)
-		return true, n, err
-	case false:
-		if p != nil {
-			c.session.ackQueue <- p
-		}
-	}
-
-	return false, 0, nil
-}
-
-func doReadFromQueue(c *controlChannelTLSConn, b []byte) (bool, int, error) {
-	for p := range c.session.ackQueue {
-		if c.canRead(p) {
-			if err := sendACKFn(c.conn, c.session, p.id); err != nil {
-				return true, 0, err
-			}
-			n, err := writeAndReadFromBufferFn(c.bufReader, b, p.payload)
-			return true, n, err
-		} else {
-			c.session.ackQueue <- p
-			return doReadFromConn(c, b)
-		}
-	}
-	return false, 0, nil
-}
-
-// doRead() calls ReadPacket() in the underlying transport implementation. It
-// returns a packet and an error.
-func (c *controlChannelTLSConn) doRead() (*packet, error) {
-	if c.transport == nil {
-		return nil, fmt.Errorf("%w:%s", errBadInput, "tlsConn is missing transport")
-
-	}
-	return c.transport.ReadPacket()
-}
-
-// canRead returns true if the packet is not nil and its packetID is the next
-// integer in the expected sequence; returns false otherwise.
-func (c *controlChannelTLSConn) canRead(p *packet) bool {
-	return p != nil && c.session.isNextPacket(p)
+	return 0, err
 }
 
 // writeAndReadPayloadFromBuffer writes a given payload to a buffered reader, and returns
 // a read from that same buffered reader into the passed byte array. it returns both an integer
 // denoting the amount of bytes read, and any error during the operation.
 func writeAndReadFromBuffer(bb *bytes.Buffer, b []byte, payload []byte) (int, error) {
+	panicIfTrue(bb == nil, "nil buffer")
 	bb.Write(payload)
 	return bb.Read(b)
 }

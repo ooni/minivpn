@@ -7,8 +7,6 @@ import (
 	"net"
 	"reflect"
 	"testing"
-
-	"github.com/ooni/minivpn/vpn/mocks"
 )
 
 func Test_newSession(t *testing.T) {
@@ -92,7 +90,6 @@ func Test_session_LocalPacketID(t *testing.T) {
 		keyID           int
 		localPacketID   packetID
 		lastACK         packetID
-		ackQueue        chan *packet
 	}
 
 	tests := []struct {
@@ -148,55 +145,57 @@ func Test_session_LocalPacketID(t *testing.T) {
 	}
 }
 
-func Test_session_isNextPacket(t *testing.T) {
-	type fields struct {
-		lastACK packetID
-	}
-	type args struct {
-		p *packet
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		{
-			"is next",
-			fields{lastACK: packetID(0)},
-			args{&packet{id: packetID(1)}},
-			true,
-		},
-		{
-			"is two more",
-			fields{lastACK: packetID(0)},
-			args{&packet{id: packetID(2)}},
-			false,
-		},
-		{
-			"is lesser",
-			fields{lastACK: packetID(100)},
-			args{&packet{id: packetID(99)}},
-			false,
-		},
-		{
-			"is nil",
-			fields{lastACK: packetID(100)},
-			args{nil},
-			false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &session{
-				lastACK: tt.fields.lastACK,
-			}
-			if got := s.isNextPacket(tt.args.p); got != tt.want {
-				t.Errorf("session.isNextPacket() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
+/*
+ func Test_session_isNextPacket(t *testing.T) {
+ 	type fields struct {
+ 		lastACK packetID
+ 	}
+ 	type args struct {
+ 		p *packet
+ 	}
+ 	tests := []struct {
+ 		name   string
+ 		fields fields
+ 		args   args
+ 		want   bool
+ 	}{
+ 		{
+ 			"is next",
+ 			fields{lastACK: packetID(0)},
+ 			args{&packet{id: packetID(1)}},
+ 			true,
+ 		},
+ 		{
+ 			"is two more",
+ 			fields{lastACK: packetID(0)},
+ 			args{&packet{id: packetID(2)}},
+ 			false,
+ 		},
+ 		{
+ 			"is lesser",
+ 			fields{lastACK: packetID(100)},
+ 			args{&packet{id: packetID(99)}},
+ 			false,
+ 		},
+ 		{
+ 			"is nil",
+ 			fields{lastACK: packetID(100)},
+ 			args{nil},
+ 			false,
+ 		},
+ 	}
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			s := &session{
+ 				lastACK: tt.fields.lastACK,
+ 			}
+ 			if got := s.isNextPacket(tt.args.p); got != tt.want {
+ 				t.Errorf("session.isNextPacket() = %v, want %v", got, tt.want)
+ 			}
+ 		})
+ 	}
+ }
+*/
 
 func Test_isBadAuthReply(t *testing.T) {
 	type args struct {
@@ -241,14 +240,6 @@ func Test_isPushReply(t *testing.T) {
 				t.Errorf("isPushReply() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func Test_sendControlPacket(t *testing.T) {
-	_, err := sendControlPacket(&mocks.Conn{}, nil, 1, 1, []byte(""))
-	wantErr := errBadInput
-	if !errors.Is(err, wantErr) {
-		t.Errorf("sendControlPacket(): empty session should fail with err=%v, got=%v", wantErr, err)
 	}
 }
 
