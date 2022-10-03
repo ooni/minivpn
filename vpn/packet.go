@@ -199,15 +199,18 @@ func parseControlPacket(p *packet) (*packet, error) {
 	if len(p.payload) == 0 {
 		return p, errEmptyPayload
 	}
-	if !p.isControl() {
-		return p, fmt.Errorf("%w: %s", errBadInput, "expected control packet")
+	if !p.isControl() && !p.isACK() {
+		return p, fmt.Errorf("%w: %s", errBadInput, "expected control/ack packet")
 	}
 
 	buf := bytes.NewBuffer(p.payload)
 
+	// TODO the error msg will be clearer if we check for the minimum lenght here.
+
 	// local session id
 	_, err := io.ReadFull(buf, p.localSessionID[:])
 	if err != nil {
+		fmt.Println(">>> ", p.localSessionID)
 		return p, fmt.Errorf("%w: bad sessionID: %s", errBadInput, err)
 	}
 

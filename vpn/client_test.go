@@ -245,10 +245,10 @@ func TestClientStartWithMockedMuxerFactory(t *testing.T) {
 
 func TestClient_emitSendsToListener(t *testing.T) {
 	t.Run("emit writes event if listener not null", func(t *testing.T) {
-		l := make(chan uint16, 2)
+		l := make(chan uint8, 2)
 		c := &Client{}
 		c.EventListener = l
-		sent := uint16(2)
+		sent := uint8(2)
 		c.emit(sent)
 		got := <-l
 		if got != sent {
@@ -257,18 +257,18 @@ func TestClient_emitSendsToListener(t *testing.T) {
 	})
 	t.Run("emit is a noop if evenlistener not set", func(t *testing.T) {
 		c := &Client{}
-		sent := uint16(2)
+		sent := uint8(2)
 		c.emit(sent)
 		if c.EventListener != nil {
 			t.Errorf("expected EventListener to be nil")
 		}
 	})
 	t.Run("listener receives several events", func(t *testing.T) {
-		l := make(chan uint16, 5)
+		l := make(chan uint8, 5)
 		c := &Client{}
 		c.EventListener = l
-		received := []uint16{}
-		sent := []uint16{1, 2, 3, 4, 5}
+		received := []uint8{}
+		sent := []uint8{1, 2, 3, 4, 5}
 		for _, i := range sent {
 			c.emit(i)
 		}

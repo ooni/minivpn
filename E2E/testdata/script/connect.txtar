@@ -1,0 +1,2 @@
+exec ./minivpn -c data/riseup/config -t "1.1.1.1" -n 5 ping
+stdout 'packet loss'

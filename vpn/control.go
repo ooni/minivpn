@@ -32,19 +32,18 @@ type session struct {
 	keys            []*dataChannelKey
 	keyID           int
 	localPacketID   packetID
-	lastACK         packetID
-	ackQueue        chan *packet
 	mu              sync.Mutex
 	Log             Logger
+
+	// this needs to move to reliableTransport
+	lastACK packetID
 }
 
 // newSession returns a session ready to be used.
 func newSession() (*session, error) {
 	key0 := &dataChannelKey{}
-	ackQueue := make(chan *packet, 100)
 	session := &session{
-		keys:     []*dataChannelKey{key0},
-		ackQueue: ackQueue,
+		keys: []*dataChannelKey{key0},
 	}
 
 	randomBytes, err := randomFn(8)
@@ -95,40 +94,14 @@ func (s *session) LocalPacketID() (packetID, error) {
 	return pid, nil
 }
 
-// UpdateLastACK will update the internal variable for the last acknowledged
-// packet to the passed packetID, only if packetID is greater than the lastACK.
-func (s *session) UpdateLastACK(newPacketID packetID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.lastACK == math.MaxUint32 {
-		return errExpiredKey
-	}
-	if s.lastACK != 0 && newPacketID <= s.lastACK {
-		logger.Warnf("tried to write ack %d; last was %d", newPacketID, s.lastACK)
-	}
-	s.lastACK = newPacketID
-	return nil
-}
-
-// isNextPacket returns true if the packetID is the next integer
-// from the last acknowledged packet.
-func (s *session) isNextPacket(p *packet) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p == nil {
-		return false
-	}
-	return p.id-s.lastACK == 1
-}
-
 // control implements the controlHandler interface.
 // Like for true pirates, there is no state in control.
 type control struct{}
 
 // SendHardReset sends a control packet with the HardResetClientv2 header,
 // over the passed net.Conn.
-func (c *control) SendHardReset(conn net.Conn, s *session) error {
-	_, err := sendControlPacket(conn, s, pControlHardResetClientV2, 0, []byte(""))
+func (c *control) SendHardReset(conn net.Conn, r *reliableTransport) error {
+	_, err := sendControlPacket(conn, r, pControlHardResetClientV2, 0, []byte(""))
 	return err
 }
 
@@ -163,8 +136,8 @@ func (*control) ReadPushResponse(b []byte) map[string][]string {
 // ControlMessage returns a byte array containing a message over the control
 // channel.
 // This is not a P_CONTROL, but a message over the TLS encrypted channel.
-func (c *control) ControlMessage(s *session, opt *Options) ([]byte, error) {
-	key, err := s.ActiveKey()
+func (c *control) ControlMessage(r *reliableTransport, opt *Options) ([]byte, error) {
+	key, err := r.session.ActiveKey()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -182,27 +155,26 @@ func (c *control) ReadControlMessage(b []byte) (*keySource, string, error) {
 // SendACK builds an ACK control packet for the given packetID, and writes it
 // over the passed connection. It returns an error if the operation cannot be
 // completed successfully.
-func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
-	return sendACKFn(conn, s, pid)
+func (c *control) SendACK(conn net.Conn, r *reliableTransport, pid packetID) error {
+	return sendACKFn(conn, r, pid)
 }
 
 // sendACK is used by controlHandler.SendACK() and by TLSConn.Read()
-func sendACK(conn net.Conn, s *session, pid packetID) error {
-	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
+func sendACK(conn net.Conn, r *reliableTransport, pid packetID) error {
+	panicIfTrue(len(r.session.RemoteSessionID) == 0, "tried to ack with null remote")
 
-	p := newACKPacket(pid, s)
+	p := newACKPacket(pid, r.session)
 	payload := p.Bytes()
 	payload = maybeAddSizeFrame(conn, payload)
 
-	_, err := conn.Write(payload)
-	if err != nil {
+	if _, err := conn.Write(payload); err != nil {
 		return err
 	}
 
 	logger.Debug(fmt.Sprintln("write ack:", pid))
 	logger.Debug(fmt.Sprintln(hex.Dump(payload)))
 
-	return s.UpdateLastACK(pid)
+	return r.UpdateLastACK(pid)
 }
 
 var sendACKFn = sendACK
@@ -211,24 +183,20 @@ var _ controlHandler = &control{} // Ensure that we implement controlHandler
 
 // sendControlPacket crafts a control packet with the given opcode and payload,
 // and writes it to the passed net.Conn.
-func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload []byte) (n int, err error) {
-	if s == nil {
-		return 0, fmt.Errorf("%w:%s", errBadInput, "nil session")
-	}
-	p := newPacketFromPayload(uint8(opcode), 0, payload)
-	p.localSessionID = s.LocalSessionID
+func sendControlPacket(conn net.Conn, r *reliableTransport, opcode int, ack int, payload []byte) (n int, err error) {
+	panicIfTrue(r == nil, "nil transport")
+	panicIfTrue(r.session == nil, "nil session")
 
-	p.id, err = s.LocalPacketID()
+	p := newPacketFromPayload(uint8(opcode), 0, payload)
+	p.localSessionID = r.session.LocalSessionID
+
+	p.id, err = r.session.LocalPacketID()
 	if err != nil {
 		return 0, err
 	}
-	out := p.Bytes()
-
-	out = maybeAddSizeFrame(conn, out)
-
-	logger.Debug(fmt.Sprintf("control write: (%d bytes)\n", len(out)))
-	logger.Debug(fmt.Sprintln(hex.Dump(out)))
-	return conn.Write(out)
+	r.queuePacketToSend(&outgoingPacket{p, conn})
+	// TODO does not make sense to return int
+	return 0, nil
 }
 
 // isControlMessage returns a boolean indicating whether the header of a
@@ -244,6 +212,10 @@ func isControlMessage(b []byte) bool {
 // payload if the network type for the passed net.Conn is not UDP (assumed to
 // be TCP).
 func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
+	panicIfTrue(conn == nil, "nil conn")
+	if len(payload) == 0 {
+		return payload
+	}
 	switch conn.LocalAddr().Network() {
 	case "udp", "udp4", "udp6":
 		// nothing to do for UDP

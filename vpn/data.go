@@ -435,15 +435,12 @@ func prependPacketID(p packetID, buf []byte) []byte {
 }
 
 func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
-	if d.state == nil || d.state.dataCipher == nil {
-		return 0, fmt.Errorf("%w: %s", errBadInput, "bad state")
-	}
+	panicIfTrue(d.state == nil, "data: nil state")
+	panicIfTrue(d.state.dataCipher == nil, "data.state: nil dataCipher")
 
 	var plain []byte
 	var err error
 
-	// TODO(ainghazal): separate into two different implementations
-	// and get rid of multiple switch.
 	switch d.state.dataCipher.isAEAD() {
 	case true:
 		plain, err = doCompress(payload, d.options.Compress)

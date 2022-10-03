@@ -139,6 +139,14 @@ func (td *TunDialer) DialTimeout(network, address string, timeout time.Duration)
 	return conn, err
 }
 
+// CloseIdleConnections implements OONI's model.Dialer interface.
+func (td *TunDialer) CloseIdleConnections() {
+	// TODO(https://github.com/ooni/minivpn/issues/27): cleanup on shutdown.
+	if td.device != nil {
+		td.device.Down()
+	}
+}
+
 func (td *TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 	localIP := td.client.LocalAddr().String()
 
@@ -160,7 +168,7 @@ func (td *TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 
 	// connect the virtual device to our openvpn tunnel
 	if !td.skipDeviceSetup {
-		dev := &device{tun, td.client}
+		dev := newDevice(tun, td.client)
 		dev.Up()
 		td.device = dev
 	}
@@ -174,41 +182,76 @@ func (td *TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 type device struct {
 	tun tun.Device
 	vpn net.Conn
+
+	done chan interface{}
+	lock sync.Mutex
+}
+
+func newDevice(t tun.Device, vpn net.Conn) *device {
+	return &device{
+		tun:  t,
+		vpn:  vpn,
+		done: make(chan interface{}),
+	}
 }
 
 // Up spawns two goroutines that communicate the two halves of a device.
-// TODO(https://github.com/ooni/minivpn/issues/27): we probably want a way of
-// shutting them down too.
 func (d *device) Up() {
 	go func() {
-		b := make([]byte, 4096)
-		for {
-			n, err := d.tun.Read(b, 0) // zero offset
-			if err != nil {
-				logger.Errorf("tun read error: %v", err)
-				break
-			}
-			_, err = d.vpn.Write(b[0:n])
-			if err != nil {
-				logger.Errorf("vpn write error: %v", err)
-				break
-			}
+		select {
+		case <-d.done:
+			return
+		default:
+			b := make([]byte, 4096)
+			for {
+				n, err := d.tun.Read(b, 0) // zero offset
+				if err != nil {
+					logger.Errorf("tun read error: %v", err)
+					break
+				}
+				_, err = d.vpn.Write(b[0:n])
+				if err != nil {
+					logger.Errorf("vpn write error: %v", err)
+					break
+				}
 
+			}
 		}
+		close(d.done)
 	}()
 	go func() {
-		b := make([]byte, 4096)
-		for {
-			n, err := d.vpn.Read(b)
-			if err != nil {
-				logger.Errorf("vpn read error: %v", err)
-				break
-			}
-			_, err = d.tun.Write(b[0:n], 0) // zero offset
-			if err != nil {
-				logger.Errorf("tun write error: %v", err)
-				break
+		select {
+		case <-d.done:
+			return
+		default:
+			b := make([]byte, 4096)
+			for {
+				n, err := d.vpn.Read(b)
+				if err != nil {
+					logger.Errorf("vpn read error: %v", err)
+					break
+				}
+				_, err = d.tun.Write(b[0:n], 0) // zero offset
+				if err != nil {
+					logger.Errorf("tun write error: %v", err)
+					break
+				}
 			}
 		}
 	}()
+}
+
+func (d *device) Down() {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	open := true
+	select {
+	case _, open = <-d.done:
+	default:
+	}
+
+	if open {
+		close(d.done)
+	}
 }

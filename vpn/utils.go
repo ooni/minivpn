@@ -10,3 +10,10 @@ func panicIfFalse(stmt bool, message interface{}) {
 		panic(message)
 	}
 }
+
+// panicIfTrue calls panic with the given message if the given statement is true.
+func panicIfTrue(stmt bool, message interface{}) {
+	if stmt {
+		panic(message)
+	}
+}
