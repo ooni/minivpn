@@ -403,9 +403,9 @@ func maybeAddCompressPadding(b []byte, compress compression, blockSize uint8) ([
 }
 
 func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
-	if d.state == nil || d.state.dataCipher == nil {
-		return 0, fmt.Errorf("%w:%s", errBadInput, "bad state")
-	}
+	panicIfTrue(d.state == nil, "data: nil state")
+	panicIfTrue(d.state.dataCipher == nil, "data.state: nil dataCipher")
+
 	buf := bytes.Buffer{}
 	switch d.state.dataCipher.isAEAD() {
 	case true:

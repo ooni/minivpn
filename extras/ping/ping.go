@@ -39,10 +39,10 @@ var (
 	ipv4Proto = map[string]string{"icmp": "ip4:icmp", "udp": "udp4"}
 	ipv6Proto = map[string]string{"icmp": "ip6:ipv6-icmp", "udp": "udp6"}
 
-	errCannotWrite           = errors.New("cannot write")
-	errCannotRead            = errors.New("cannot read")
-	errCannotSetReadDeadline = errors.New("cannot set read readline")
-	errBadPacket             = errors.New("bad packet")
+	errCannotWrite           = errors.New("ping: cannot write")
+	errCannotRead            = errors.New("ping: cannot read")
+	errCannotSetReadDeadline = errors.New("ping: cannot set read readline")
+	errBadPacket             = errors.New("ping: bad packet")
 )
 
 // New returns a new Pinger struct pointer.  This function TAKES OWNERSHIP of
@@ -345,7 +345,11 @@ func (p *Pinger) run(conn net.Conn) error {
 
 	g.Go(func() error {
 		defer p.Stop()
-		return p.recvICMP(recv)
+		for {
+			if err := p.recvICMP(recv); err == nil {
+				return nil
+			}
+		}
 	})
 
 	return g.Wait()
@@ -495,7 +499,7 @@ func (p *Pinger) recvICMP(recv chan<- *packet) error {
 					delay = expBackoff.Get()
 					continue
 				}
-				return fmt.Errorf("%w: %s", errCannotRead, err)
+				return err
 			}
 
 			select {

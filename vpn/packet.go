@@ -183,8 +183,8 @@ func parseControlPacket(p *packet) (*packet, error) {
 	if len(p.payload) == 0 {
 		return p, errEmptyPayload
 	}
-	if !p.isControl() {
-		return p, fmt.Errorf("%w: %s", errBadInput, "expected control packet")
+	if !p.isControl() && !p.isACK() {
+		return p, fmt.Errorf("%w: %s", errBadInput, "expected control/ack packet")
 	}
 
 	buf := bytes.NewBuffer(p.payload)
