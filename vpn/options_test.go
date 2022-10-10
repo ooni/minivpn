@@ -461,7 +461,7 @@ func Test_parseCompLZO(t *testing.T) {
 
 func Test_parseOption(t *testing.T) {
 	// unknown key should not fail
-	err := parseOption(&Options{}, t.TempDir(), "unknownKey", []string{"a", "b"})
+	err := parseOption(&Options{}, t.TempDir(), "unknownKey", []string{"a", "b"}, 0)
 	if err != nil {
 		t.Errorf("parseOption(): want %v, got %v", nil, err)
 	}

@@ -162,10 +162,10 @@ var _ dataHandler = &data{} // Ensure that we implement dataHandler
 // options given. it also returns any error raised.
 func newDataFromOptions(opt *Options, s *session) (*data, error) {
 	if opt == nil || s == nil {
-		return nil, fmt.Errorf("%w:%s", errBadInput, "found nil on init")
+		return nil, fmt.Errorf("%w: %s", errBadInput, "found nil on init")
 	}
 	if len(opt.Cipher) == 0 || len(opt.Auth) == 0 {
-		return nil, fmt.Errorf("%w:%s", errBadInput, "empty options")
+		return nil, fmt.Errorf("%w: %s", errBadInput, "empty options")
 	}
 	state := &dataChannelState{}
 	data := &data{options: opt, session: s, state: state}
@@ -557,7 +557,7 @@ func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryp
 
 func (d *data) ReadPacket(p *packet) ([]byte, error) {
 	if len(p.payload) == 0 {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, "empty payload")
+		return []byte{}, fmt.Errorf("%w: %s", errCannotDecrypt, "empty payload")
 	}
 	panicIfFalse(p.isData(), "ReadPacket expects data packet")
 

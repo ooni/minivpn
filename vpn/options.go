@@ -424,7 +424,7 @@ var pMapDir = map[string]interface{}{
 	"auth-user-pass": parseAuthUser,
 }
 
-func parseOption(o *Options, dir, key string, p []string) error {
+func parseOption(o *Options, dir, key string, p []string, lineno int) error {
 	switch key {
 	case "proto", "remote", "cipher", "auth", "compress", "comp-lzo", "tls-version-max", "proxy-obfs4":
 		fn := pMap[key].(func([]string, *Options) error)
@@ -437,7 +437,7 @@ func parseOption(o *Options, dir, key string, p []string) error {
 			return e
 		}
 	default:
-		log.Println("warn: unsupported key:", key)
+		log.Printf("warn: unsupported key in line %d\n", lineno)
 	}
 	return nil
 }
@@ -457,7 +457,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 	tag := ""
 	inlineBuf := new(bytes.Buffer)
 
-	for _, l := range lines {
+	for lineno, l := range lines {
 		if strings.HasPrefix(l, "#") {
 			continue
 		}
@@ -503,7 +503,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 		} else {
 			key, parts = p[0], p[1:]
 		}
-		e := parseOption(opt, dir, key, parts)
+		e := parseOption(opt, dir, key, parts, lineno)
 		if e != nil {
 			return nil, e
 		}
