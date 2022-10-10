@@ -4,6 +4,8 @@ import os
 import sys
 import urllib.request
 
+PROVIDERS=("calyx", "riseup")
+
 APIS = {
         "calyx": "https://api.vpn.calyx.dev/",
         "riseup": "https://api.float.hexacab.org/"
@@ -31,8 +33,10 @@ key cert.pem
 def check_args():
     if len(sys.argv) != 2:
         print("Usage: bootstrap-provider <provider>")
-        os.exit(1)
-
+        sys.exit(1)
+    if sys.argv[1] not in PROVIDERS:
+        print("Invalid provider")
+        sys.exit(1)
 
 def getPath(provider):
     return os.path.join(os.getcwd(), "data", provider)
