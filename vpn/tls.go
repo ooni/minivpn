@@ -188,8 +188,6 @@ func initTLS(session *session, cfg *certConfig) (*tls.Config, error) {
 
 	customVerify := customVerifyFactory(cfg)
 
-	// We are not passing min/max tls versions because the ClientHello spec
-	// that we use as reference already sets "reasonable" values.
 	tlsConf := &tls.Config{
 		// the certificate we've loaded from the config file
 		Certificates: []tls.Certificate{cfg.cert},
@@ -199,6 +197,9 @@ func initTLS(session *session, cfg *certConfig) (*tls.Config, error) {
 		VerifyPeerCertificate: customVerify,
 		// disable DynamicRecordSizing to lower distinguishability.
 		DynamicRecordSizingDisabled: true,
+		// uTLS does not pick min/max version from the passed spec
+		MinVersion: tls.VersionTLS12,
+		MaxVersion: tls.VersionTLS13,
 	} //#nosec G402
 
 	return tlsConf, nil
