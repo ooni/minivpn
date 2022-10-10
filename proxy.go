@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"runtime"
+	"syscall"
 
 	socks5 "github.com/armon/go-socks5"
 	"github.com/ooni/minivpn/vpn"
@@ -40,8 +43,38 @@ func ListenAndServeSocks(opts *vpn.Options) {
 	}
 
 	addr := net.JoinHostPort(ip, port)
-	fmt.Printf("[+] Started socks5 proxy at %s\n", addr)
+	fmt.Printf("[+] Starting socks5 proxy at %s\n", addr)
 	if err := server.ListenAndServe("tcp", addr); err != nil {
-		panic(err)
+		if isErrorAddressAlreadyInUse(err) {
+			fmt.Printf("[!] Address %s already in use\n", addr)
+			for i := 1; i < 1e4; i++ {
+				addr := net.JoinHostPort(ip, fmt.Sprintf("%d", i+1024))
+				fmt.Println("[+] Trying to listen on", addr)
+				if err := server.ListenAndServe("tcp", addr); err != nil {
+					continue
+				}
+			}
+		} else {
+			panic(err)
+		}
 	}
+}
+
+func isErrorAddressAlreadyInUse(err error) bool {
+	var eOsSyscall *os.SyscallError
+	if !errors.As(err, &eOsSyscall) {
+		return false
+	}
+	var errErrno syscall.Errno // doesn't need a "*" (ptr) because it's already a ptr (uintptr)
+	if !errors.As(eOsSyscall, &errErrno) {
+		return false
+	}
+	if errErrno == syscall.EADDRINUSE {
+		return true
+	}
+	const WSAEADDRINUSE = 10048
+	if runtime.GOOS == "windows" && errErrno == WSAEADDRINUSE {
+		return true
+	}
+	return false
 }
