@@ -41,6 +41,8 @@ type dataChannelState struct {
 	cipherKeyRemote keySlot
 	hmacKeyLocal    keySlot
 	hmacKeyRemote   keySlot
+	keyID           int // not used at the moment, paving the way for key rotation.
+	peerID          int
 
 	mu sync.Mutex
 }
@@ -250,6 +252,11 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 	return nil
 }
 
+func (d *data) SetPeerID(i int) error {
+	d.state.peerID = i
+	return nil
+}
+
 //
 // write + encrypt
 //
@@ -290,6 +297,17 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataCha
 
 	// we will pass packetID as the aead data to be authenticated
 	aead := &bytes.Buffer{}
+
+	opcodeAndKey := byte((pDataV2 << 3) | (state.keyID & 0x07))
+	// this assert must go when we support key rotation
+	panicIfFalse(opcodeAndKey == byte(0x48), "expected header == 0x48")
+
+	// in AEAD mode, we authenticate:
+	// - 1 byte: opcode/key
+	// - 3 bytes: peer-id (we're using P_DATA_V2)
+	// - 4 bytes: packet-id
+	aead.WriteByte(opcodeAndKey)
+	bufWriteUint24(aead, uint32(state.peerID))
 	bufWriteUint32(aead, uint32(nextPacketID))
 
 	// the iv is the packetID (again) concatenated with the 8 bytes of the
@@ -317,7 +335,7 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataCha
 
 	// we now write to the output buffer
 	out := bytes.Buffer{}
-	out.Write(data.aead) // the packet_id
+	out.Write(data.aead) // opcode|peer-id|packet_id
 	out.Write(tag)
 	out.Write(ciphertext)
 	return out.Bytes(), nil
@@ -432,6 +450,8 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
 	}
+
+	// encrypted includes the header and, if used, authenticated parts.
 	encrypted, err := d.EncryptAndEncodePayload(plaintext, d.state)
 
 	if err != nil {
@@ -439,12 +459,11 @@ func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	}
 
 	bufOut := bytes.Buffer{}
-	// eventually we'll need to write the keyID here too, from session.
-	keyID := 0
-	header := byte((pDataV1 << 3) | (keyID & 0x07))
-	panicIfFalse(header == byte(0x30), "expected header == 0x30")
 
-	bufOut.WriteByte(header)
+	//header := byte((pDataV2 << 3) | (keyID & 0x07))
+	//panicIfFalse(header == byte(0x48), "expected header == 0x48")
+	//bufOut.WriteByte(header)
+
 	bufOut.Write(encrypted)
 
 	out := maybeAddSizeFrame(conn, bufOut.Bytes())
@@ -470,21 +489,24 @@ func (d *data) decrypt(encrypted []byte) ([]byte, error) {
 	encryptedData, err := d.DecodeEncryptedPayload(encrypted, d.state)
 
 	if err != nil {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
+		return []byte{}, fmt.Errorf("%w: %s", errCannotDecrypt, err)
 	}
 	plainText, err := d.decryptFn(d.state.cipherKeyRemote[:], encryptedData)
 	if err != nil {
-		return []byte{}, fmt.Errorf("%w:%s", errCannotDecrypt, err)
+		return []byte{}, fmt.Errorf("%w: %s", errCannotDecrypt, err)
 	}
 	return plainText, nil
 }
 
 func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
-	// Sample AES-GCM head: (v1 though, we're doing v1 here. I'm not sure if there're differences)
+	// Sample AES-GCM head: (v1, for reference)
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
 	//            [4-byte
 	//            IV head]
+
+	// P_DATA_V2 GCM data channel crypto format (what we're currently supporting):
+	// [ - opcode/peer-id - ] [ - packet ID - ] [ TAG ] [ * packet payload * ]
 
 	// preconditions
 
@@ -496,6 +518,11 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encrypted
 	}
 	remoteHMAC := state.hmacKeyRemote[:8]
 	packet_id := buf[:4]
+
+	headers := &bytes.Buffer{}
+	headers.WriteByte(0x48)                               // TODO support keyID != 0
+	headers.Write([]byte{0x00, 0x00, byte(state.peerID)}) // TODO support higher peer-id (currently max is 255)
+	headers.Write(packet_id)
 
 	// we need to swap because decryption expects payload|tag
 	// but we've got tag | payload instead
@@ -511,7 +538,7 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encrypted
 	encrypted := &encryptedData{
 		iv:         iv.Bytes(),
 		ciphertext: payload.Bytes(),
-		aead:       packet_id,
+		aead:       headers.Bytes(),
 	}
 	return encrypted, nil
 }

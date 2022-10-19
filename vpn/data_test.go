@@ -639,7 +639,7 @@ func Test_decodeEncryptedPayloadAEAD(t *testing.T) {
 	goodEncryptedPayload, _ := hex.DecodeString("00000000b3653a842f2b8a148de26375218fb01d31278ff328ff2fc65c4dbf9eb8e67766")
 	goodDecodeIV, _ := hex.DecodeString("000000006868686868686868")
 	goodDecodeCipherText, _ := hex.DecodeString("31278ff328ff2fc65c4dbf9eb8e67766b3653a842f2b8a148de26375218fb01d")
-	goodDecodeAEAD, _ := hex.DecodeString("00000000")
+	goodDecodeAEAD, _ := hex.DecodeString("4800000000000000")
 
 	type args struct {
 		buf   []byte
@@ -761,7 +761,7 @@ func Test_encryptAndEncodePayloadAEAD(t *testing.T) {
 	state := makeTestingState()
 	padded, _ := maybeAddCompressPadding([]byte("hello go tests"), "", state.dataCipher.blockSize())
 
-	goodEncryptedPayload, _ := hex.DecodeString("00000000b3653a842f2b8a148de26375218fb01d31278ff328ff2fc65c4dbf9eb8e67766")
+	goodEncryptedPayload, _ := hex.DecodeString("48000000000000006ba730fd633b1d5f11478f6f601cb84231278ff328ff2fc65c4dbf9eb8e67766")
 
 	type args struct {
 		padded  []byte

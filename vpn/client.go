@@ -30,9 +30,10 @@ var (
 // - during the handshake (mtu).
 // - after server pushes config options(ip, gw).
 type tunnelInfo struct {
-	mtu int
-	ip  string
-	gw  string
+	mtu    int
+	ip     string
+	gw     string
+	peerID int
 }
 
 // vpnClient is a net.Conn that uses the VPN tunnel. It is a net.Conn with an

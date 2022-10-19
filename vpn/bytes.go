@@ -145,3 +145,13 @@ func bufWriteUint32(buf *bytes.Buffer, val uint32) {
 	binary.BigEndian.PutUint32(numBuf[:], val)
 	buf.Write(numBuf[:])
 }
+
+// bufWriteUint24 is a convenience function that appends to the given buffer
+// 3 bytes containing the big-endian representation of the given uint32 value.
+// Caller is responsible to ensure the passed value does not overflow the
+// maximal capacity of 3 bytes.
+func bufWriteUint24(buf *bytes.Buffer, val uint32) {
+	b := &bytes.Buffer{}
+	bufWriteUint32(b, val)
+	buf.Write(b.Bytes()[1:])
+}

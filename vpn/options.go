@@ -152,7 +152,7 @@ func (o *Options) hasAuthInfo() bool {
 	return false
 }
 
-const clientOptions = "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
+const clientOptions = "V4,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cipher %s,auth %s,keysize %s,key-method 2,tls-client"
 
 // String produces a comma-separated representation of the options, in the same
 // order and format that the openvpn server expects from us.
@@ -214,7 +214,28 @@ func newTunnelInfoFromPushedOptions(opts map[string][]string) *tunnelInfo {
 	if len(ip) >= 1 {
 		t.ip = ip[0]
 	}
+	peerID := opts["peer-id"]
+	if len(peerID) == 1 {
+		i, err := parseIntFromOption(peerID[0])
+		if err == nil {
+			t.peerID = i
+		} else {
+			log.Println("Cannot parse peer-id:", err.Error())
+		}
+	}
 	return t
+}
+
+// parseIntFromOption parses an int from a null-terminated string
+func parseIntFromOption(s string) (int, error) {
+	str := ""
+	for i := 0; i < len(s); i++ {
+		if byte(s[i]) == 0x00 {
+			return strconv.Atoi(str)
+		}
+		str = str + string(s[i])
+	}
+	return 0, nil
 }
 
 // pushedOptionsAsMap returns a map for the server-pushed options,
@@ -227,6 +248,7 @@ func pushedOptionsAsMap(pushedOptions []byte) map[string][]string {
 	}
 
 	optStr := string(pushedOptions[:len(pushedOptions)-1])
+
 	opts := strings.Split(optStr, ",")
 	for _, opt := range opts {
 		vals := strings.Split(opt, " ")

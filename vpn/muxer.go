@@ -126,6 +126,7 @@ type controlHandler interface {
 // dataHandler manages the data "channel".
 type dataHandler interface {
 	SetupKeys(*dataChannelKey) error
+	SetPeerID(int) error
 	WritePacket(net.Conn, []byte) (int, error)
 	ReadPacket(*packet) ([]byte, error)
 	DecodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
@@ -330,6 +331,7 @@ func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 		}
 		return false, nil
 	}
+
 	p, err := parsePacketFromBytes(input)
 	if err != nil {
 		logger.Error(err.Error())
@@ -456,9 +458,11 @@ func (m *muxer) readPushReply() error {
 
 	m.tunnel.ip = ti.ip
 	m.tunnel.gw = ti.gw
+	m.tunnel.peerID = ti.peerID
 
 	logger.Infof("Tunnel IP: %s", m.tunnel.ip)
 	logger.Infof("Gateway IP: %s", m.tunnel.gw)
+	logger.Infof("Peer ID: %d", m.tunnel.peerID)
 
 	return nil
 }
@@ -514,6 +518,9 @@ func (m *muxer) InitDataWithRemoteKey() error {
 	if err := m.readPushReply(); err != nil {
 		return err
 	}
+
+	m.data.SetPeerID(m.tunnel.peerID)
+
 	return nil
 }
 

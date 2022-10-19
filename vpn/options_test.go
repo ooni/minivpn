@@ -48,7 +48,7 @@ func TestOptions_String(t *testing.T) {
 				Auth:   "sha512",
 				Proto:  1,
 			},
-			want: "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto TCPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client",
+			want: "V4,dev-type tun,link-mtu 1549,tun-mtu 1500,proto TCPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client",
 		},
 		{
 			name: "compress stub",
@@ -58,7 +58,7 @@ func TestOptions_String(t *testing.T) {
 				Proto:    2,
 				Compress: compressionStub,
 			},
-			want: "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client,compress stub",
+			want: "V4,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client,compress stub",
 		},
 		{
 			name: "compress lzo-no",
@@ -68,7 +68,7 @@ func TestOptions_String(t *testing.T) {
 				Proto:    2,
 				Compress: compressionLZONo,
 			},
-			want: "V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client,lzo-comp no",
+			want: "V4,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-GCM,auth sha512,keysize 128,key-method 2,tls-client,lzo-comp no",
 		},
 	}
 	for _, tt := range tests {

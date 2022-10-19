@@ -216,6 +216,10 @@ func (m *mockDataHandler) EncryptAndEncodePayload([]byte, *dataChannelState) ([]
 	return []byte("this is not a payload"), nil
 }
 
+func (m *mockDataHandler) SetPeerID(int) error {
+	return nil
+}
+
 type mockDataHandlerBadReadPacket struct {
 	mockDataHandler
 }

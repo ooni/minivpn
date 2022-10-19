@@ -304,6 +304,9 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 					// auth strings
 					0x00, 0x01, 0x00,
 					0x00, 0x01, 0x00}...)
+				buf = append(buf, []byte{0x00, 0x19}...)
+				buf = append(buf, []byte("IV_VER=2.5.5\nIV_PROTO=6\n")...)
+				buf = append(buf, 0x00)
 				return buf
 			}(),
 			false,
@@ -320,12 +323,15 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 				buf = append(buf, manyA[:]...)
 				buf = append(buf, manyB[:]...)
 				buf = append(buf, []byte{0x00, 0x74}...)
-				buf = append(buf, []byte("V1,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth ,keysize 128,key-method 2,tls-client")...)
+				buf = append(buf, []byte("V4,dev-type tun,link-mtu 1549,tun-mtu 1500,proto UDPv4,cipher AES-128-CBC,auth ,keysize 128,key-method 2,tls-client")...)
 				// null-terminate + auth
 				buf = append(buf, []byte{
 					0x00,
 					0x00, 0x01, 0x00,
 					0x00, 0x01, 0x00}...)
+				buf = append(buf, []byte{0x00, 0x19}...)
+				buf = append(buf, []byte("IV_VER=2.5.5\nIV_PROTO=6\n")...)
+				buf = append(buf, 0x00)
 				return buf
 			}(),
 			false,

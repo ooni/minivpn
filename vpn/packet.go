@@ -48,6 +48,9 @@ var (
 
 	controlMessageHeader = []byte{0x00, 0x00, 0x00, 0x00}
 	pingPayload          = []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
+
+	IV_Ver   = "2.5.5" // OpenVPN version compat that we declare to the server
+	IV_Proto = "6"     // IV_PROTO declared to the server. We need to be sure to enable the peer-id bit to use P_DATA_V2.
 )
 
 // sessionID is the session identifier.
@@ -90,10 +93,23 @@ func parsePacketFromBytes(buf []byte) (*packet, error) {
 	if len(buf) < 2 {
 		return &packet{}, errBadInput
 	}
+	opcode := buf[0] >> 3
+	keyID := buf[0] & 0x07
+
+	var payload = []byte{}
+
+	switch opcode {
+	case pDataV2:
+		payload = buf[4:]
+	default:
+		payload = buf[1:]
+	}
+
+	// TODO missing peerID
 	p := &packet{
-		opcode:  buf[0] >> 3,
-		keyID:   buf[0] & 0x07,
-		payload: buf[1:],
+		opcode:  opcode,
+		keyID:   keyID,
+		payload: payload,
 	}
 	return parsePacket(p)
 }
@@ -160,7 +176,7 @@ func (p *packet) isControlV1() bool {
 // isData returns true if the packet is of data type.
 func (p *packet) isData() bool {
 	switch p.opcode {
-	case byte(pDataV1):
+	case byte(pDataV1), byte(pDataV2):
 		return true
 	default:
 		return false
@@ -314,6 +330,12 @@ func encodeClientControlMessageAsBytes(k *keySource, o *Options) ([]byte, error)
 	out.Write(opt)
 	out.Write(user)
 	out.Write(pass)
+
+	// we could send IV_PLAT too, but afaik declaring the platform does not
+	// make any difference for our purposes.
+	rawInfo := fmt.Sprintf("IV_VER=%s\nIV_PROTO=%s\n", IV_Ver, IV_Proto)
+	peerInfo, _ := encodeOptionStringToBytes(rawInfo)
+	out.Write(peerInfo)
 	return out.Bytes(), nil
 }
 
