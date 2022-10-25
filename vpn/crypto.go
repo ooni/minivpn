@@ -225,6 +225,7 @@ func (a *dataCipherAES) encrypt(key []byte, data *plaintextData) ([]byte, error)
 			return []byte{}, fmt.Errorf("%w: wrong padding", errCannotEncrypt)
 		}
 		mode := cipher.NewCBCEncrypter(block, data.iv)
+
 		ciphertext := make([]byte, len(data.plaintext))
 		mode.CryptBlocks(ciphertext, data.plaintext)
 		return ciphertext, nil

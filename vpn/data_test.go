@@ -759,7 +759,7 @@ func Test_decodeEncryptedPayloadNonAEAD(t *testing.T) {
 func Test_encryptAndEncodePayloadAEAD(t *testing.T) {
 
 	state := makeTestingState()
-	padded, _ := maybeAddCompressPadding([]byte("hello go tests"), "", state.dataCipher.blockSize())
+	padded, _ := doPadding([]byte("hello go tests"), "", state.dataCipher.blockSize())
 
 	goodEncryptedPayload, _ := hex.DecodeString("48000000000000006ba730fd633b1d5f11478f6f601cb84231278ff328ff2fc65c4dbf9eb8e67766")
 
@@ -801,7 +801,8 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 	padded16 := bytes.Repeat([]byte{0xff}, 16)
 	padded15 := bytes.Repeat([]byte{0xff}, 15)
 
-	goodEncrypted, _ := hex.DecodeString("fdf9b069b2e5a637fa7b5c9231166ea96307e4123031323334353637383930313233343581e4878c5eec602c2d2f5a95139c84af")
+	// including OP32 header + peerid (v2)
+	goodEncrypted, _ := hex.DecodeString("48000000fdf9b069b2e5a637fa7b5c9231166ea96307e4123031323334353637383930313233343581e4878c5eec602c2d2f5a95139c84af")
 
 	// we replace the global random function that is used for the iv in, e.g., CBC mode.
 	randomFn = func(i int) ([]byte, error) {
@@ -851,16 +852,17 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 				return
 			}
 			if !bytes.Equal(got, tt.want) {
+				fmt.Println(hex.EncodeToString(got))
 				t.Errorf("encryptAndEncodePayloadNonAEAD() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_maybeAddCompressStub(t *testing.T) {
+func Test_doCompress(t *testing.T) {
 	type args struct {
 		b   []byte
-		opt *Options
+		opt compression
 	}
 	tests := []struct {
 		name    string
@@ -869,16 +871,16 @@ func Test_maybeAddCompressStub(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "nil opts should fail",
+			name:    "null compression should not fail",
 			args:    args{},
-			want:    nil,
-			wantErr: errBadInput,
+			want:    []byte{},
+			wantErr: nil,
 		},
 		{
 			name: "do nothing by default",
 			args: args{
 				b:   []byte{0xde, 0xad, 0xbe, 0xef},
-				opt: &Options{},
+				opt: "",
 			},
 			want:    []byte{0xde, 0xad, 0xbe, 0xef},
 			wantErr: nil,
@@ -886,10 +888,8 @@ func Test_maybeAddCompressStub(t *testing.T) {
 		{
 			name: "stub appends the first byte at the end",
 			args: args{
-				b: []byte{0xde, 0xad, 0xbe, 0xef},
-				opt: &Options{
-					Compress: "stub",
-				},
+				b:   []byte{0xde, 0xad, 0xbe, 0xef},
+				opt: "stub",
 			},
 			want:    []byte{0xfb, 0xad, 0xbe, 0xef, 0xde},
 			wantErr: nil,
@@ -897,10 +897,8 @@ func Test_maybeAddCompressStub(t *testing.T) {
 		{
 			name: "lzo-no adds 0xfa preamble",
 			args: args{
-				b: []byte{0xde, 0xad, 0xbe, 0xef},
-				opt: &Options{
-					Compress: "lzo-no",
-				},
+				b:   []byte{0xde, 0xad, 0xbe, 0xef},
+				opt: "lzo-no",
 			},
 			want:    []byte{0xfa, 0xde, 0xad, 0xbe, 0xef},
 			wantErr: nil,
@@ -908,19 +906,19 @@ func Test_maybeAddCompressStub(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := maybeAddCompressStub(tt.args.b, tt.args.opt)
+			got, err := doCompress(tt.args.b, tt.args.opt)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("maybeAddCompressStub() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
+			if !bytes.Equal(got, tt.want) {
 				t.Errorf("maybeAddCompressStub() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_maybeAddCompressPadding(t *testing.T) {
+func Test_doPadding(t *testing.T) {
 	type args struct {
 		b         []byte
 		compress  compression
@@ -975,13 +973,41 @@ func Test_maybeAddCompressPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := maybeAddCompressPadding(tt.args.b, tt.args.compress, tt.args.blockSize)
+			got, err := doPadding(tt.args.b, tt.args.compress, tt.args.blockSize)
 			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("maybeAddCompressPadding() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("doPadding() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("maybeAddCompressPadding() = %v, want %v", got, tt.want)
+				t.Errorf("doPadding() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_prependPacketID(t *testing.T) {
+	type args struct {
+		p   packetID
+		buf []byte
+	}
+	tests := []struct {
+		name string
+		args args
+		want []byte
+	}{
+		{
+			name: "good append",
+			args: args{
+				packetID(0x01),
+				[]byte{0x07, 0x08},
+			},
+			want: []byte{0x00, 0x00, 0x00, 0x01, 0x07, 0x08},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := prependPacketID(tt.args.p, tt.args.buf); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("prependPacketID() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1113,7 +1139,7 @@ func Test_maybeDecompress(t *testing.T) {
 				st:  getStateForDecompressTestNonAEAD(),
 				opt: &Options{Compress: "no"},
 			},
-			want:    []byte{0xbb, 0xcc},
+			want:    []byte{0x00, 0xbb, 0xcc},
 			wantErr: nil,
 		},
 		{
@@ -1332,9 +1358,9 @@ func Test_Crash_EncryptAndEncodePayload(t *testing.T) {
 }
 
 // Regression test for MIV-01-004
-func Test_Crash_maybeAddCompressPadding(t *testing.T) {
+func Test_Crash_doPadding(t *testing.T) {
 	arr := []byte{}
-	maybeAddCompressPadding(arr, "stub", 16)
+	doPadding(arr, "stub", 16)
 }
 
 // Regression test for MIV-01-004

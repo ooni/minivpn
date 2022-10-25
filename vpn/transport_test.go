@@ -49,15 +49,14 @@ type MockTLSTransportConn struct {
 	written []byte
 }
 
-func makeTestingTLSTransport() (*tlsTransport, *MockTLSTransportConn) {
-	readPayload := &packet{opcode: pDataV1, payload: []byte("this is not a payload")}
+func makeTestingTLSTransportWithPacket(packetPayload *packet) (*tlsTransport, *MockTLSTransportConn) {
 	s := makeTestingSession()
 	a := &mocks.Addr{}
 	a.MockNetwork = func() string { return "udp" }
 	c := &MockTLSTransportConn{Conn: &mocks.Conn{}}
 	c.MockLocalAddr = func() net.Addr { return a }
 	c.MockRead = func(b []byte) (int, error) {
-		out := readPayload.Bytes()
+		out := packetPayload.Bytes()
 		copy(b, out)
 		return len(out), nil
 	}
@@ -68,6 +67,11 @@ func makeTestingTLSTransport() (*tlsTransport, *MockTLSTransportConn) {
 	return &tlsTransport{Conn: c, session: s}, c
 }
 
+func makeTestingTLSTransportWithDefaultPacketPayload() (*tlsTransport, *MockTLSTransportConn) {
+	readPayload := &packet{opcode: pDataV1, payload: []byte("this is not a payload")}
+	return makeTestingTLSTransportWithPacket(readPayload)
+}
+
 func Test_tlsTransport_ReadPacket(t *testing.T) {
 	fakePayload := append(
 		// fake tag
@@ -75,7 +79,7 @@ func Test_tlsTransport_ReadPacket(t *testing.T) {
 		[]byte("this is not a payload")...)
 	want := &packet{opcode: pDataV1, payload: fakePayload}
 
-	tt, _ := makeTestingTLSTransport()
+	tt, _ := makeTestingTLSTransportWithDefaultPacketPayload()
 	got, err := tt.ReadPacket()
 
 	if err != nil {
@@ -86,12 +90,25 @@ func Test_tlsTransport_ReadPacket(t *testing.T) {
 	}
 }
 
+func Test_tlsTransport_ReadPacket_ACK(t *testing.T) {
+	ackPacket := &packet{opcode: pACKV1}
+	tt, _ := makeTestingTLSTransportWithPacket(ackPacket)
+	got, err := tt.ReadPacket()
+	if err != nil {
+		t.Errorf("ReadPacket() error = %v, wantErr %v", err, nil)
+	}
+	if !bytes.Equal(got.payload, ackPacket.payload) {
+		t.Errorf("ReadPacket() got = %v, want = %v", got.payload, ackPacket.payload)
+	}
+
+}
+
 func Test_tlsTransport_WritePacket(t *testing.T) {
 	payload := []byte("this is not a payload")
 	fakePacket := append([]byte{0x30, 0x02}, bytes.Repeat([]byte{0x00}, 12)...)
 	fakePacket = append(fakePacket, payload...)
 
-	tt, conn := makeTestingTLSTransport()
+	tt, conn := makeTestingTLSTransportWithDefaultPacketPayload()
 	err := tt.WritePacket(pDataV1, payload)
 	if err != nil {
 		t.Errorf("ReadPacket() error = %v, want = %v", err, nil)
@@ -470,7 +487,7 @@ func Test_doReadFromQueue(t *testing.T) {
 }
 
 func TestTLSConn_doRead(t *testing.T) {
-	tt, _ := makeTestingTLSTransport()
+	tt, _ := makeTestingTLSTransportWithDefaultPacketPayload()
 	tc := &controlChannelTLSConn{transport: tt}
 	_, err := tc.doRead()
 	if err != nil {

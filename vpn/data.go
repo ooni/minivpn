@@ -252,6 +252,7 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 	return nil
 }
 
+// SetPeerID updates the data state field with the info sent by the server.
 func (d *data) SetPeerID(i int) error {
 	d.state.peerID = i
 	return nil
@@ -272,9 +273,8 @@ func (d *data) EncryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) 
 	if dcs == nil || dcs.dataCipher == nil {
 		return []byte{}, fmt.Errorf("%w: %s", errCannotEncrypt, fmt.Errorf("data chan not initialized"))
 	}
-	blockSize := dcs.dataCipher.blockSize()
 
-	padded, err := maybeAddCompressPadding(plaintext, d.options.Compress, blockSize)
+	padded, err := doPadding(plaintext, d.options.Compress, dcs.dataCipher.blockSize())
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %s", errCannotEncrypt, err)
 	}
@@ -295,18 +295,12 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session, state *dataCha
 		return []byte{}, fmt.Errorf("bad packet id")
 	}
 
-	// we will pass packetID as the aead data to be authenticated
-	aead := &bytes.Buffer{}
-
-	opcodeAndKey := byte((pDataV2 << 3) | (state.keyID & 0x07))
-	// this assert must go when we support key rotation
-	panicIfFalse(opcodeAndKey == byte(0x48), "expected header == 0x48")
-
 	// in AEAD mode, we authenticate:
 	// - 1 byte: opcode/key
 	// - 3 bytes: peer-id (we're using P_DATA_V2)
 	// - 4 bytes: packet-id
-	aead.WriteByte(opcodeAndKey)
+	aead := &bytes.Buffer{}
+	aead.WriteByte(opcodeAndKeyHeader(state))
 	bufWriteUint24(aead, uint32(state.peerID))
 	bufWriteUint32(aead, uint32(nextPacketID))
 
@@ -374,24 +368,25 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session, state *data
 	computedMAC := mac.Sum(nil)
 
 	out := &bytes.Buffer{}
+	out.WriteByte(opcodeAndKeyHeader(state))
+	bufWriteUint24(out, uint32(state.peerID))
+
 	out.Write(computedMAC)
 	out.Write(iv)
 	out.Write(ciphertext)
 	return out.Bytes(), nil
 }
 
-// maybeAddCompressStub adds compression bytes if needed by the passed compression options.
+// doCompress adds compression bytes if needed by the passed compression options.
 // if the compression stub is on, it sends the first byte to the last position,
 // and it adds the compression preamble, according to the spec. compression
 // lzo-no also adds a preamble. It returns a byte array and an error if the
 // operation could not be completed.
-func maybeAddCompressStub(b []byte, opt *Options) ([]byte, error) {
-	if opt == nil {
-		return nil, fmt.Errorf("%w:%s", errBadInput, "passed nil opts")
-	}
-	switch opt.Compress {
+func doCompress(b []byte, c compression) ([]byte, error) {
+	switch c {
 	case "stub":
-		// compression stub: swap first and last byte
+		// compression stub: send first byte to last
+		// and add 0xfb marker on the first byte.
 		b = append(b, b[0])
 		b[0] = 0xfb
 	case "lzo-no":
@@ -401,21 +396,20 @@ func maybeAddCompressStub(b []byte, opt *Options) ([]byte, error) {
 	return b, nil
 }
 
-// maybeAddCompressPadding does pkcs7 padding of the encryption payloads as
+// doPadding does pkcs7 padding of the encryption payloads as
 // needed. if we're using the compression stub the padding is applied without taking the
-// traling bit into account. it returns the resulting byte array, and an error
+// trailing bit into account. it returns the resulting byte array, and an error
 // if the operatio could not be completed.
-func maybeAddCompressPadding(b []byte, compress compression, blockSize uint8) ([]byte, error) {
+func doPadding(b []byte, compress compression, blockSize uint8) ([]byte, error) {
 	if len(b) == 0 {
 		return nil, fmt.Errorf("%w: nothing to pad", errBadInput)
 	}
 	if compress == "stub" {
 		// if we're using the compression stub
-		// we need to account for the trailing byte
-		// that we have appended in a previous step.
+		// we need to account for a trailing byte
+		// that we have appended in the doCompress stage.
 		endByte := b[len(b)-1]
 		padded, err := bytesPadPKCS7(b[:len(b)-1], int(blockSize))
-
 		if err != nil {
 			return nil, err
 		}
@@ -429,47 +423,58 @@ func maybeAddCompressPadding(b []byte, compress compression, blockSize uint8) ([
 	return padded, nil
 }
 
+// prependPacketID returns the original buffer with the passed packetID
+// concatenated at the beginning.
+func prependPacketID(p packetID, buf []byte) []byte {
+	newbuf := &bytes.Buffer{}
+	packetID := make([]byte, 4)
+	binary.BigEndian.PutUint32(packetID, uint32(p))
+	newbuf.Write(packetID[:])
+	newbuf.Write(buf)
+	return newbuf.Bytes()
+}
+
 func (d *data) WritePacket(conn net.Conn, payload []byte) (int, error) {
 	if d.state == nil || d.state.dataCipher == nil {
-		return 0, fmt.Errorf("%w:%s", errBadInput, "bad state")
+		return 0, fmt.Errorf("%w: %s", errBadInput, "bad state")
 	}
-	buf := bytes.Buffer{}
+
+	var plain []byte
+	var err error
+
+	// TODO(ainghazal): separate into two different implementations
+	// and get rid of multiple switch.
 	switch d.state.dataCipher.isAEAD() {
 	case true:
-		buf.Write(payload)
-	case false:
-		packetID := make([]byte, 4)
+		plain, err = doCompress(payload, d.options.Compress)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %s", errCannotEncrypt, err)
+		}
+	case false: // non-aead
 		localPacketID, _ := d.session.LocalPacketID()
-		binary.BigEndian.PutUint32(packetID, uint32(localPacketID))
-		buf.Write(packetID[:])
-		buf.Write(payload)
+		plain = prependPacketID(localPacketID, payload)
+
+		plain, err = doCompress(plain, d.options.Compress)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %s", errCannotEncrypt, err)
+		}
 	}
 
-	// TODO(ainghazal): maybeAddCompressStub should receive a compression type, not options
-	plaintext, err := maybeAddCompressStub(buf.Bytes(), d.options)
+	// encrypted adds padding, if needed, and it also includes the
+	// opcode/keyid and peer-id headers and, if used, any authenticated
+	// parts in the packet.
+	encrypted, err := d.EncryptAndEncodePayload(plain, d.state)
 	if err != nil {
-		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
+		return 0, fmt.Errorf("%w: %s", errCannotEncrypt, err)
 	}
 
-	// encrypted includes the header and, if used, authenticated parts.
-	encrypted, err := d.EncryptAndEncodePayload(plaintext, d.state)
+	// TODO(ainghazal): increment counter for used bytes, and
+	// trigger renegotiation if we're near the end of the key useful lifetime.
 
-	if err != nil {
-		return 0, fmt.Errorf("%w:%s", errCannotEncrypt, err)
-	}
-
-	bufOut := bytes.Buffer{}
-
-	//header := byte((pDataV2 << 3) | (keyID & 0x07))
-	//panicIfFalse(header == byte(0x48), "expected header == 0x48")
-	//bufOut.WriteByte(header)
-
-	bufOut.Write(encrypted)
-
-	out := maybeAddSizeFrame(conn, bufOut.Bytes())
+	out := maybeAddSizeFrame(conn, encrypted)
 
 	logger.Debug("data: write packet")
-	logger.Debugf(hex.Dump(out))
+	logger.Debugf("\n" + hex.Dump(out))
 
 	return conn.Write(out)
 }
@@ -499,14 +504,11 @@ func (d *data) decrypt(encrypted []byte) ([]byte, error) {
 }
 
 func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
-	// Sample AES-GCM head: (v1, for reference)
+	//   P_DATA_V2 GCM data channel crypto format
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
-	//            [4-byte
-	//            IV head]
-
-	// P_DATA_V2 GCM data channel crypto format (what we're currently supporting):
-	// [ - opcode/peer-id - ] [ - packet ID - ] [ TAG ] [ * packet payload * ]
+	//   - means authenticated -    * means encrypted *
+	//   [ - opcode/peer-id - ] [ - packet ID - ] [ TAG ] [ * packet payload * ]
 
 	// preconditions
 
@@ -520,8 +522,8 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encrypted
 	packet_id := buf[:4]
 
 	headers := &bytes.Buffer{}
-	headers.WriteByte(0x48)                               // TODO support keyID != 0
-	headers.Write([]byte{0x00, 0x00, byte(state.peerID)}) // TODO support higher peer-id (currently max is 255)
+	headers.WriteByte(opcodeAndKeyHeader(state))
+	bufWriteUint24(headers, uint32(state.peerID))
 	headers.Write(packet_id)
 
 	// we need to swap because decryption expects payload|tag
@@ -613,17 +615,20 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 	var compr byte // compression type
 	var payload []byte
 
+	// TODO(ainghazal): have two different decompress implementations
+	// instead of this switch
 	switch st.dataCipher.isAEAD() {
 	case true:
 		switch opt.Compress {
 		case compressionStub, compressionLZONo:
+			// these are deprecated in openvpn 2.5.x
 			compr = b[0]
 			payload = b[1:]
 		default:
 			compr = 0x00
 			payload = b[:]
 		}
-	default:
+	default: // non-aead
 		remotePacketID := packetID(binary.BigEndian.Uint32(b[:4]))
 		lastKnownRemote, err := st.RemotePacketID()
 		if err != nil {
@@ -633,14 +638,22 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 			return []byte{}, errReplayAttack
 		}
 		st.SetRemotePacketID(remotePacketID)
-		compr = b[4]
-		payload = b[5:]
+
+		switch opt.Compress {
+		case compressionStub, compressionLZONo:
+			compr = b[4]
+			payload = b[5:]
+		default:
+			compr = 0x00
+			payload = b[4:]
+		}
 	}
 
 	switch compr {
 	case 0xfb:
 		// compression stub swap:
 		// we get the last byte and replace the compression byte
+		// these are deprecated in openvpn 2.5.x
 		end := payload[len(payload)-1]
 		b := payload[:len(payload)-1]
 		payload = append([]byte{end}, b...)
@@ -655,4 +668,10 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 		return []byte{}, fmt.Errorf("%w:%s", errBadCompression, errMsg)
 	}
 	return payload, nil
+}
+
+// opcodeAndKeyHeader returns the header byte encoding the opcode and keyID (3 upper
+// and 5 lower bits, respectively)
+func opcodeAndKeyHeader(st *dataChannelState) byte {
+	return byte((pDataV2 << 3) | (st.keyID & 0x07))
 }

@@ -50,7 +50,7 @@ var (
 	pingPayload          = []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
 
 	IV_Ver   = "2.5.5" // OpenVPN version compat that we declare to the server
-	IV_Proto = "6"     // IV_PROTO declared to the server. We need to be sure to enable the peer-id bit to use P_DATA_V2.
+	IV_Proto = "2"     // IV_PROTO declared to the server. We need to be sure to enable the peer-id bit to use P_DATA_V2.
 )
 
 // sessionID is the session identifier.

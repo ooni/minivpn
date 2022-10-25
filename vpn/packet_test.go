@@ -305,7 +305,7 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 					0x00, 0x01, 0x00,
 					0x00, 0x01, 0x00}...)
 				buf = append(buf, []byte{0x00, 0x19}...)
-				buf = append(buf, []byte("IV_VER=2.5.5\nIV_PROTO=6\n")...)
+				buf = append(buf, []byte("IV_VER=2.5.5\nIV_PROTO=2\n")...)
 				buf = append(buf, 0x00)
 				return buf
 			}(),
@@ -330,7 +330,7 @@ func Test_encodeClientControlMessageAsBytes(t *testing.T) {
 					0x00, 0x01, 0x00,
 					0x00, 0x01, 0x00}...)
 				buf = append(buf, []byte{0x00, 0x19}...)
-				buf = append(buf, []byte("IV_VER=2.5.5\nIV_PROTO=6\n")...)
+				buf = append(buf, []byte("IV_VER=2.5.5\nIV_PROTO=2\n")...)
 				buf = append(buf, 0x00)
 				return buf
 			}(),

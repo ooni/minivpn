@@ -190,7 +190,7 @@ func newControlChannelTLSConn(conn net.Conn, s *session) (*controlChannelTLSConn
 // packetID). Returns also an error if the operation cannot be completed.
 func (c *controlChannelTLSConn) Read(b []byte) (int, error) {
 	if c.session == nil || c.session.ackQueue == nil {
-		return 0, fmt.Errorf("%w:%s", errBadInput, "bad session in TLSConn.Read()")
+		return 0, fmt.Errorf("%w: %s", errBadInput, "bad session in TLSConn.Read()")
 	}
 	for {
 		switch len(c.session.ackQueue) {
