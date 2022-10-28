@@ -33,9 +33,11 @@ type keySlot [64]byte
 
 // dataChannelState is the state of the data channel.
 type dataChannelState struct {
-	dataCipher      dataCipher
-	hmac            func() hash.Hash
-	hmacSize        uint8
+	dataCipher dataCipher
+	hash       func() hash.Hash
+	// outgoing and incoming nomenclature is probably more adequate here.
+	hmacLocal       hash.Hash
+	hmacRemote      hash.Hash
 	remotePacketID  packetID
 	cipherKeyLocal  keySlot
 	cipherKeyRemote keySlot
@@ -190,13 +192,11 @@ func newDataFromOptions(opt *Options, s *session) (*data, error) {
 
 	logger.Info(fmt.Sprintf("Auth:   %s", opt.Auth))
 
-	hmac, ok := newHMACFactory(strings.ToLower(opt.Auth))
+	hmacHash, ok := newHMACFactory(strings.ToLower(opt.Auth))
 	if !ok {
 		return data, fmt.Errorf("%w:%s", errBadInput, "no such mac")
 	}
-	data.state.hmac = hmac
-	data.state.hmacSize = getHashLength(strings.ToLower(opt.Auth))
-
+	data.state.hash = hmacHash
 	data.decryptFn = state.dataCipher.decrypt
 
 	return data, nil
@@ -247,6 +247,10 @@ func (d *data) SetupKeys(dck *dataChannelKey) error {
 	logger.Debugf("Cipher key remote: %x", keyRemote)
 	logger.Debugf("Hmac key local:    %x", hmacLocal)
 	logger.Debugf("Hmac key remote:   %x", hmacRemote)
+
+	hashSize := d.state.hash().Size()
+	d.state.hmacLocal = hmac.New(d.state.hash, hmacLocal[:hashSize])
+	d.state.hmacRemote = hmac.New(d.state.hash, hmacRemote[:hashSize])
 
 	logger.Info("Key derivation OK")
 	return nil
@@ -358,14 +362,10 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session, state *data
 		return []byte{}, err
 	}
 
-	hashSize := state.hmacSize
-	key := state.hmacKeyLocal[:hashSize]
-
-	// TODO reuse mac and Reset()
-	mac := hmac.New(state.hmac, key)
-	mac.Write(iv)
-	mac.Write(ciphertext)
-	computedMAC := mac.Sum(nil)
+	state.hmacLocal.Reset()
+	state.hmacLocal.Write(iv)
+	state.hmacLocal.Write(ciphertext)
+	computedMAC := state.hmacLocal.Sum(nil)
 
 	out := &bytes.Buffer{}
 	out.WriteByte(opcodeAndKeyHeader(state))
@@ -549,7 +549,7 @@ func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryp
 	if state == nil || state.dataCipher == nil {
 		return &encryptedData{}, fmt.Errorf("%w: bad state", errBadInput)
 	}
-	hashSize := state.hmacSize
+	hashSize := uint8(state.hmacRemote.Size())
 	blockSize := state.dataCipher.blockSize()
 
 	minLen := hashSize + blockSize
@@ -558,22 +558,18 @@ func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryp
 		return &encryptedData{}, fmt.Errorf("%w: too short (%d bytes)", errBadInput, len(buf))
 	}
 
-	key := state.hmacKeyRemote[:hashSize]
-
-	recvMAC := buf[:hashSize]
+	receivedHMAC := buf[:hashSize]
 	iv := buf[hashSize : hashSize+blockSize]
 	cipherText := buf[hashSize+blockSize:]
 
-	// TODO instead of instantiating it each time, we can call Reset()
+	state.hmacRemote.Reset()
+	state.hmacRemote.Write(iv)
+	state.hmacRemote.Write(cipherText)
+	computedHMAC := state.hmacRemote.Sum(nil)
 
-	mac := hmac.New(state.hmac, key)
-	mac.Write(iv)
-	mac.Write(cipherText)
-	calcMAC := mac.Sum(nil)
-
-	if !hmac.Equal(calcMAC, recvMAC) {
-		logger.Errorf("expected: %x, got: %x", calcMAC, recvMAC)
-		return &encryptedData{}, fmt.Errorf("%w:%s", errCannotDecrypt, errBadHMAC)
+	if !hmac.Equal(computedHMAC, receivedHMAC) {
+		logger.Errorf("expected: %x, got: %x", computedHMAC, receivedHMAC)
+		return &encryptedData{}, fmt.Errorf("%w: %s", errCannotDecrypt, errBadHMAC)
 	}
 
 	encrypted := &encryptedData{

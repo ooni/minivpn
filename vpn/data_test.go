@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -461,14 +462,15 @@ func Test_dataChannelKey_addRemoteKey(t *testing.T) {
 func makeTestingState() *dataChannelState {
 	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeGCM)
 	st := &dataChannelState{
-		hmacSize: 20,
-		hmac:     sha1.New,
+		hash: sha1.New,
 		// my linter doesn't like it, but this is the proper way of casting to keySlot
 		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
 		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
 		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
 		hmacKeyRemote:   *(*keySlot)(bytes.Repeat([]byte{0x68}, 64)),
 	}
+	st.hmacLocal = hmac.New(st.hash, st.hmacKeyLocal[:20])
+	st.hmacRemote = hmac.New(st.hash, st.hmacKeyRemote[:20])
 	st.dataCipher = dataCipher
 	return st
 }
@@ -476,14 +478,15 @@ func makeTestingState() *dataChannelState {
 func makeTestingStateNonAEAD() *dataChannelState {
 	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeCBC)
 	st := &dataChannelState{
-		hmacSize: 20,
-		hmac:     sha1.New,
+		hash: sha1.New,
 		// my linter doesn't like it, but this is the proper way of casting to keySlot
 		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
 		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
 		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
 		hmacKeyRemote:   *(*keySlot)(bytes.Repeat([]byte{0x68}, 64)),
 	}
+	st.hmacLocal = hmac.New(st.hash, st.hmacKeyLocal[:20])
+	st.hmacRemote = hmac.New(st.hash, st.hmacKeyRemote[:20])
 	st.dataCipher = dataCipher
 	return st
 }
@@ -491,14 +494,15 @@ func makeTestingStateNonAEAD() *dataChannelState {
 func makeTestingStateNonAEADReversed() *dataChannelState {
 	dataCipher, _ := newDataCipher(cipherNameAES, 128, cipherModeCBC)
 	st := &dataChannelState{
-		hmacSize: 20,
-		hmac:     sha1.New,
+		hash: sha1.New,
 		// my linter doesn't like it, but this is the proper way of casting to keySlot
 		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
 		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
 		hmacKeyRemote:   *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
 		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x68}, 64)),
 	}
+	st.hmacLocal = hmac.New(st.hash, st.hmacKeyLocal[:20])
+	st.hmacRemote = hmac.New(st.hash, st.hmacKeyRemote[:20])
 	st.dataCipher = dataCipher
 	return st
 }
@@ -1338,8 +1342,7 @@ func Test_data_WritePacket(t *testing.T) {
 func Test_Crash_EncryptAndEncodePayload(t *testing.T) {
 	opt := &Options{}
 	st := &dataChannelState{
-		hmacSize:        20,
-		hmac:            sha1.New,
+		hash:            sha1.New,
 		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
 		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
 		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),
@@ -1367,8 +1370,7 @@ func Test_Crash_doPadding(t *testing.T) {
 func Test_Crash_EncryptAndEncodePayload_Zero_Len_Array(t *testing.T) {
 	opt := &Options{}
 	st := &dataChannelState{
-		hmacSize:        20,
-		hmac:            sha1.New,
+		hash:            sha1.New,
 		cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
 		cipherKeyRemote: *(*keySlot)(bytes.Repeat([]byte{0x66}, 64)),
 		hmacKeyLocal:    *(*keySlot)(bytes.Repeat([]byte{0x67}, 64)),

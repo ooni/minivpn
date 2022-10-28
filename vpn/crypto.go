@@ -371,17 +371,3 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
 		a = h.Sum(nil)
 	}
 }
-
-// TODO(ainghazal): this function is not needed if we use Hash.Size()
-// TODO: refactor, use hash.Reset() and create hash function in the constructor.
-func getHashLength(s string) uint8 {
-	switch s {
-	case "sha1":
-		return 20
-	case "sha256":
-		return 32
-	case "sha512":
-		return 64
-	}
-	return 0
-}
