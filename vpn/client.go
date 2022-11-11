@@ -25,6 +25,14 @@ var (
 
 	// ErrNotReady is returned when a Read/Write attempt is made before the tunnel is ready.
 	ErrNotReady = errors.New("tunnel not ready")
+
+	// ErrBadProxy is returned when attempting to use an unregistered proxy.
+	ErrBadProxy = errors.New("unknown proxy")
+)
+
+const (
+	// dialTimeoutInSeconds tells how long to wait on Dial
+	dialTimeoutInSeconds = 10
 )
 
 // tunnelInfo holds state about the VPN tunnelInfo that has longer duration than a
@@ -120,7 +128,12 @@ func (c *Client) Start(ctx context.Context) error {
 func (c *Client) start(ctx context.Context) error {
 	c.emit(EventReady)
 
-	conn, err := c.dial(ctx)
+	// we hardcode a lesser-lived context for dial step for now.
+	dialCtx, cancel := context.WithDeadline(
+		context.Background(),
+		time.Now().Add(dialTimeoutInSeconds*time.Second))
+	defer cancel()
+	conn, err := c.dial(dialCtx)
 	if err != nil {
 		return err
 	}
