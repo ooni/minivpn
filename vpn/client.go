@@ -149,6 +149,8 @@ func (c *Client) start(ctx context.Context) error {
 
 	mux.SetEventListener(c.EventListener)
 
+	c.emit(EventHandshake)
+
 	err = mux.Handshake(ctx)
 	if err != nil {
 		conn.Close()
@@ -195,12 +197,16 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		// TODO this message is not informative if obfuscation is set.
+		// TODO(ainghazal): this message is not informative if obfuscation is set.
 		msg := fmt.Sprintf("Connecting to %s:%s with proto %s",
 			c.Opts.Remote, c.Opts.Port, strings.ToUpper(proto))
 		logger.Info(msg)
 
-		dialer, err := c.maybeWrapDialerForObfuscation()
+		d := c.getDialer()
+		dialer, err := c.maybeWrapDialerForObfuscation(d)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrDialError, err)
+		}
 
 		conn, err := dialer.DialContext(ctx, proto, net.JoinHostPort(c.Opts.Remote, c.Opts.Port))
 		if err != nil {
@@ -210,6 +216,8 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	}
 }
 
+// getDialer returns any DialerContext that has been set up in the Dialer
+// field, or alternatively a net.Dialer instance as a fallback.
 func (c *Client) getDialer() DialerContext {
 	if c.Dialer == nil {
 		return &net.Dialer{}
@@ -217,9 +225,11 @@ func (c *Client) getDialer() DialerContext {
 	return c.Dialer
 }
 
-func (c *Client) maybeWrapDialerForObfuscation() (DialerContext, error) {
-	dialer := c.getDialer()
-
+// maybeWrapDialerForObfuscation checks the result of the ProxyType() method
+// call in client.Opts and, if needed, will wrap the passed dialer to use any
+// needed obfuscation proxy. It returns the possibly wrapped DialerContext and
+// any error raised during the wrapping operation.
+func (c *Client) maybeWrapDialerForObfuscation(d DialerContext) (DialerContext, error) {
 	switch c.Opts.ProxyType() {
 	case proxyOBFS4:
 		obfsNode, err := obfs4.NewProxyNodeFromURI(c.Opts.ProxyOBFS4)
@@ -234,11 +244,13 @@ func (c *Client) maybeWrapDialerForObfuscation() (DialerContext, error) {
 		obfsDialer := obfs4.NewDialer(obfsNode)
 		// TODO modify obfs4 to accept a context, right now it expects a DialFunc..
 		obfsDialer.Dialer = func(net, addr string) (net.Conn, error) {
-			return dialer.DialContext(context.Background(), net, addr)
+			return d.DialContext(context.Background(), net, addr)
 		}
 		return obfsDialer, nil
+	case nullProxy:
+		return d, nil
 	default:
-		return dialer, nil
+		return nil, ErrBadProxy
 	}
 }
 
