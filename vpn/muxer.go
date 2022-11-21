@@ -93,7 +93,9 @@ type muxer struct {
 
 	// eventListener is a channel to which Event_*- will be sent if
 	// the channel is not nil.
-	eventListener chan uint16
+	eventListener chan uint8
+
+	failed bool
 }
 
 var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
@@ -107,7 +109,7 @@ type vpnMuxer interface {
 	Handshake(ctx context.Context) error
 	Reset(net.Conn, *session) error
 	InitDataWithRemoteKey() error
-	SetEventListener(chan uint16)
+	SetEventListener(chan uint8)
 	Write([]byte) (int, error)
 	Read([]byte) (int, error)
 }
@@ -175,12 +177,12 @@ func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnelInfo) (v
 
 // SetEvenSetEventListener assigns the passed channel as the event listener for
 // this muxer.
-func (m *muxer) SetEventListener(el chan uint16) {
+func (m *muxer) SetEventListener(el chan uint8) {
 	m.eventListener = el
 }
 
 // emit sends the passed stage into any configured EventListener
-func (m *muxer) emit(stage uint16) {
+func (m *muxer) emit(stage uint8) {
 	select {
 	case m.eventListener <- stage:
 	default:
