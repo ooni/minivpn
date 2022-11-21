@@ -69,7 +69,7 @@ type Client struct {
 	// channel externally to subscribe to discrete transitions. A sufficiently
 	// buffered-channel should be provided to avoid losing events (~10
 	// events should do it).
-	EventListener chan uint16
+	EventListener chan uint8
 
 	Log Logger
 
@@ -105,7 +105,7 @@ func NewClientFromOptions(opt *Options) *Client {
 //
 
 // emit sends the passed stage into any configured EventListener.
-func (c *Client) emit(stage uint16) {
+func (c *Client) emit(stage uint8) {
 	select {
 	case c.EventListener <- stage:
 	default:

@@ -192,8 +192,8 @@ func makePacketForHandleIncomingTest(opcode byte, s *session) *packet {
 	return p
 }
 
-//I have modified muxer.handleIncomingPacket() so that it optionally receives a []byte
-//in order to make it easier to test payloads. here we go:
+// I have modified muxer.handleIncomingPacket() so that it optionally receives a []byte
+// in order to make it easier to test payloads. here we go:
 type mockDataHandler struct{}
 
 func (m *mockDataHandler) SetupKeys(*dataChannelKey) error {
@@ -568,10 +568,10 @@ func Test_muxer_readPushReply(t *testing.T) {
 
 func Test_muxer_emitSendsToListener(t *testing.T) {
 	t.Run("emit writes event if listener not null", func(t *testing.T) {
-		l := make(chan uint16, 2)
+		l := make(chan uint8, 2)
 		m := &muxer{}
 		m.SetEventListener(l)
-		sent := uint16(2)
+		sent := uint8(2)
 		m.emit(sent)
 		got := <-l
 		if got != sent {
@@ -580,15 +580,15 @@ func Test_muxer_emitSendsToListener(t *testing.T) {
 	})
 	t.Run("emit is a noop if evenlistener not set", func(t *testing.T) {
 		m := &muxer{}
-		sent := uint16(2)
+		sent := uint8(2)
 		m.emit(sent)
 	})
 	t.Run("listener receives several events", func(t *testing.T) {
-		l := make(chan uint16, 5)
+		l := make(chan uint8, 5)
 		m := &muxer{}
 		m.SetEventListener(l)
-		received := []uint16{}
-		sent := []uint16{1, 2, 3, 4, 5}
+		received := []uint8{}
+		sent := []uint8{1, 2, 3, 4, 5}
 		for _, i := range sent {
 			m.emit(i)
 		}
