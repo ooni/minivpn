@@ -172,6 +172,8 @@ func (o *Options) String() string {
 		s = s + ",compress stub"
 	} else if o.Compress == "lzo-no" {
 		s = s + ",lzo-comp no"
+	} else if o.Compress == compressionEmpty {
+		s = s + ",compress"
 	}
 	logger.Debugf("Local opts:  %s", s)
 	return s
