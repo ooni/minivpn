@@ -113,8 +113,8 @@ func bytesUnpadPKCS7(b []byte, blockSize int) ([]byte, error) {
 
 // bytesPadPKCS7 returns the PKCS#7 padding of a byte array.
 func bytesPadPKCS7(b []byte, blockSize int) ([]byte, error) {
-	if blockSize == 0 {
-		return nil, fmt.Errorf("%w: %s", errBadInput, "blocksize cannot be zero")
+	if blockSize <= 0 {
+		return nil, fmt.Errorf("%w: %s", errBadInput, "blocksize cannot be negative or zero")
 	}
 	// If lth mod blockSize == 0, then the input gets appended a whole block size
 	// See https://datatracker.ietf.org/doc/html/rfc5652#section-6.3
