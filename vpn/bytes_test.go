@@ -296,6 +296,14 @@ func Test_bytesPadPKCS7(t *testing.T) {
 		want:    nil,
 		wantErr: errPaddingPKCS7,
 	}, {
+		name: "with negative block size",
+		args: args{
+			b:         []byte{0x00, 0x00, 0x00},
+			blockSize: -1,
+		},
+		want:    nil,
+		wantErr: errBadInput,
+	}, {
 		name: "with blockSize == 4 and len(data) == 0",
 		args: args{
 			b:         nil,
@@ -387,4 +395,5 @@ func Test_bytesPadPKCS7(t *testing.T) {
 // Regression test for MIV-01-002
 func Test_Crash_bytesPadPCKS7(t *testing.T) {
 	bytesPadPKCS7(nil, 0)
+	bytesPadPKCS7([]byte{0xaa, 0xab}, -1)
 }

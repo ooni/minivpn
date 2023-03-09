@@ -135,6 +135,13 @@ make test-local
 Many, but re-keying is maybe one of the first expected to limit the usefulness
 in the current state.
 
+## Security
+
+[7asecurity](https://7asecurity.com/) conducted an independent [whitebox security review against the minivpn implementation in August 2022](https://www.opentech.fund/results/security-safety-audits/minivpn-openvpn-go-client/).
+Please refer to their [full pentest report](https://www.opentech.fund/documents/216/MIV-01_-_minivpn_-_OpenVPN_Go_Client_Audit_Report_FINAL.pdf) for further details.
+
+Thanks to the Open Technology Fund for their support with this security audit.
+
 
 ## Pointers
 
