@@ -20,18 +20,18 @@ type ProxyNode struct {
 // NewProxyNodeFromURI returns a configured proxy node. It accepts a string
 // with all the parameters needed to establish a connection to the obfs4
 // proxy, in the form "obfs4://<ip>:<port>?cert=<deadbeef>&iat-mode=<int>"
-func NewProxyNodeFromURI(uri string) (ProxyNode, error) {
+func NewProxyNodeFromURI(uri string) (*ProxyNode, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
-		return ProxyNode{}, err
+		return &ProxyNode{}, err
 	}
 	log.Printf("Using %s proxy at %s:%s", u.Scheme, u.Hostname(), u.Port())
 
 	if u.Scheme != "obfs4" {
-		return ProxyNode{}, fmt.Errorf("expected obfs4:// uri")
+		return &ProxyNode{}, fmt.Errorf("expected obfs4:// uri")
 	}
 
-	return ProxyNode{
+	return &ProxyNode{
 		Protocol: u.Scheme,
 		Addr:     net.JoinHostPort(u.Hostname(), u.Port()),
 		url:      u,

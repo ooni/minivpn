@@ -26,12 +26,12 @@ import (
 type DialFunc func(string, string) (net.Conn, error)
 
 type ObfuscationDialer struct {
-	node ProxyNode
+	node *ProxyNode
 	// If dialer is set, it will be passed to the pluggable transport.
 	Dialer DialFunc
 }
 
-func NewDialer(node ProxyNode) *ObfuscationDialer {
+func NewDialer(node *ProxyNode) *ObfuscationDialer {
 	return &ObfuscationDialer{node, nil}
 }
 
@@ -53,7 +53,7 @@ type obfs4Context struct {
 var obfs4Map = make(map[string]obfs4Context)
 
 // Init initializes the obfs4 client
-func Init(node ProxyNode) error {
+func Init(node *ProxyNode) error {
 	if _, ok := obfs4Map[node.Addr]; ok {
 		return fmt.Errorf("obfs4 context already initialized")
 	}
