@@ -68,13 +68,17 @@ func (p proto) String() string {
 	return string(p)
 }
 
+// proto types
 const (
 	// protoTCP is used for vpn in TCP mode.
 	protoTCP = proto("tcp")
 
 	// protoUDP is used for vpn in UDP mode.
 	protoUDP = proto("udp")
+)
 
+// proxy types
+const (
 	// proxyOBFS4 is an obfs4 proxy
 	proxyOBFS4 = proxy("obfs4")
 
