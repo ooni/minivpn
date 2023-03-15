@@ -52,7 +52,7 @@ func genRandomBytes(size int) ([]byte, error) {
 // This function returns errEncodeOption in case of failure.
 func encodeOptionStringToBytes(s string) ([]byte, error) {
 	if len(s) >= math.MaxUint16 { // Using >= b/c we need to account for the final \0
-		return nil, fmt.Errorf("%w:%s", errEncodeOption, "string too large")
+		return nil, fmt.Errorf("%w: %s", errEncodeOption, "string too large")
 	}
 	data := make([]byte, 2)
 	binary.BigEndian.PutUint16(data, uint16(len(s))+1)

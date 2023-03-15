@@ -1,10 +1,16 @@
 package obfs4
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/url"
+)
+
+var (
+	// errBadProxyURI indicates a malformed URI for an obfs4 endpoint
+	errBadProxyURI = errors.New("bad obfs4 uri")
 )
 
 // ProxyNode is a proxy node, that can be used to construct a proxy chain.
@@ -23,13 +29,21 @@ type ProxyNode struct {
 func NewProxyNodeFromURI(uri string) (*ProxyNode, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
-		return &ProxyNode{}, err
+		return &ProxyNode{}, fmt.Errorf("%w: %v", errBadProxyURI, err)
+	}
+	if u.Scheme != "obfs4" {
+		log.Println("Invalid URI for obfs4")
+		return &ProxyNode{}, fmt.Errorf("%w: %s", errBadProxyURI, "expected obfs4:// scheme")
+	}
+	if u.Port() == "" {
+		log.Println("Empty port for obfs4")
+		return &ProxyNode{}, fmt.Errorf("%w: %s", errBadProxyURI, "missing port")
+	}
+	if u.Hostname() == "" {
+		log.Println("Empty hostname for obfs4")
+		return &ProxyNode{}, fmt.Errorf("%w: %s", errBadProxyURI, "missing hostname")
 	}
 	log.Printf("Using %s proxy at %s:%s", u.Scheme, u.Hostname(), u.Port())
-
-	if u.Scheme != "obfs4" {
-		return &ProxyNode{}, fmt.Errorf("expected obfs4:// uri")
-	}
 
 	return &ProxyNode{
 		Protocol: u.Scheme,
