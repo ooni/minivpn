@@ -32,7 +32,7 @@ var (
 
 const (
 	// dialTimeoutInSeconds tells how long to wait on Dial
-	dialTimeoutInSeconds = 10
+	dialTimeoutInSeconds = 15
 )
 
 // tunnelInfo holds state about the VPN tunnelInfo that has longer duration than a
