@@ -69,9 +69,10 @@ func NewTunDialerWithNameservers(client *Client, ns1, ns2 string) *TunDialer {
 	return td
 }
 
-// TODO I might want to create a new constructor that can also accept a custom dialer. Right
-// now it's not possible to "create and start" a tundialer only from options
-// with an arbitrary dialer. But maybe it's not needed.
+// TODO(ainghazal): I might want to create a new constructor that can also
+// accept a custom dialer. Right now it's not possible to "create and start" a
+// tundialer only from options with an arbitrary dialer. But maybe it's not
+// needed.
 
 // StartNewTunDialerFromOptions creates a new Dialer directly from an Options
 // object. It also starts the underlying client.
