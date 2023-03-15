@@ -191,8 +191,10 @@ type device struct {
 func (d *device) Up() {
 	go func() {
 		b := make([]byte, 4096)
+		bufs := [][]byte{b}
+		sizes := []int{4096}
 		for {
-			n, err := d.tun.Read(b, 0) // zero offset
+			n, err := d.tun.Read(bufs, sizes, 0) // zero offset
 			if err != nil {
 				logger.Errorf("tun read error: %v", err)
 				break
@@ -213,7 +215,8 @@ func (d *device) Up() {
 				logger.Errorf("vpn read error: %v", err)
 				break
 			}
-			_, err = d.tun.Write(b[0:n], 0) // zero offset
+
+			_, err = d.tun.Write([][]byte{b[0:n]}, 0) // zero offset
 			if err != nil {
 				logger.Errorf("tun write error: %v", err)
 				break
