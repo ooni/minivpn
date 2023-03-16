@@ -242,10 +242,7 @@ func (c *Client) maybeWrapDialerForObfuscation(d DialerContext) (DialerContext, 
 			return nil, err
 		}
 		obfsDialer := obfs4.NewDialer(obfsNode)
-		// TODO modify obfs4 to accept a context, right now it expects a DialFunc..
-		obfsDialer.Dialer = func(net, addr string) (net.Conn, error) {
-			return d.DialContext(context.Background(), net, addr)
-		}
+		obfsDialer.UnderlyingDialer = d
 		return obfsDialer, nil
 	case nullProxy:
 		return d, nil

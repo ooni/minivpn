@@ -20,7 +20,7 @@ type ProxyNode struct {
 	url      *url.URL
 	Values   url.Values // contains the cert and iat-mode parameters
 	// base dialer to be passed to obfuscation dialer
-	Dial DialFunc
+	UnderlyingDialer simpleDialer
 }
 
 // NewProxyNodeFromURI returns a configured proxy node. It accepts a string
