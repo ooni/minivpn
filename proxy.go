@@ -30,7 +30,7 @@ func ListenAndServeSocks(opts *vpn.Options) {
 	if ip == "" {
 		ip = socksIP
 	}
-	dialer, err := vpn.StartNewTunDialerFromOptions(opts, &net.Dialer{})
+	dialer, err := vpn.StartNewTunDialerFromOptions(opts)
 	if err != nil {
 		panic(err)
 	}

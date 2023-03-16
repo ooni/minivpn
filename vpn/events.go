@@ -6,6 +6,9 @@ package vpn
 //
 
 const (
+	// Be very careful when altering the order of these event; other libraries
+	// might be trusting their values, so please release a new version and
+	// document the changes in that case.
 	EventReady = iota
 	EventDialDone
 	EventHandshake

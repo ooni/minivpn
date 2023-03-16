@@ -7,7 +7,6 @@ package vpn
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -21,6 +20,11 @@ var (
 	openDNSPrimary   = "208.67.222.222"
 	openDNSSecondary = "208.67.220.220"
 )
+
+// DialerContext is anything that features a net.Dialer-like DialContext method.
+type DialerContext interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+}
 
 // A TunDialer contains options for obtaining a network connection tunneled
 // through an OpenVPN endpoint. It uses a userspace gVisor virtual device over
@@ -65,14 +69,15 @@ func NewTunDialerWithNameservers(client *Client, ns1, ns2 string) *TunDialer {
 	return td
 }
 
+// TODO(ainghazal): I might want to create a new constructor that can also
+// accept a custom dialer. Right now it's not possible to "create and start" a
+// tundialer only from options with an arbitrary dialer. But maybe it's not
+// needed.
+
 // StartNewTunDialerFromOptions creates a new Dialer directly from an Options
 // object. It also starts the underlying client.
-func StartNewTunDialerFromOptions(opt *Options, dialer DialerContext) (*TunDialer, error) {
-	if dialer == nil {
-		return nil, fmt.Errorf("%w: nil dialer", errBadInput)
-	}
+func StartNewTunDialerFromOptions(opt *Options) (*TunDialer, error) {
 	client := NewClientFromOptions(opt)
-	client.Dialer = dialer
 	err := client.Start(context.Background())
 	if err != nil {
 		defer client.Close()
@@ -139,6 +144,11 @@ func (td *TunDialer) DialTimeout(network, address string, timeout time.Duration)
 	return conn, err
 }
 
+// CloseIdleConnections implements OONI's model.Dialer interface.
+func (td *TunDialer) CloseIdleConnections() {
+	// TODO(https://github.com/ooni/minivpn/issues/27): cleanup on shutdown.
+}
+
 func (td *TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 	localIP := td.client.LocalAddr().String()
 
@@ -182,8 +192,10 @@ type device struct {
 func (d *device) Up() {
 	go func() {
 		b := make([]byte, 4096)
+		bufs := [][]byte{b}
+		sizes := []int{4096}
 		for {
-			n, err := d.tun.Read(b, 0) // zero offset
+			n, err := d.tun.Read(bufs, sizes, 0) // zero offset
 			if err != nil {
 				logger.Errorf("tun read error: %v", err)
 				break
@@ -204,7 +216,8 @@ func (d *device) Up() {
 				logger.Errorf("vpn read error: %v", err)
 				break
 			}
-			_, err = d.tun.Write(b[0:n], 0) // zero offset
+
+			_, err = d.tun.Write([][]byte{b[0:n]}, 0) // zero offset
 			if err != nil {
 				logger.Errorf("tun write error: %v", err)
 				break
