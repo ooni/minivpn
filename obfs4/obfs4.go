@@ -10,6 +10,10 @@
 // https://github.com/ginuerzh/gost
 // It also borrows functions from ooni/probe-cli/internal/ptx/obfs4.go
 
+// These convenience functions might be removed in the future in favor of reusing
+// OONI's probe_cli/internal/ptx/obfs4.go dialers. For the time being I'm exploring
+// the utility of providing adaptors for other gost transports.
+
 package obfs4
 
 import (
