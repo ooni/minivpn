@@ -18,6 +18,7 @@ package obfs4
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -27,6 +28,13 @@ import (
 
 	"gitlab.com/yawning/obfs4.git/transports/base"
 	"gitlab.com/yawning/obfs4.git/transports/obfs4"
+)
+
+var (
+	// this error can be caused for the backward-compat upgrade >= 0.0.14, if
+	// the endpoints were not updated, but we don't want variable error strings
+	// bubbling up.
+	InvalidAuthError = errors.New("handshake: ntor auth mismatch")
 )
 
 // simpleDialer establishes network connections.
@@ -99,7 +107,15 @@ func (d *obfs4CancellableDialer) dial(
 	go func() {
 		defer close(d.done) // signal we're joining
 		conn, err := oc.cf.Dial(network, address, d.innerDial, oc.cargs)
+
 		if err != nil {
+			// If this is an InvalidAuthError, we want a consistent error reported.
+			var ntorErr *obfs4.InvalidAuthError
+			if errors.As(err, &ntorErr) {
+				log.Println("error (minivpn-obfs4):", err)
+				errch <- InvalidAuthError
+				return
+			}
 			errch <- err // buffered channel
 			return
 		}
