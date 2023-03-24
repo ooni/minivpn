@@ -192,8 +192,8 @@ func makePacketForHandleIncomingTest(opcode byte, s *session) *packet {
 	return p
 }
 
-//I have modified muxer.handleIncomingPacket() so that it optionally receives a []byte
-//in order to make it easier to test payloads. here we go:
+// I have modified muxer.handleIncomingPacket() so that it optionally receives a []byte
+// in order to make it easier to test payloads. here we go:
 type mockDataHandler struct{}
 
 func (m *mockDataHandler) SetupKeys(*dataChannelKey) error {
@@ -592,7 +592,7 @@ func Test_muxer_emitSendsToListener(t *testing.T) {
 		for _, i := range sent {
 			m.emit(i)
 		}
-		for _ = range sent {
+		for range sent {
 			got := <-l
 			received = append(received, got)
 		}

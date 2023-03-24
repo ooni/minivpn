@@ -167,6 +167,45 @@ func (td *TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 	return tnet, nil
 }
 
+//
+// TODO(bassosimone):
+//
+// 1. the [device] should probably belong to the client.go file;
+//
+// 2. [Client.NewNetstackNet] should ALSO belong to the client.go file.
+//
+// 3. I don't understand... how are we stopping the device?
+//
+
+// VirtNetDevice is the virtual network device on which the [netstack.Net] is attached.
+type VirtNetDevice = device
+
+// NewNetworkStack creates a new network stack in userspace as long as the virtual
+// network device to which the network stack is attached.
+func (c *Client) NewNetworkStack(ns1, ns2 string) (*netstack.Net, *VirtNetDevice, error) {
+	localIP := c.LocalAddr().String()
+
+	// create a virtual device in userspace, courtesy of wireguard-go
+	tun, tnet, err := netstack.CreateNetTUN(
+		[]netip.Addr{netip.Addr(netip.MustParseAddr(localIP))},
+		[]netip.Addr{
+			netip.MustParseAddr(ns1),
+			netip.MustParseAddr(ns2)},
+		c.tunInfo.mtu-100,
+	)
+	// TODO(https://github.com/ooni/minivpn/issues/26):
+	// we cannot use the tun-mtu that the remote advertises, so we subtract
+	// a "safety" margin for the time being.
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// connect the virtual device to our openvpn tunnel
+	dev := &device{tun, c}
+	return tnet, dev, nil
+}
+
 // device contains the two halves of the tunnel that we are connecting in our
 // toy implementation: the virtual tun device that is handled by netstack, and
 // the vpn.Client (that satisfies a net.Conn) that writes and reads to sockets
@@ -181,8 +220,8 @@ type device struct {
 // shutting them down too.
 func (d *device) Up() {
 	go func() {
-		b := make([]byte, 4096)
 		for {
+			b := make([]byte, 4096)
 			n, err := d.tun.Read(b, 0) // zero offset
 			if err != nil {
 				logger.Errorf("tun read error: %v", err)
@@ -197,8 +236,8 @@ func (d *device) Up() {
 		}
 	}()
 	go func() {
-		b := make([]byte, 4096)
 		for {
+			b := make([]byte, 4096)
 			n, err := d.vpn.Read(b)
 			if err != nil {
 				logger.Errorf("vpn read error: %v", err)

@@ -559,8 +559,8 @@ func Test_pushedOptionsAsMap(t *testing.T) {
 			name: "do parse tunnel ip",
 			args: args{[]byte("foo bar,ifconfig 10.0.0.3,")},
 			want: map[string][]string{
-				"foo":      []string{"bar"},
-				"ifconfig": []string{"10.0.0.3"},
+				"foo":      {"bar"},
+				"ifconfig": {"10.0.0.3"},
 			},
 		},
 		{
@@ -917,7 +917,7 @@ func Test_newTunnelInfoFromPushedOptions(t *testing.T) {
 			name: "get route",
 			args: args{
 				map[string][]string{
-					"route": []string{"1.1.1.1"},
+					"route": {"1.1.1.1"},
 				},
 			},
 			want: &tunnelInfo{
@@ -928,7 +928,7 @@ func Test_newTunnelInfoFromPushedOptions(t *testing.T) {
 			name: "get route from gw",
 			args: args{
 				map[string][]string{
-					"route-gateway": []string{"1.1.2.2"},
+					"route-gateway": {"1.1.2.2"},
 				},
 			},
 			want: &tunnelInfo{
@@ -939,7 +939,7 @@ func Test_newTunnelInfoFromPushedOptions(t *testing.T) {
 			name: "get ip",
 			args: args{
 				map[string][]string{
-					"ifconfig": []string{"1.1.3.3", "foo", "bar"},
+					"ifconfig": {"1.1.3.3", "foo", "bar"},
 				},
 			},
 			want: &tunnelInfo{
@@ -950,9 +950,9 @@ func Test_newTunnelInfoFromPushedOptions(t *testing.T) {
 			name: "get ip and route",
 			args: args{
 				map[string][]string{
-					"ifconfig":      []string{"1.1.3.3", "foo", "bar"},
-					"route":         []string{"1.1.1.1"},
-					"route-gateway": []string{"1.1.2.2"},
+					"ifconfig":      {"1.1.3.3", "foo", "bar"},
+					"route":         {"1.1.1.1"},
+					"route-gateway": {"1.1.2.2"},
 				},
 			},
 			want: &tunnelInfo{
