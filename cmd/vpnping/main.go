@@ -8,6 +8,8 @@ import (
 	"github.com/ooni/minivpn/vpn"
 )
 
+// TODO(ainghazal): update and convert to an example
+
 func main() {
 	opts, err := vpn.NewOptionsFromFilePath("data/riseup/config")
 	if err != nil {
