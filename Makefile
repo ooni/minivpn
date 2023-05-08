@@ -7,7 +7,7 @@ COVERAGE_THRESHOLD := 88
 FLAGS=-ldflags="-w -s -buildid=none -linkmode=external" -buildmode=pie -buildvcs=false
 
 build:
-	@go build ${FLAGS}
+	@go build -o ./minivpn ${FLAGS} ./cmd/minivpn/
 
 build-rel:
 	@go build ${FLAGS} -o minivpn
