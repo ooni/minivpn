@@ -65,11 +65,6 @@ type muxer struct {
 	// Transport etc.
 	conn net.Conn
 
-	// After completing the TLS handshake, we get a tls transport that implements
-	// net.Conn. All the control packets from that moment on are read from
-	// and written to the tls Conn.
-	tls net.Conn
-
 	// control and data are the handlers for the control and data channels.
 	// they implement the methods needed for the handshake and handling of
 	// packets.
@@ -109,7 +104,7 @@ var _ vpnMuxer = &muxer{} // Ensure that we implement the vpnMuxer interface.
 type vpnMuxer interface {
 	Handshake(ctx context.Context) error
 	Reset(net.Conn, *reliableTransport) error
-	InitDataWithRemoteKey() error
+	InitDataWithRemoteKey(net.Conn) error
 	SetEventListener(chan uint8)
 	Write([]byte) (int, error)
 	Read([]byte) (int, error)
@@ -245,59 +240,51 @@ func (m *muxer) handshake() error {
 		return err
 	}
 
-	var tlsConn *controlChannelTLSConn
 	var tlsConf *tls.Config
 
-	for {
-		tlsConf, err = initTLSFn(m.reliable.session, certCfg)
-		if err != nil {
-			logger.Errorf("%w: %s", ErrBadTLSHandshake, err)
-			break
-
-		}
-		tlsConn, err = newControlChannelTLSConn(m.conn, m.reliable)
-		break
-	}
+	tlsConf, err = initTLSFn(certCfg)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
+		logger.Errorf("%w: %s", ErrBadTLSInit, err)
+		return err
 	}
+
+	// TODO - we just need the reliable transport here
+	/*
+		tlsConn, err := newControlChannelTLSConn(m.conn, m.reliable)
+		if err != nil {
+				return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
+			    }
+		fmt.Println(tlsConn)
+	*/
 
 	m.emit(EventTLSHandshake)
 
+	// After completing the TLS handshake, we get a tls transport that implements
+	// net.Conn. The subsequente call to InitDataWithRemoteKey needs to pass this TLS context.
 	var tls net.Conn
 
+	// TODO: we need to make reliable *borrow* the underlying connection
+	m.reliable.Conn = m.conn
+	// TODO(ainghazal): figure out the proper TLS retry/timeout parameter by default
 	timeoutTLS := time.NewTicker(10 * time.Second)
 	defer func() {
 		timeoutTLS.Stop()
 	}()
-
-	for {
-		select {
-		case <-timeoutTLS.C:
-			// we give up on waiting for the TLS handshake
-			return fmt.Errorf("%w: %s", ErrBadTLSHandshake, "timeout")
-		default:
-			tls, err = tlsHandshakeFn(tlsConn, tlsConf)
-			if err != nil {
-				logger.Error(fmt.Errorf("%w: %s", ErrBadTLSHandshake, err).Error())
-				continue
-			}
-		}
-		break
+	tls, err = tlsHandshakeFn(m.reliable, tlsConf)
+	if err != nil {
+		logger.Error(fmt.Errorf("%w: %s", ErrBadTLSHandshake, err).Error())
+		return err
 	}
 
-	m.emit(EventTLSHandshakeDone)
-
-	m.tls = tls
 	logger.Info("TLS handshake done")
+	m.emit(EventTLSHandshakeDone)
 
 	// 3. data channel init (auth, push, data initialization).
 
-	if err := m.InitDataWithRemoteKey(); err != nil {
+	if err := m.InitDataWithRemoteKey(tls); err != nil {
 		return fmt.Errorf("%w: %s", ErrBadDataHandshake, err)
 
 	}
-
 	m.emit(EventDataInitDone)
 
 	logger.Info("VPN handshake done")
@@ -355,6 +342,8 @@ func (m *muxer) Reset(conn net.Conn, r *reliableTransport) error {
 // handleIncoming packet reads the next packet available in the underlying
 // socket. It returns true if the packet was a data packet; otherwise it will
 // process it but return false.
+// TODO(ainghazal, bassosimone): this function partially overlaps with the function of the same
+// name in reliableTransport
 func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	panicIfTrue(m.data == nil, "muxer not initialized")
 	var input []byte
@@ -427,9 +416,10 @@ func handleDataPing(conn net.Conn, data dataHandler) error {
 }
 
 // readTLSPacket reads a packet over the TLS connection.
-func (m *muxer) readTLSPacket() ([]byte, error) {
+func (m *muxer) readTLSPacket(tls net.Conn) ([]byte, error) {
+	panicIfTrue(tls == nil, "tls is nil")
 	data := make([]byte, 4096)
-	_, err := m.tls.Read(data)
+	_, err := tls.Read(data)
 	return data, err
 }
 
@@ -437,8 +427,8 @@ func (m *muxer) readTLSPacket() ([]byte, error) {
 // response contained in it. If the server response is the right kind of
 // packet, it will store the remote key and the parts of the remote options
 // that will be of use later.
-func (m *muxer) readAndLoadRemoteKey() error {
-	data, err := m.readTLSPacket()
+func (m *muxer) readAndLoadRemoteKey(tls net.Conn) error {
+	data, err := m.readTLSPacket(tls)
 	if err != nil {
 		return err
 	}
@@ -472,18 +462,18 @@ func (m *muxer) readAndLoadRemoteKey() error {
 }
 
 // sendPushRequest sends a push request over the TLS channel.
-func (m *muxer) sendPushRequest() (int, error) {
-	return m.tls.Write(m.control.PushRequest())
+func (m *muxer) sendPushRequest(tls net.Conn) (int, error) {
+	return tls.Write(m.control.PushRequest())
 }
 
 // readPushReply reads one incoming TLS packet, where we expect to find the
 // response to our push request. If the server response is the right kind of
 // packet, it will store the parts of the pushed options that will be of use
 // later.
-func (m *muxer) readPushReply() error {
+func (m *muxer) readPushReply(tls net.Conn) error {
 	panicIfTrue(m.control == nil || m.tunnel == nil, "muxer badly initialized")
 
-	resp, err := m.readTLSPacket()
+	resp, err := m.readTLSPacket(tls)
 	if err != nil {
 		return err
 	}
@@ -513,13 +503,13 @@ func (m *muxer) readPushReply() error {
 }
 
 // sendControl message sends a control message over the TLS channel.
-func (m *muxer) sendControlMessage() error {
+func (m *muxer) sendControlMessage(tls net.Conn) error {
 	cm, err := m.control.ControlMessage(m.reliable, m.options)
 	if err != nil {
 		return err
 	}
 
-	if _, err := m.tls.Write(cm); err != nil {
+	if _, err := tls.Write(cm); err != nil {
 		return err
 	}
 	return nil
@@ -529,18 +519,18 @@ func (m *muxer) sendControlMessage() error {
 // control packet, parses the response, and derives the cryptographic material
 // that will be used to encrypt and decrypt data through the tunnel. At the end
 // of this exchange, the data channel is ready to be used.
-func (m *muxer) InitDataWithRemoteKey() error {
+func (m *muxer) InitDataWithRemoteKey(tls net.Conn) error {
 
 	// 1. first we send a control message.
 
-	if err := m.sendControlMessage(); err != nil {
+	if err := m.sendControlMessage(tls); err != nil {
 		return err
 	}
 
 	// 2. then we read the server response and load the remote key.
 
 	for {
-		if err := m.readAndLoadRemoteKey(); err == nil {
+		if err := m.readAndLoadRemoteKey(tls); err == nil {
 			break
 		}
 	}
@@ -560,13 +550,13 @@ func (m *muxer) InitDataWithRemoteKey() error {
 	// 4. finally, we ask the server to push remote options to us. we parse
 	// them and keep some useful info.
 
-	if _, err := m.sendPushRequest(); err != nil {
+	if _, err := m.sendPushRequest(tls); err != nil {
 		logger.Errorf("error sending: %v", err)
 		return err
 	}
 
 	for {
-		if err := m.readPushReply(); err != nil {
+		if err := m.readPushReply(tls); err != nil {
 			i := rand.Intn(500)
 			fmt.Printf("error reading push reply: %v. sleeping: %vms\n", err, i)
 			time.Sleep(time.Millisecond * time.Duration(i))

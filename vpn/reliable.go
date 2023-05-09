@@ -20,6 +20,7 @@ package vpn
 // https://github.com/glacjay/govpn
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -37,6 +38,8 @@ const (
 )
 
 var (
+	// ErrBadConnNetwork indicates that the conn's network is neither TCP nor UDP.
+	ErrBadConnNetwork           = errors.New("bad conn.Network value")
 	ErrReliableHandshakeTimeout = errors.New("reliable handshake gave up")
 	errBadACK                   = errors.New("bad ack number")
 )
@@ -55,6 +58,8 @@ type outgoingPacket struct {
 
 // reliableTransport implements reliableTransporter.
 type reliableTransport struct {
+	Conn net.Conn
+
 	session *session
 
 	// errChan is where external objects can read from
@@ -65,9 +70,12 @@ type reliableTransport struct {
 	// stopChan will stop the reliable transport.
 	stopChan chan struct{}
 
-	doneHandshake   chan struct{}
-	ctrlSendChan    chan *outgoingPacket
-	tlsQueueChan    chan *packet
+	doneHandshake chan struct{}
+	ctrlSendChan  chan *outgoingPacket
+	tlsQueueChan  chan *packet
+	tlsRecvBuf    bytes.Buffer
+	bufReader     *bytes.Buffer
+
 	receivingPID    packetID
 	receivedPackets [reliableRecvCacheSize]*packet
 	waitingACKs     map[packetID]chan<- struct{}
@@ -81,8 +89,10 @@ var _ reliableTransporter = &reliableTransport{}
 // newReliableTransport accepts a channel of pointer to packets, and returns
 // a pointer to a new reliableTransport.
 func newReliableTransport(session *session) *reliableTransport {
+	buf := bytes.NewBuffer(nil)
 	rt := &reliableTransport{
 		session:       session,
+		bufReader:     buf,
 		stopChan:      make(chan struct{}, 1),
 		errChan:       make(chan error, 1),
 		failChan:      time.After(time.Second * desistTimeSeconds),
@@ -129,6 +139,7 @@ func (r *reliableTransport) loop() bool {
 
 // queuePacketToSend sends the passed pointer to outgoingPacket to the internal
 // control send channel.
+// TODO where is this used from??
 func (r *reliableTransport) queuePacketToSend(p *outgoingPacket) {
 	r.ctrlSendChan <- p
 }
@@ -165,6 +176,7 @@ func (r *reliableTransport) isDuplicatedPacket(p *packet) (bool, error) {
 }
 
 func (r *reliableTransport) TrackIncomingPacket(p *packet) {
+	fmt.Println(">>> tracking", p.id)
 	var diff packetID
 	// TODO(ainghazal): need to test this check more thoroughly
 	if p.id == 0 && r.receivingPID == 0 {
@@ -282,6 +294,7 @@ func (rt *reliableTransport) handleIncomingPacket(buf []byte) (*packet, error) {
 		return nil, err
 	}
 	if p.isACK() {
+		fmt.Println("is ack")
 		rt.processACK(p)
 		return nil, nil
 	}
@@ -301,4 +314,67 @@ func (rt *reliableTransport) handleIncomingPacket(buf []byte) (*packet, error) {
 	}
 	rt.TrackIncomingPacket(p)
 	return p, nil
+}
+
+// implementation of net.Conn over the reliable transport
+// TODO: use pipe for underlying Conn
+
+func (rt *reliableTransport) Close() error                       { return nil }
+func (rt *reliableTransport) LocalAddr() net.Addr                { return nil }
+func (rt *reliableTransport) RemoteAddr() net.Addr               { return nil }
+func (rt *reliableTransport) SetDeadline(t time.Time) error      { return nil }
+func (rt *reliableTransport) SetReadDeadline(t time.Time) error  { return nil }
+func (rt *reliableTransport) SetWriteDeadline(t time.Time) error { return nil }
+
+func (rt *reliableTransport) Read(b []byte) (n int, err error) {
+	switch len(rt.tlsQueueChan) {
+	case 0:
+		panicIfTrue(rt.Conn == nil, "nil conn")
+		buf, err := readPacket(rt.Conn)
+		if err != nil {
+			logger.Errorf("cannot read packet: %v", err)
+			return 0, err
+		}
+		rt.handleIncomingPacket(buf)
+		return 0, nil
+	default:
+		p := <-rt.tlsQueueChan
+		if p == nil || err != nil {
+			return 0, err
+		}
+
+		fmt.Println("sending ack")
+		if err := sendACKFn(rt.Conn, rt, p.id); err != nil {
+			return 0, err
+		}
+		return writeAndReadFromBufferFn(rt.bufReader, b, p.payload)
+	}
+
+}
+
+// writeAndReadPayloadFromBuffer writes a given payload to a buffered reader, and returns
+// a read from that same buffered reader into the passed byte array. it returns both an integer
+// denoting the amount of bytes read, and any error during the operation.
+func writeAndReadFromBuffer(bb *bytes.Buffer, b []byte, payload []byte) (int, error) {
+	panicIfTrue(bb == nil, "nil buffer")
+	bb.Write(payload)
+	return bb.Read(b)
+}
+
+var writeAndReadFromBufferFn = writeAndReadFromBuffer
+
+func (rt *reliableTransport) Write(b []byte) (n int, err error) {
+	buf := make([]byte, len(b))
+	copy(buf, b)
+	p := &packet{
+		opcode:  pControlV1,
+		payload: buf,
+	}
+	id, err := rt.session.LocalPacketID()
+	p.id = id
+	p.localSessionID = rt.session.LocalSessionID
+	payload := p.Bytes()
+	out := maybeAddSizeFrame(rt.Conn, payload)
+	_, err = rt.Conn.Write(out)
+	return len(b), err
 }

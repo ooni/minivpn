@@ -387,6 +387,7 @@ func newACKPacket(ackID packetID, s *session) *packet {
 }
 
 // direct reads on the underlying conn
+// TODO split into TCP vs. UDP implementation
 
 func readPacket(conn net.Conn) ([]byte, error) {
 	switch network := conn.LocalAddr().Network(); network {
@@ -423,4 +424,25 @@ func readPacketFromTCP(conn net.Conn) ([]byte, error) {
 		return nil, err
 	}
 	return buf, nil
+}
+
+// maybeAddSizeFrame prepends a two-byte header containing the size of the
+// payload if the network type for the passed net.Conn is not UDP (assumed to
+// be TCP).
+func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
+	panicIfTrue(conn == nil, "nil conn")
+	if len(payload) == 0 {
+		return payload
+	}
+	switch conn.LocalAddr().Network() {
+	case "udp", "udp4", "udp6":
+		// nothing to do for UDP
+		return payload
+	case "tcp", "tcp4", "tcp6":
+		length := make([]byte, 2)
+		binary.BigEndian.PutUint16(length, uint16(len(payload)))
+		return append(length, payload...)
+	default:
+		return []byte{}
+	}
 }
