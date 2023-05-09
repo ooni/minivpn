@@ -10,8 +10,6 @@ import (
 	"math/rand"
 	"net"
 	"time"
-
-	tls "github.com/refraction-networking/utls"
 )
 
 //
@@ -170,7 +168,7 @@ func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnelInfo) (v
 	return m, nil
 }
 
-// stop the transport
+// stop the reliable transport
 
 func (m *muxer) Stop() {
 	m.reliable.stop()
@@ -224,6 +222,9 @@ func (m *muxer) handshake() error {
 	m.emit(EventReset)
 
 	for {
+		// BUG(ainghazal): investigate why remove this loop makes handshake fail -
+		// I think it's not signaling properly that the handshake is not finished
+
 		if err := m.Reset(m.conn, m.reliable); err == nil {
 			break
 		}
@@ -235,33 +236,24 @@ func (m *muxer) handshake() error {
 	if !m.options.hasAuthInfo() {
 		return fmt.Errorf("%w: %s", errBadInput, "expected certificate or username/password")
 	}
+
+	// we construct the certCfg from options, that has access to the certificate material
 	certCfg, err := newCertConfigFromOptions(m.options)
 	if err != nil {
 		return err
 	}
 
-	var tlsConf *tls.Config
-
-	tlsConf, err = initTLSFn(certCfg)
+	// tlsConf is a tls.Config obtained from our own initialization function
+	tlsConf, err := initTLSFn(certCfg)
 	if err != nil {
 		logger.Errorf("%w: %s", ErrBadTLSInit, err)
 		return err
 	}
-
-	// TODO - we just need the reliable transport here
-	/*
-		tlsConn, err := newControlChannelTLSConn(m.conn, m.reliable)
-		if err != nil {
-				return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
-			    }
-		fmt.Println(tlsConn)
-	*/
-
-	m.emit(EventTLSHandshake)
-
 	// After completing the TLS handshake, we get a tls transport that implements
 	// net.Conn. The subsequente call to InitDataWithRemoteKey needs to pass this TLS context.
 	var tls net.Conn
+
+	m.emit(EventTLSHandshake)
 
 	// TODO: we need to make reliable *borrow* the underlying connection
 	m.reliable.Conn = m.conn
@@ -330,8 +322,8 @@ func (m *muxer) Reset(conn net.Conn, r *reliableTransport) error {
 	logger.Infof("Local session ID:  %x", r.session.LocalSessionID)
 
 	// we assume id is 0, this is the first packet we ack.
-	// XXX I could parse the real packet id from server instead. this
-	// _might_ be important when re-keying?
+	// TODO(ainghazal): parse the real packet id from server instead, will be needed
+	// for soft renegotiation.
 	return m.control.SendACK(m.conn, r, packetID(0))
 }
 

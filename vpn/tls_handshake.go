@@ -209,8 +209,6 @@ func initTLS(cfg *certConfig) (*tls.Config, error) {
 
 // tlsHandshake performs the TLS handshake over the control channel, and return
 // the TLS Client as a net.Conn; returns also any error during the handshake.
-// TODO - I want to pass reliable to this guy
-// func tlsHandshake(tlsConn *controlChannelTLSConn, tlsConf *tls.Config) (net.Conn, error) {
 func tlsHandshake(tlsConn net.Conn, tlsConf *tls.Config) (net.Conn, error) {
 	tlsClient, err := tlsFactoryFn(tlsConn, tlsConf)
 	if err != nil {

@@ -294,7 +294,6 @@ func (rt *reliableTransport) handleIncomingPacket(buf []byte) (*packet, error) {
 		return nil, err
 	}
 	if p.isACK() {
-		fmt.Println("is ack")
 		rt.processACK(p)
 		return nil, nil
 	}
