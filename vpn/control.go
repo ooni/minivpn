@@ -34,9 +34,6 @@ type session struct {
 	localPacketID   packetID
 	mu              sync.Mutex
 	Log             Logger
-
-	// this needs to move to reliableTransport
-	lastACK packetID
 }
 
 // newSession returns a session ready to be used.
@@ -52,7 +49,7 @@ func newSession() (*session, error) {
 	}
 
 	// in go 1.17, one could do:
-	// localSession := (*sessionID)(lsid)
+	//localSession := (*sessionID)(lsid)
 	var localSession sessionID
 	copy(localSession[:], randomBytes[:8])
 	session.LocalSessionID = localSession

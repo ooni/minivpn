@@ -6,9 +6,11 @@ package vpn
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 )
 
 const (
@@ -382,4 +384,43 @@ func newACKPacket(ackID packetID, s *session) *packet {
 		acks:            acks,
 	}
 	return p
+}
+
+// direct reads on the underlying conn
+
+func readPacket(conn net.Conn) ([]byte, error) {
+	switch network := conn.LocalAddr().Network(); network {
+	case "tcp", "tcp4", "tcp6":
+		return readPacketFromTCP(conn)
+	case "udp", "udp4", "upd6":
+		// for UDP we don't need to parse size frames
+		return readPacketFromUDP(conn)
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrBadConnNetwork, network)
+	}
+}
+
+func readPacketFromUDP(conn net.Conn) ([]byte, error) {
+	const enough = 1 << 17
+	buf := make([]byte, enough)
+
+	count, err := conn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	buf = buf[:count]
+	return buf, nil
+}
+
+func readPacketFromTCP(conn net.Conn) ([]byte, error) {
+	lenbuf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, lenbuf); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint16(lenbuf)
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
 }

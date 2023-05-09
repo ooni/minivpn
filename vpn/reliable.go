@@ -72,6 +72,7 @@ type reliableTransport struct {
 	receivedPackets [reliableRecvCacheSize]*packet
 	waitingACKs     map[packetID]chan<- struct{}
 	acks            ackArray
+	lastACK         packetID
 	startOnce       sync.Once
 }
 
@@ -158,7 +159,6 @@ func (r *reliableTransport) isPacketTooFar(p *packet) bool {
 func (r *reliableTransport) isDuplicatedPacket(p *packet) (bool, error) {
 	diff := p.id - r.receivingPID
 	if len(r.receivedPackets) < int(diff) {
-		// TODO this probably should return an error instead
 		return true, fmt.Errorf("%w: %s", errBadInput, "packet diff > len received")
 	}
 	return r.receivedPackets[diff] != nil, nil
@@ -180,6 +180,7 @@ func (r *reliableTransport) TrackIncomingPacket(p *packet) {
 	if p.isControlV1() {
 		i := 0
 		for r.receivedPackets[i] != nil {
+			// TODO -- pass this to tls
 			r.tlsQueueChan <- r.receivedPackets[i]
 			i++
 			r.receivingPID++
@@ -193,14 +194,14 @@ func (r *reliableTransport) TrackIncomingPacket(p *packet) {
 func (r *reliableTransport) UpdateLastACK(newPacketID packetID) error {
 	r.session.mu.Lock()
 	defer r.session.mu.Unlock()
-	if r.session.lastACK == math.MaxUint32 {
+	if r.lastACK == math.MaxUint32 {
 		return errExpiredKey
 	}
-	if r.session.lastACK != 0 && newPacketID <= r.session.lastACK {
-		logger.Warnf("tried to write ack %d; last was %d", newPacketID, r.session.lastACK)
+	if r.lastACK != 0 && newPacketID <= r.lastACK {
+		logger.Warnf("tried to write ack %d; last was %d", newPacketID, r.lastACK)
 		return errBadACK
 	}
-	r.session.lastACK = newPacketID
+	r.lastACK = newPacketID
 	return nil
 }
 
@@ -250,7 +251,7 @@ func (rt *reliableTransport) startRetrySendControlPacket(conn net.Conn, buf []by
 			elapsedSeconds += 1
 			select {
 			case <-stopChan:
-				// we probably have received an ack here,
+				// we have received an ack here,
 				// so stop resending.
 				return
 			case <-time.After(time.Duration(i) * time.Second):
@@ -269,4 +270,35 @@ func (rt *reliableTransport) startRetrySendControlPacket(conn net.Conn, buf []by
 		log.Errorf("Giving up after %d seconds: %v", desistTimeSeconds, id)
 	}()
 	return stopChan
+}
+
+// handleIncomingPacket parses the received bytes, and performs checks to catch out-of-order
+// packets or packets that arrive out of the receiving window. It returns the
+// parsed packet and any error if the operation could not be completed.
+func (rt *reliableTransport) handleIncomingPacket(buf []byte) (*packet, error) {
+	var p *packet
+	var err error
+	if p, err = parsePacketFromBytes(buf); err != nil {
+		return nil, err
+	}
+	if p.isACK() {
+		rt.processACK(p)
+		return nil, nil
+	}
+	if rt.isPacketTooFar(p) {
+		// drop
+		logger.Warnf("Packet too far: %v", p.id)
+		return nil, nil
+	}
+	if dup, err := rt.isDuplicatedPacket(p); dup || err != nil {
+		// drop
+		if err != nil {
+			logger.Warnf("Error comparing packets: %v", err)
+		} else {
+			logger.Warnf("Dup: %v", p.id)
+		}
+		return nil, nil
+	}
+	rt.TrackIncomingPacket(p)
+	return p, nil
 }

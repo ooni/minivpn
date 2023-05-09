@@ -9,10 +9,7 @@ package vpn
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
-	"fmt"
-	"io"
 	"net"
 	"time"
 )
@@ -24,45 +21,6 @@ var (
 	// ErrPacketTooShort indicates that a packet is too short.
 	ErrPacketTooShort = errors.New("packet too short")
 )
-
-// direct reads on the underlying conn
-
-func readPacket(conn net.Conn) ([]byte, error) {
-	switch network := conn.LocalAddr().Network(); network {
-	case "tcp", "tcp4", "tcp6":
-		return readPacketFromTCP(conn)
-	case "udp", "udp4", "upd6":
-		// for UDP we don't need to parse size frames
-		return readPacketFromUDP(conn)
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrBadConnNetwork, network)
-	}
-}
-
-func readPacketFromUDP(conn net.Conn) ([]byte, error) {
-	const enough = 1 << 17
-	buf := make([]byte, enough)
-
-	count, err := conn.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	buf = buf[:count]
-	return buf, nil
-}
-
-func readPacketFromTCP(conn net.Conn) ([]byte, error) {
-	lenbuf := make([]byte, 2)
-	if _, err := io.ReadFull(conn, lenbuf); err != nil {
-		return nil, err
-	}
-	length := binary.BigEndian.Uint16(lenbuf)
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
 
 // tlsModeTransporter is a transport for OpenVPN in TLS mode.
 //
@@ -106,38 +64,14 @@ type tlsTransport struct {
 	reliable *reliableTransport
 }
 
-// ReadPacket will try to read a packet from the underlying conn, and hand it to reliableTransport for processing.
+// ReadPacket will try to read a packet from the underlying conn, and pass it to reliableTransport for processing.
 func (t *tlsTransport) ReadPacket() (*packet, error) {
 	panicIfTrue(t.Conn == nil, "nil Conn in tlsTransport")
 	buf, err := readPacket(t.Conn)
 	if err != nil {
 		return nil, err
 	}
-	var p *packet
-	// TODO(ainghazal): can delegate the rest of the method to reliableTransport
-	if p, err = parsePacketFromBytes(buf); err != nil {
-		return nil, err
-	}
-	if p.isACK() {
-		t.reliable.processACK(p)
-		return nil, nil
-	}
-	if t.reliable.isPacketTooFar(p) {
-		// drop
-		logger.Warnf("Packet too far: %v", p.id)
-		return nil, nil
-	}
-	if dup, err := t.reliable.isDuplicatedPacket(p); dup || err != nil {
-		// drop
-		if err != nil {
-			logger.Warnf("Error comparing packets: %v", err)
-		} else {
-			logger.Warnf("Dup: %v", p.id)
-		}
-		return nil, nil
-	}
-	t.reliable.TrackIncomingPacket(p)
-	return p, nil
+	return t.reliable.handleIncomingPacket(buf)
 }
 
 // WritePacket writes a packet to the underlying conn. It expect the opcode of
@@ -206,7 +140,7 @@ func (c *controlChannelTLSConn) Read(b []byte) (int, error) {
 		var p *packet
 
 		switch len(c.reliable.tlsQueueChan) {
-		// TODO should add a timeout here, perhaps
+		// TODO should add a timeout here?
 		case 0:
 			p, err = c.transport.ReadPacket()
 			if err != nil {

@@ -205,7 +205,7 @@ func Test_reliableTransport_queuePacketToSend(t *testing.T) {
 func Test_reliableTransport_UpdateLastACK(t *testing.T) {
 	r := reliableTransport{}
 	r.session = makeTestingSession()
-	if r.session.lastACK != 0 {
+	if r.lastACK != 0 {
 		t.Error("expected session.lastACK == 0")
 	}
 	if err := r.UpdateLastACK(packetID(1)); err != nil {
@@ -214,14 +214,14 @@ func Test_reliableTransport_UpdateLastACK(t *testing.T) {
 	if err := r.UpdateLastACK(packetID(10)); err != nil {
 		t.Error("packetID = 10, expected nil error")
 	}
-	if r.session.lastACK != 10 {
-		t.Error("expected session.lastACK == 10")
+	if r.lastACK != 10 {
+		t.Error("expected lastACK == 10")
 	}
 	if err := r.UpdateLastACK(packetID(5)); err != errBadACK {
 		t.Error("expected errBadACK")
 	}
 	tooHigh := math.MaxUint32
-	r.session.lastACK = packetID(tooHigh)
+	r.lastACK = packetID(tooHigh)
 	if err := r.UpdateLastACK(packetID(31416)); err != errExpiredKey {
 		t.Error("expected errExpiredKey")
 	}

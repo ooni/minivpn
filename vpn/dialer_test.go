@@ -154,7 +154,7 @@ func TestStartNewTunDialerFromOptions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := StartNewTunDialerFromOptions(tt.args.opt)
+			got, err := StartNewTunDialerFromOptions(tt.args.opt, &net.Dialer{})
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("expected error %v, got %v", tt.wantErr, err)
 				return
