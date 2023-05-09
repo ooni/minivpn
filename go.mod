@@ -18,6 +18,7 @@ require (
 	github.com/ory/dockertest/v3 v3.9.1
 	github.com/pborman/getopt/v2 v2.1.0
 	github.com/refraction-networking/utls v1.3.1
+	github.com/rogpeppe/go-internal v1.9.0
 	gitlab.com/yawning/obfs4.git v0.0.0-20220904064028-336a71d6e4cf
 	golang.org/x/net v0.8.0
 	golang.org/x/sync v0.1.0
@@ -54,7 +55,6 @@ require (
 	github.com/opencontainers/runc v1.1.2 // indirect
 	github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
