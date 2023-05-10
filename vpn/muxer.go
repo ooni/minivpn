@@ -63,6 +63,11 @@ type muxer struct {
 	// Transport etc.
 	conn net.Conn
 
+	// these are proxyConns that we pass to the data and control channels who will believe they are the sole users of the passed conn
+	dtProxyConn *proxyConn
+	rtProxyConn *proxyConn
+	writeQueue  chan []byte
+
 	// control and data are the handlers for the control and data channels.
 	// they implement the methods needed for the handshake and handling of
 	// packets.
@@ -256,7 +261,21 @@ func (m *muxer) handshake() error {
 	m.emit(EventTLSHandshake)
 
 	// TODO: we need to make reliable *borrow* the underlying connection
-	m.reliable.Conn = m.conn
+
+	// TODO -------------------------------------------
+	// Make this work :) YOLO
+	// writeQueue is the shared chan that we need to pass to the
+	// data channel and the reliable transport used by the control channel
+	m.writeQueue = make(chan []byte)
+	m.rtProxyConn = newChanConnWithOutgoingChan(writeQueue)
+	m.dtProxyConn = newChanConnWithOutgoingChan(writeQueue)
+
+	m.reliable.Conn = m.rtProxyConn
+
+	go m.doReadFromUnderlyingConn()
+	go m.doWriteToUnderlyingConn()
+
+	//m.reliable.Conn = m.conn
 	// TODO(ainghazal): figure out the proper TLS retry/timeout parameter by default
 	timeoutTLS := time.NewTicker(10 * time.Second)
 	defer func() {
@@ -282,6 +301,85 @@ func (m *muxer) handshake() error {
 	logger.Info("VPN handshake done")
 	m.reliable.doneHandshake <- struct{}{}
 	return nil
+}
+
+func (m *muxer) doReadFromUnderlyingConn() error {
+	for {
+		data, err := readPacket(m.conn)
+		if err != nil {
+			return err
+		}
+
+		if isPing(data) {
+			// TODO: use the writeQueue chanel instead
+			err := handleDataPing(m.conn, m.data)
+			if err != nil {
+				logger.Errorf("cannot handle ping: %s", err.Error())
+				return err
+			}
+			return nil
+		}
+
+		var p *packet
+		var err error
+
+		if p, err = parsePacketFromBytes(data); err != nil {
+			logger.Error(err.Error())
+			return err
+		}
+		if p.isControl() {
+			logger.Infof("Got control packet, should handle: %d", len(data))
+			// TODO: HERE BE DRAGONS ----
+			// write the bytes into the reliableTransport proxyConn
+			m.rtProxyConn.AppendIncomingData(data)
+			fmt.Println(hex.Dump(p.payload))
+			continue
+		}
+		if p.isACK() {
+			logger.Infof("Got ACK")
+			continue
+		}
+		if !p.isData() {
+			fmt.Printf("Unhandled packet (non-data): %v\n", p)
+			continue
+		}
+
+		// at this point, the incoming packet should be
+		// a data packet that needs to be processed
+		// (decompress+decrypt)
+
+		// TODO: pass the dtProxyConn
+		plaintext, err := m.data.ReadPacket(p)
+		if err != nil {
+			logger.Errorf("%s", err.Error())
+			continue
+		}
+
+		// all good! we write the plaintext into the read buffer.
+		// the caller is responsible for reading from there.
+		m.bufReader.Write(plaintext)
+		continue
+	}
+}
+
+// doWriteToUnderlyingConn reads from the comon write queue and writes to
+// the underlying connection.
+func (m *muxer) doWriteToUnderlyingConn() error {
+	for {
+		select {
+		case data := <-m.writeQueue:
+			// TODO: write it to the underlying conn
+			fmt.Println(">>> writing to net.Conn")
+			if _, err := m.conn.Write(data); err != nil {
+				logger.Errorf(err.Error())
+				return err
+			}
+		case <-m.dtProxyConn.Closed():
+			return net.ErrClosed
+		case <-m.rtProxyConn.Closed():
+			return net.ErrClosed
+		}
+	}
 }
 
 // Reset sends a hard-reset packet to the server, and awaits the server
@@ -350,6 +448,7 @@ func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	}
 
 	if isPing(input) {
+		// TODO: use the dtProxyConn instead
 		err := handleDataPing(m.conn, m.data)
 		if err != nil {
 			logger.Errorf("cannot handle ping: %s", err.Error())
@@ -385,6 +484,7 @@ func (m *muxer) handleIncomingPacket(data []byte) (bool, error) {
 	// a data packet that needs to be processed
 	// (decompress+decrypt)
 
+	// TODO: pass the dtProxyConn
 	plaintext, err := m.data.ReadPacket(p)
 	if err != nil {
 		logger.Errorf("%s", err.Error())
@@ -566,6 +666,7 @@ func (m *muxer) InitDataWithRemoteKey(tls net.Conn) error {
 // the number of written bytes, and an error if the operation could not succeed.
 func (m *muxer) Write(b []byte) (int, error) {
 	panicIfTrue(m.data == nil, "muxer: data not initialized")
+	// TODO: pass dtProxyConn
 	return m.data.WritePacket(m.conn, b)
 }
 
@@ -573,6 +674,7 @@ func (m *muxer) Write(b []byte) (int, error) {
 // user-view of the VPN connection reads. It returns the number of bytes read,
 // and an error if the operation could not succeed.
 func (m *muxer) Read(b []byte) (int, error) {
+	// TODO this logic has to change, before we were using this to drive reads from the underlyuing conn and how that is happening in the doReadFromUnderLyingConn goroutine
 	for {
 		ok, err := m.handleIncomingPacket(nil)
 		if err != nil {

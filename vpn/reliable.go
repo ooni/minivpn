@@ -86,7 +86,7 @@ type reliableTransport struct {
 
 var _ reliableTransporter = &reliableTransport{}
 
-// newReliableTransport accepts a channel of pointer to packets, and returns
+// newReliableTransport accepts ... , and returns
 // a pointer to a new reliableTransport.
 func newReliableTransport(session *session) *reliableTransport {
 	buf := bytes.NewBuffer(nil)
@@ -192,7 +192,6 @@ func (r *reliableTransport) TrackIncomingPacket(p *packet) {
 	if p.isControlV1() {
 		i := 0
 		for r.receivedPackets[i] != nil {
-			// TODO -- pass this to tls
 			r.tlsQueueChan <- r.receivedPackets[i]
 			i++
 			r.receivingPID++
@@ -232,6 +231,7 @@ func (r *reliableTransport) sendControlPacket(packet *packet, conn net.Conn) cha
 	buf := packet.Bytes()
 	buf = maybeAddSizeFrame(conn, buf)
 
+	// TODO use r.Conn instead
 	_, err := conn.Write(buf)
 	if err != nil {
 		log.Errorf("send control: cannot send packet %v", err)
