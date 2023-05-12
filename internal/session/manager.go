@@ -8,6 +8,7 @@ import (
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/optional"
+	"github.com/ooni/minivpn/internal/runtimex"
 )
 
 // SessionNegotiationState is the state of the session negotiation.
@@ -173,11 +174,14 @@ func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
 func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) *model.Packet {
 	defer m.mu.Unlock()
 	m.mu.Lock()
-	return model.NewPacket(
+	// TODO: consider simplifying how we initialize packets
+	packet := model.NewPacket(
 		opcode,
 		m.keyID,
 		payload,
 	)
+	copy(packet.LocalSessionID[:], m.localSessionID[:])
+	return packet
 }
 
 var ErrExpiredKey = errors.New("expired key")
@@ -241,4 +245,12 @@ func (m *Manager) ActiveKey() (*DataChannelKey, error) {
 		}
 	*/
 	return dck, nil
+}
+
+// SetRemoteSessionID sets the remote session ID.
+func (m *Manager) SetRemoteSessionID(remoteSessionID model.SessionID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runtimex.Assert(m.remoteSessionID.IsNone(), "SetRemoteSessionID called more than once")
+	m.remoteSessionID = optional.Some(remoteSessionID)
 }

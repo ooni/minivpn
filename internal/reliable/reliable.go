@@ -2,6 +2,8 @@
 package reliable
 
 import (
+	"bytes"
+
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
@@ -81,7 +83,7 @@ func (ws *workersState) moveUpWorker() {
 		select {
 		case packet := <-ws.packetUpBottom:
 			// drop a packet that is not for our session
-			if packet.RemoteSessionID != ws.sessionManager.LocalSessionID() {
+			if !bytes.Equal(packet.RemoteSessionID[:], ws.sessionManager.LocalSessionID()) {
 				ws.logger.Warn("reliable: moveUpWorker: packet with invalid RemoteSessionID")
 				continue
 			}

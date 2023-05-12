@@ -210,3 +210,13 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 
 	return nil
 }
+
+// finishThreeWayHandshake responsds to the HARD_RESET_SERVER and finishes the handshake.
+func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) {
+	// register the server's session (note: the PoV is the one of the server)
+	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
+
+	// we need to manually ACK because the reliable layer is above us
+	ws.logger.Info("< P_CONTROL_HARD_RESET_SERVER_V2")
+
+}
