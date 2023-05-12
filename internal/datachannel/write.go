@@ -28,13 +28,13 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session.Session, state 
 	// - 4 bytes: packet-id
 	aead := &bytes.Buffer{}
 	aead.WriteByte(opcodeAndKeyHeader(state))
-	bytesx.BufWriteUint24(aead, uint32(state.peerID))
-	bytesx.BufWriteUint32(aead, uint32(nextPacketID))
+	bytesx.WriteUint24(aead, uint32(state.peerID))
+	bytesx.WriteUint32(aead, uint32(nextPacketID))
 
 	// the iv is the packetID (again) concatenated with the 8 bytes of the
 	// key derived for local hmac (which we do not use for anything else in AEAD mode).
 	iv := &bytes.Buffer{}
-	bytesx.BufWriteUint32(iv, uint32(nextPacketID))
+	bytesx.WriteUint32(iv, uint32(nextPacketID))
 	iv.Write(state.hmacKeyLocal[:8])
 
 	data := &plaintextData{
@@ -71,7 +71,7 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session.Session, sta
 
 	iv, err := randomFn(int(blockSize))
 	if err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	data := &plaintextData{
 		iv:        iv,
@@ -82,7 +82,7 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session.Session, sta
 	encryptFn := state.dataCipher.encrypt
 	ciphertext, err := encryptFn(state.cipherKeyLocal[:], data)
 	if err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 
 	state.hmacLocal.Reset()
@@ -92,7 +92,7 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session.Session, sta
 
 	out := &bytes.Buffer{}
 	out.WriteByte(opcodeAndKeyHeader(state))
-	bytesx.BufWriteUint24(out, uint32(state.peerID))
+	bytesx.WriteUint24(out, uint32(state.peerID))
 
 	out.Write(computedMAC)
 	out.Write(iv)
@@ -105,8 +105,8 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session.Session, sta
 // and it adds the compression preamble, according to the spec. compression
 // lzo-no also adds a preamble. It returns a byte array and an error if the
 // operation could not be completed.
-func doCompress(b []byte, c compression) ([]byte, error) {
-	switch c {
+func doCompress(b []byte, compress options.Compression) ([]byte, error) {
+	switch compress {
 	case "stub":
 		// compression stub: send first byte to last
 		// and add 0xfb marker on the first byte.
@@ -123,7 +123,7 @@ func doCompress(b []byte, c compression) ([]byte, error) {
 // needed. if we're using the compression stub the padding is applied without taking the
 // trailing bit into account. it returns the resulting byte array, and an error
 // if the operatio could not be completed.
-func doPadding(b []byte, compress compression, blockSize uint8) ([]byte, error) {
+func doPadding(b []byte, compress options.Compression, blockSize uint8) ([]byte, error) {
 	if len(b) == 0 {
 		return nil, fmt.Errorf("%w: nothing to pad", errBadInput)
 	}

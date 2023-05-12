@@ -16,4 +16,12 @@ func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
 }
 
 // TODO just to make things compile while refactoring
-type Session struct{}
+// mocks for data channel
+type Session struct {
+	LocalSessionID  model.SessionID
+	RemoteSessionID model.SessionID
+}
+
+func (s *Session) LocalPacketID() (model.PacketID, error) {
+	return model.PacketID(0), nil
+}

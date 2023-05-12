@@ -8,11 +8,12 @@ import (
 	"fmt"
 
 	"github.com/ooni/minivpn/internal/bytesx"
-	"github.com/ooni/minivpn/internal/crypto"
+	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/options"
 	"github.com/ooni/minivpn/internal/runtimex"
 )
 
-func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*crypto.EncryptedData, error) {
+func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
 	//   P_DATA_V2 GCM data channel crypto format
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
@@ -22,17 +23,17 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*crypto.En
 	// preconditions
 
 	if len(buf) == 0 || len(buf) < 20 {
-		return &crypto.EncryptedData{}, fmt.Errorf("too short: %d bytes", len(buf))
+		return nil, fmt.Errorf("too short: %d bytes", len(buf))
 	}
 	if len(state.hmacKeyRemote) < 8 {
-		return &crypto.EncryptedData{}, fmt.Errorf("bad remote hmac")
+		return nil, fmt.Errorf("bad remote hmac")
 	}
 	remoteHMAC := state.hmacKeyRemote[:8]
 	packet_id := buf[:4]
 
 	headers := &bytes.Buffer{}
 	headers.WriteByte(opcodeAndKeyHeader(state))
-	bytesx.BufWriteUint24(headers, uint32(state.peerID))
+	bytesx.WriteUint24(headers, uint32(state.peerID))
 	headers.Write(packet_id)
 
 	// we need to swap because decryption expects payload|tag
@@ -46,7 +47,7 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*crypto.En
 	iv.Write(packet_id)
 	iv.Write(remoteHMAC)
 
-	encrypted := &EncryptedData{
+	encrypted := &encryptedData{
 		iv:         iv.Bytes(),
 		ciphertext: payload.Bytes(),
 		aead:       headers.Bytes(),
@@ -56,12 +57,12 @@ func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*crypto.En
 
 var errCannotDecode = errors.New("cannot decode")
 
-func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
+func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, state *dataChannelState) (*encryptedData, error) {
 	runtimex.Assert(state != nil, "passed nil state")
 	runtimex.Assert(state.dataCipher != nil, "data cipher not initialized")
 
 	hashSize := uint8(state.hmacRemote.Size())
-	blockSize := state.dataCipher.BlockSize()
+	blockSize := state.dataCipher.blockSize()
 
 	minLen := hashSize + blockSize
 
@@ -79,9 +80,8 @@ func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryp
 	computedHMAC := state.hmacRemote.Sum(nil)
 
 	if !hmac.Equal(computedHMAC, receivedHMAC) {
-		// TODO: get logger passed?
-		logger.Errorf("expected: %x, got: %x", computedHMAC, receivedHMAC)
-		return &encryptedData{}, fmt.Errorf("%w: %s", crypto.ErrCannotDecrypt, errBadHMAC)
+		log.Warnf("expected: %x, got: %x", computedHMAC, receivedHMAC)
+		return &encryptedData{}, fmt.Errorf("%w: %s", ErrCannotDecrypt, errBadHMAC)
 	}
 
 	encrypted := &encryptedData{
@@ -97,7 +97,7 @@ func decodeEncryptedPayloadNonAEAD(buf []byte, state *dataChannelState) (*encryp
 // modes are supported at the moment, so no real decompression is done. It
 // returns a byte array, and an error if the operation could not be completed
 // successfully.
-func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, error) {
+func maybeDecompress(b []byte, st *dataChannelState, opt *options.Options) ([]byte, error) {
 	if st == nil || st.dataCipher == nil {
 		return []byte{}, fmt.Errorf("%w:%s", errBadInput, "bad state")
 	}
@@ -122,7 +122,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 			payload = b[:]
 		}
 	default: // non-aead
-		remotePacketID := packetID(binary.BigEndian.Uint32(b[:4]))
+		remotePacketID := model.PacketID(binary.BigEndian.Uint32(b[:4]))
 		lastKnownRemote, err := st.RemotePacketID()
 		if err != nil {
 			return payload, err
@@ -133,7 +133,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *Options) ([]byte, erro
 		st.SetRemotePacketID(remotePacketID)
 
 		switch opt.Compress {
-		case compressionStub, compressionLZONo:
+		case options.CompressionStub, options.CompressionLZONo:
 			compr = b[4]
 			payload = b[5:]
 		default:

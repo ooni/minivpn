@@ -1,5 +1,9 @@
 package datachannel
 
+//
+// OpenVPN data channel
+//
+
 import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/service"
@@ -44,8 +48,8 @@ func StartWorkers(
 		tlsRecordUp:    tlsRecordUp,
 		sessionManager: sessionManager,
 	}
-	serviceManager.StartWorker(ws.moveUpLoop)
-	serviceManager.StartWorker(ws.moveDownLoop)
+	serviceManager.StartWorker(ws.moveUpWorker)
+	serviceManager.StartWorker(ws.moveDownWorker)
 }
 
 // workersState contains the control channel state.
@@ -59,4 +63,12 @@ type workersState struct {
 	tlsRecordDown  <-chan []byte
 	tlsRecordUp    chan<- []byte
 	sessionManager *session.Manager
+}
+
+// moveUpWorker moves packets up the stack
+func (ws *workersState) moveUpWorker() {
+}
+
+// moveDownWorker moves packets up the stack
+func (ws *workersState) moveDownWorker() {
 }

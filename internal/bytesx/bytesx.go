@@ -128,9 +128,9 @@ func BytesPadPKCS7(b []byte, blockSize int) ([]byte, error) {
 	return append(b, padding...), nil
 }
 
-// bufReadUint32 is a convenience function that reads a uint32 from a 4-byte
+// ReadUint32 is a convenience function that reads a uint32 from a 4-byte
 // buffer, returning an error if the operation failed.
-func BufReadUint32(buf *bytes.Buffer) (uint32, error) {
+func ReadUint32(buf *bytes.Buffer) (uint32, error) {
 	var numBuf [4]byte
 	_, err := io.ReadFull(buf, numBuf[:])
 	if err != nil {
@@ -139,20 +139,20 @@ func BufReadUint32(buf *bytes.Buffer) (uint32, error) {
 	return binary.BigEndian.Uint32(numBuf[:]), nil
 }
 
-// bufWriteUint32 is a convenience function that appends to the given buffer
+// WriteUint32 is a convenience function that appends to the given buffer
 // 4 bytes containing the big-endian representation of the given uint32 value.
-func BufWriteUint32(buf *bytes.Buffer, val uint32) {
+func WriteUint32(buf *bytes.Buffer, val uint32) {
 	var numBuf [4]byte
 	binary.BigEndian.PutUint32(numBuf[:], val)
 	buf.Write(numBuf[:])
 }
 
-// bufWriteUint24 is a convenience function that appends to the given buffer
+// WriteUint24 is a convenience function that appends to the given buffer
 // 3 bytes containing the big-endian representation of the given uint32 value.
 // Caller is responsible to ensure the passed value does not overflow the
 // maximal capacity of 3 bytes.
-func BufWriteUint24(buf *bytes.Buffer, val uint32) {
+func WriteUint24(buf *bytes.Buffer, val uint32) {
 	b := &bytes.Buffer{}
-	BufWriteUint32(b, val)
+	WriteUint32(b, val)
 	buf.Write(b.Bytes()[1:])
 }
