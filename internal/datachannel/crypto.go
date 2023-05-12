@@ -142,6 +142,7 @@ func (a *dataCipherAES) blockSize() uint8 {
 // Since key comes from a prf derivation, we only take as many bytes as we need to match
 // our key size.
 func (a *dataCipherAES) decrypt(key []byte, data *encryptedData) ([]byte, error) {
+	// TODO(ainghazal): split this function, it's too large
 	if len(key) < a.keySizeBytes() {
 		return nil, errInvalidKeySize
 	}

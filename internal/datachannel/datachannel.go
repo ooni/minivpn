@@ -44,8 +44,6 @@ func StartWorkers(
 		notifyReliable: notifyReliable,
 		packetDown:     packetDown,
 		packetUp:       packetUp,
-		tlsRecordDown:  tlsRecordDown,
-		tlsRecordUp:    tlsRecordUp,
 		sessionManager: sessionManager,
 	}
 	serviceManager.StartWorker(ws.moveUpWorker)
@@ -60,8 +58,6 @@ type workersState struct {
 	notifyReliable chan<- *model.Notification
 	packetDown     chan<- *model.Packet
 	packetUp       <-chan *model.Packet
-	tlsRecordDown  <-chan []byte
-	tlsRecordUp    chan<- []byte
 	sessionManager *session.Manager
 }
 
