@@ -203,11 +203,11 @@ func NewTunnelInfoFromPushedOptions(opts map[string][]string) *TunnelInfo {
 	}
 	peerID := opts["peer-id"]
 	if len(peerID) == 1 {
-		i, err := parseIntFromOption(peerID[0])
-		if err == nil {
-			t.PeerID = i
-		} else {
+		peer, err := strconv.Atoi(peerID[0])
+		if err != nil {
 			log.Println("Cannot parse peer-id:", err.Error())
+		} else {
+			t.PeerID = peer
 		}
 	}
 	return t

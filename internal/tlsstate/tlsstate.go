@@ -228,5 +228,5 @@ func (ws *workersState) recvPushResponseMessage(conn net.Conn) (*model.TunnelInf
 	data := buffer[:count]
 
 	// parse what we received
-	return parseServerPushReply(data)
+	return parseServerPushReply(ws.logger, data)
 }

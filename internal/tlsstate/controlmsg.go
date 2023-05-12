@@ -119,7 +119,7 @@ var errBadAuth = errors.New("server says: bad auth")
 var errBadServerReply = errors.New("bad server reply")
 
 // parseServerPushReply parses the push reply
-func parseServerPushReply(resp []byte) (*model.TunnelInfo, error) {
+func parseServerPushReply(logger model.Logger, resp []byte) (*model.TunnelInfo, error) {
 	// make sure the server's response contains the expected result
 	if bytes.HasPrefix(resp, serverBadAuth) {
 		return nil, errBadAuth
@@ -130,6 +130,7 @@ func parseServerPushReply(resp []byte) (*model.TunnelInfo, error) {
 
 	// TODO(bassosimone): consider moving the two functions below in this package
 	optsMap := model.PushedOptionsAsMap(resp)
+	logger.Infof("Server pushed options: %v", optsMap)
 	ti := model.NewTunnelInfoFromPushedOptions(optsMap)
 	return ti, nil
 }
