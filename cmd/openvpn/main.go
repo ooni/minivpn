@@ -37,5 +37,8 @@ func main() {
 	}
 
 	// start all the workers
-	startWorkers(log.Log, sessionManager, conn)
+	workersManager := startWorkers(log.Log, sessionManager, conn)
+
+	// wait for workers to terminate
+	workersManager.WaitWorkersShutdown()
 }

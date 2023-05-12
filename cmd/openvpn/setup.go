@@ -40,11 +40,14 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	muxer := &packetmuxer.Service{
 		ControlPacketUp: nil, // ok
 		DataPacketUp:    nil, // ok
-		HardReset:       make(chan any),
+		HardReset:       make(chan any, 1),
 		PacketDown:      make(chan *model.Packet),
 		RawPacketDown:   nil, // ok
 		RawPacketUp:     make(chan []byte),
 	}
+
+	// tell the packetmuxer that it should handshake ASAP
+	muxer.HardReset <- true
 
 	// connect networkio and packetmuxer
 	connectChannel(nio.RawPacketDown, &muxer.RawPacketDown)
@@ -85,7 +88,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the tlsstate service
 	tlss := &tlsstate.Service{
-		NotifyTLS:   make(chan *model.Notification),
+		NotifyTLS:   make(chan *model.Notification), // XXX: share this?
 		TLSRecordUp: make(chan []byte),
 	}
 
