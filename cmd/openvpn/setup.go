@@ -26,7 +26,7 @@ func connectChannel[T any](signal chan T, slot **chan T) {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func startWorkers(logger model.Logger, sessionManager *session.Manager,
-	conn networkio.FramingConn) *workers.Manager {
+	conn networkio.FramingConn, options *model.Options) *workers.Manager {
 	// create a workers manager
 	workersManager := workers.NewManager()
 
@@ -40,6 +40,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	muxer := &packetmuxer.Service{
 		ControlPacketUp: nil, // ok
 		DataPacketUp:    nil, // ok
+		NotifyTLS:       nil,
 		HardReset:       make(chan any, 1),
 		PacketDown:      make(chan *model.Packet),
 		RawPacketDown:   nil, // ok
@@ -87,25 +88,32 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	connectChannel(ctrl.PacketUp, &rel.PacketUpTop)
 
 	// create the tlsstate service
-	tlss := &tlsstate.Service{
-		NotifyTLS:   make(chan *model.Notification), // XXX: share this?
-		TLSRecordUp: make(chan []byte),
+	tlsx := &tlsstate.Service{
+		NotifyTLS:     make(chan *model.Notification, 1),
+		TLSRecordUp:   make(chan []byte),
+		TLSRecordDown: nil,
 	}
 
 	// connect the tlsstate service and the controlchannel service
-	connectChannel(tlss.NotifyTLS, &ctrl.NotifyTLS)
-	connectChannel(tlss.TLSRecordUp, &ctrl.TLSRecordUp)
+	connectChannel(tlsx.NotifyTLS, &ctrl.NotifyTLS)
+	connectChannel(tlsx.TLSRecordUp, &ctrl.TLSRecordUp)
+	connectChannel(ctrl.TLSRecordDown, &tlsx.TLSRecordDown)
+
+	// connect the muxer and the tlsstate service
+	connectChannel(tlsx.NotifyTLS, &muxer.NotifyTLS)
 
 	logger.Debugf("%T: %+v", nio, nio)
 	logger.Debugf("%T: %+v", muxer, muxer)
 	logger.Debugf("%T: %+v", rel, rel)
 	logger.Debugf("%T: %+v", ctrl, ctrl)
+	logger.Debugf("%T: %+v", tlsx, tlsx)
 
 	// start all the workers
 	nio.StartWorkers(logger, workersManager, conn)
 	muxer.StartWorkers(logger, workersManager, sessionManager)
 	rel.StartWorkers(logger, workersManager, sessionManager)
 	ctrl.StartWorkers(logger, workersManager, sessionManager)
+	tlsx.StartWorkers(logger, workersManager, sessionManager, options)
 
 	return workersManager
 }

@@ -170,18 +170,31 @@ func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
 }
 
 // NewPacket creates a new packet for this session.
-// TODO(ainghazal): maybe increment the counter here? we can keep the local packetID private in that case...
-func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) *model.Packet {
+func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) (*model.Packet, error) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
-	// TODO: consider simplifying how we initialize packets
+	// TODO: consider unifying with ACKing code
 	packet := model.NewPacket(
 		opcode,
 		m.keyID,
 		payload,
 	)
 	copy(packet.LocalSessionID[:], m.localSessionID[:])
-	return packet
+	pid, err := func() (model.PacketID, error) {
+		if opcode.IsControl() {
+			return m.localControlPacketIDLocked()
+		} else {
+			return m.localDataPacketIDLocked()
+		}
+	}()
+	if err != nil {
+		return nil, err
+	}
+	packet.ID = pid
+	if !m.remoteSessionID.IsNone() {
+		packet.RemoteSessionID = m.remoteSessionID.Unwrap()
+	}
+	return packet, nil
 }
 
 var ErrExpiredKey = errors.New("expired key")
@@ -189,8 +202,14 @@ var ErrExpiredKey = errors.New("expired key")
 // LocalDataPacketID returns an unique Packet ID for the Data Channel. It
 // increments the counter for the local data packet ID.
 func (m *Manager) LocalDataPacketID() (model.PacketID, error) {
-	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.mu.Lock()
+	return m.localDataPacketIDLocked()
+}
+
+// localDataPacketIDLocked returns an unique Packet ID for the Data Channel. It
+// increments the counter for the local data packet ID.
+func (m *Manager) localDataPacketIDLocked() (model.PacketID, error) {
 	pid := m.localDataPacketID
 	if pid == math.MaxUint32 {
 		// we reached the max packetID, increment will overflow
@@ -200,11 +219,9 @@ func (m *Manager) LocalDataPacketID() (model.PacketID, error) {
 	return pid, nil
 }
 
-// LocalControlPacketID returns an unique Packet ID for the Data Channel. It
+// localControlPacketIDLocked returns an unique Packet ID for the Control Channel. It
 // increments the counter for the local control packet ID.
-func (m *Manager) LocalControlPacketID() (model.PacketID, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *Manager) localControlPacketIDLocked() (model.PacketID, error) {
 	pid := m.localControlPacketID
 	if pid == math.MaxUint32 {
 		// we reached the max packetID, increment will overflow

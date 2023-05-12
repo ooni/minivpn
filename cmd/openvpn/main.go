@@ -21,6 +21,10 @@ func main() {
 	}
 	log.Infof("parsed options: %s", options.ServerOptionsString())
 
+	// TODO(ainghazal): move the initialization step to an early phase and keep a ref in the muxer
+	if !options.HasAuthInfo() {
+		log.Fatal("options are missing auth info")
+	}
 	// connect to the server
 	dialer := networkio.NewDialer(log.Log, &net.Dialer{})
 	ctx := context.Background()
@@ -37,7 +41,7 @@ func main() {
 	}
 
 	// start all the workers
-	workersManager := startWorkers(log.Log, sessionManager, conn)
+	workersManager := startWorkers(log.Log, sessionManager, conn, options)
 
 	// wait for workers to terminate
 	workersManager.WaitWorkersShutdown()

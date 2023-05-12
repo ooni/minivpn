@@ -1,9 +1,6 @@
 package controlchannel
 
 import (
-	"bytes"
-	"errors"
-
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
@@ -27,7 +24,6 @@ func (svc *Service) StartWorkers(
 	logger model.Logger,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
-
 ) {
 	ws := &workersState{
 		logger:         logger,
@@ -91,17 +87,9 @@ func (ws *workersState) moveUpWorker() {
 				}
 
 			case model.P_CONTROL_V1:
-				// If we've got a P_CONTROL_V1 message, it contains a TLS record
-				// that we need to forward to the TLS worker
-				record, err := parseControlMessage(packet.Payload)
-				if err != nil {
-					ws.logger.Warnf("controlchannel: parseControlMessage: %s", err.Error())
-					continue
-				}
-
 				// send the packet to the TLS layer
 				select {
-				case ws.tlsRecordUp <- record:
+				case ws.tlsRecordUp <- packet.Payload:
 					// nothing
 
 				case <-ws.workersManager.ShouldShutdown():
@@ -129,10 +117,11 @@ func (ws *workersState) moveDownWorker() {
 		select {
 		case record := <-ws.tlsRecordDown:
 			// transform the record into a control message
-			packet := ws.sessionManager.NewPacket(
-				model.P_CONTROL_V1,
-				tlsRecordToControlMessage(record),
-			)
+			packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_V1, record)
+			if err != nil {
+				ws.logger.Warnf("controlchannel: NewPacket: %s", err.Error())
+				return
+			}
 
 			// POSSIBLY BLOCK on sending the packet down the stack
 			select {
@@ -149,6 +138,8 @@ func (ws *workersState) moveDownWorker() {
 	}
 }
 
+// THIS BELONGS TO TLS: WE NEED TO APPLY THIS LATER
+/*
 // controlMessageHeader is the header prefixed to control messages
 var controlMessageHeader = []byte{0x00, 0x00, 0x00, 0x00}
 
@@ -175,3 +166,4 @@ func parseControlMessage(message []byte) ([]byte, error) {
 	}
 	return message[4:], nil
 }
+*/

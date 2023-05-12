@@ -84,7 +84,11 @@ func (ws *workersState) moveUpWorker() {
 		case packet := <-ws.packetUpBottom:
 			// drop a packet that is not for our session
 			if !bytes.Equal(packet.RemoteSessionID[:], ws.sessionManager.LocalSessionID()) {
-				ws.logger.Warn("reliable: moveUpWorker: packet with invalid RemoteSessionID")
+				ws.logger.Warnf(
+					"reliable: moveUpWorker: packet with invalid RemoteSessionID: expected %x; got %x",
+					ws.sessionManager.LocalSessionID(),
+					packet.RemoteSessionID,
+				)
 				continue
 			}
 
@@ -93,6 +97,14 @@ func (ws *workersState) moveUpWorker() {
 				ws.logger.Warnf("reliable: moveUpWorker: cannot ACK packet: %s", err.Error())
 				continue
 			}
+
+			ws.logger.Infof(
+				"< %s localID=%x remoteID=%x [%d bytes]",
+				packet.Opcode,
+				packet.LocalSessionID,
+				packet.RemoteSessionID,
+				len(packet.Payload),
+			)
 
 			// TODO: here we should track ACKs
 
@@ -125,6 +137,14 @@ func (ws *workersState) moveDownWorker() {
 		select {
 		case packet := <-ws.packetDownTop:
 			// TODO: here we should treat control packets specially
+
+			ws.logger.Infof(
+				"> %s localID=%x remoteID=%x [%d bytes]",
+				packet.Opcode,
+				packet.LocalSessionID,
+				packet.RemoteSessionID,
+				len(packet.Payload),
+			)
 
 			// POSSIBLY BLOCK delivering this packet to the lower layer
 			select {

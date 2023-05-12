@@ -13,6 +13,7 @@ type Service struct {
 	ControlPacketUp *chan *model.Packet
 	DataPacketUp    *chan *model.Packet
 	HardReset       chan any
+	NotifyTLS       *chan *model.Notification
 	PacketDown      chan *model.Packet
 	RawPacketDown   *chan []byte
 	RawPacketUp     chan []byte
@@ -32,6 +33,7 @@ func (svc *Service) StartWorkers(
 		controlPacketUp: *svc.ControlPacketUp,
 		dataPacketUp:    *svc.DataPacketUp,
 		hardReset:       svc.HardReset,
+		notifyTLS:       *svc.NotifyTLS,
 		packetDown:      svc.PacketDown,
 		rawPacketDown:   *svc.RawPacketDown,
 		rawPacketUp:     svc.RawPacketUp,
@@ -55,6 +57,9 @@ type workersState struct {
 
 	// hardReset is the channel posted to force a hard reset.
 	hardReset <-chan any
+
+	// notifyTLS is used to send notifications to the TLS state service.
+	notifyTLS chan<- *model.Notification
 
 	// packetDown is the channel for reading all the packets traveling down the stack.
 	packetDown <-chan *model.Packet
@@ -147,8 +152,12 @@ func (ws *workersState) moveDownWorker() {
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
-	pkt := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
-	if err := ws.serializeAndEmit(pkt); err != nil {
+	packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
+	if err != nil {
+		ws.logger.Warnf("packetmuxer: NewPacket: %s", err.Error())
+		return err
+	}
+	if err := ws.serializeAndEmit(packet); err != nil {
 		return err
 	}
 
@@ -168,8 +177,6 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 		ws.logger.Warnf("packetmuxer: moveUpWorker: ParsePacket: %s", err.Error())
 		return nil // keep running
 	}
-
-	ws.logger.Infof("< %s", packet.Opcode)
 
 	// handle the case where we're performing a HARD_RESET
 	if ws.sessionManager.NegotiationState() == session.S_PRE_START &&
@@ -203,7 +210,13 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
 
 	// we need to manually ACK because the reliable layer is above us
-	ws.logger.Info("< P_CONTROL_HARD_RESET_SERVER_V2")
+	ws.logger.Infof(
+		"< %s localID=%x remoteID=%x [%d bytes]",
+		packet.Opcode,
+		packet.LocalSessionID,
+		packet.RemoteSessionID,
+		len(packet.Payload),
+	)
 
 	// create the ACK packet
 	ACK, err := ws.sessionManager.NewACKForPacket(packet)
@@ -218,6 +231,19 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 
 	// advance the state
 	ws.sessionManager.SetNegotiationState(session.S_START)
+
+	// attempt to tell TLS we want to handshake
+	select {
+	case ws.notifyTLS <- &model.Notification{Flags: model.NotificationReset}:
+		// nothing
+
+	default:
+		// the architecture says this notification should be nonblocking
+
+	case <-ws.workersManager.ShouldShutdown():
+		return workers.ErrShutdown
+	}
+
 	return nil
 }
 
@@ -238,6 +264,13 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 		return workers.ErrShutdown
 	}
 
-	ws.logger.Infof("> %s", packet.Opcode)
+	ws.logger.Infof(
+		"> %s localID=%x remoteID=%x [%d bytes]",
+		packet.Opcode,
+		packet.LocalSessionID,
+		packet.RemoteSessionID,
+		len(packet.Payload),
+	)
+
 	return nil
 }

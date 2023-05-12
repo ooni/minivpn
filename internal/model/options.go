@@ -128,17 +128,17 @@ func ReadConfigFile(filePath string) (*Options, error) {
 	return getOptionsFromLines(lines, dir)
 }
 
-// shouldLoadCertsFromPath returns true when the options object is configured to load
+// ShouldLoadCertsFromPath returns true when the options object is configured to load
 // certificates from paths; false when we have inline certificates.
-func (o *Options) shouldLoadCertsFromPath() bool {
+func (o *Options) ShouldLoadCertsFromPath() bool {
 	return o.CertPath != "" && o.KeyPath != "" && o.CAPath != ""
 }
 
-// hasAuthInfo returns true if:
+// HasAuthInfo returns true if:
 // - we have paths for cert, key and ca; or
 // - we have inline byte arrays for cert, key and ca; or
 // - we have username + password info.
-func (o *Options) hasAuthInfo() bool {
+func (o *Options) HasAuthInfo() bool {
 	if o.CertPath != "" && o.KeyPath != "" && o.CAPath != "" {
 		return true
 	}
