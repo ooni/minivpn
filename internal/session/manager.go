@@ -71,13 +71,15 @@ func (sns SessionNegotiationState) String() string {
 // Manager manages the session. The zero value is invalid. Please, construct
 // using [NewManager]. This struct is concurrency safe.
 type Manager struct {
-	keyID           uint8
-	keys            []*DataChannelKey
-	localSessionID  model.SessionID
-	logger          model.Logger
-	mu              sync.Mutex
-	negState        SessionNegotiationState
-	remoteSessionID optional.Value[model.SessionID]
+	keyID                uint8
+	keys                 []*DataChannelKey
+	localControlPacketID model.PacketID
+	localDataPacketID    model.PacketID
+	localSessionID       model.SessionID
+	logger               model.Logger
+	mu                   sync.Mutex
+	negState             SessionNegotiationState
+	remoteSessionID      optional.Value[model.SessionID]
 }
 
 // NewManager returns a [Manager] ready to be used.
@@ -117,11 +119,23 @@ func NewManager(logger model.Logger) (*Manager, error) {
 	return session, nil
 }
 
-// LocalSessionID gets the local session ID.
-func (m *Manager) LocalSessionID() model.SessionID {
+// LocalSessionID gets the local session ID as bytes.
+func (m *Manager) LocalSessionID() []byte {
 	defer m.mu.Unlock()
 	m.mu.Lock()
-	return m.localSessionID
+	return m.localSessionID[:]
+}
+
+// RemoteSessionID gets the remote session ID as bytes.
+func (m *Manager) RemoteSessionID() []byte {
+	defer m.mu.Unlock()
+	m.mu.Lock()
+	rs := m.remoteSessionID
+	if !rs.IsNone() {
+		val := rs.Unwrap()
+		return val[:]
+	}
+	return nil
 }
 
 // IsRemoteSessionIDSet returns whether we've set the remote session ID.
@@ -155,6 +169,7 @@ func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
 }
 
 // NewPacket creates a new packet for this session.
+// TODO(ainghazal): maybe increment the counter here? we can keep the local packetID private in that case...
 func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) *model.Packet {
 	defer m.mu.Unlock()
 	m.mu.Lock()
@@ -163,6 +178,36 @@ func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) *model.Packet {
 		m.keyID,
 		payload,
 	)
+}
+
+var ErrExpiredKey = errors.New("expired key")
+
+// LocalDataPacketID returns an unique Packet ID for the Data Channel. It
+// increments the counter for the local data packet ID.
+func (m *Manager) LocalDataPacketID() (model.PacketID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pid := m.localDataPacketID
+	if pid == math.MaxUint32 {
+		// we reached the max packetID, increment will overflow
+		return 0, ErrExpiredKey
+	}
+	m.localDataPacketID++
+	return pid, nil
+}
+
+// LocalControlPacketID returns an unique Packet ID for the Data Channel. It
+// increments the counter for the local control packet ID.
+func (m *Manager) LocalControlPacketID() (model.PacketID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pid := m.localControlPacketID
+	if pid == math.MaxUint32 {
+		// we reached the max packetID, increment will overflow
+		return 0, ErrExpiredKey
+	}
+	m.localControlPacketID++
+	return pid, nil
 }
 
 // NegotiationState returns the state of the negotiation.
