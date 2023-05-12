@@ -34,6 +34,8 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (Fram
 		return nil, err
 	}
 
+	d.logger.Infof("connected to %s/%s", address, network)
+
 	// make sure the conn has close once semantics
 	conn = NewCloseOnceConn(conn)
 

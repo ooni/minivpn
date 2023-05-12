@@ -1,16 +1,16 @@
-// Package service contains code to manage services.
-package service
+// Package workers contains code to manage workers.
+package workers
 
 import (
 	"errors"
 	"sync"
 )
 
-// ErrShutdown is the error returned by a service that is shutting down.
-var ErrShutdown = errors.New("service is shutting down")
+// ErrShutdown is the error returned by a worker that is shutting down.
+var ErrShutdown = errors.New("worker is shutting down")
 
-// Manager coordinates the lifeycles of the services implementing the OpenVPN
-// protocol. The zero value is invalid; use [NewServiceManager].
+// Manager coordinates the lifeycles of the workers implementing the OpenVPN
+// protocol. The zero value is invalid; use [NewManager].
 type Manager struct {
 	// shouldShutdown is closed to signal all workers to shut down.
 	shouldShutdown chan any
@@ -20,6 +20,15 @@ type Manager struct {
 
 	// wg tracks the running workers.
 	wg *sync.WaitGroup
+}
+
+// NewManager creates a new manager.
+func NewManager() *Manager {
+	return &Manager{
+		shouldShutdown: make(chan any),
+		shutdownOnce:   sync.Once{},
+		wg:             &sync.WaitGroup{},
+	}
 }
 
 // StartWorker starts a worker in a background goroutine.

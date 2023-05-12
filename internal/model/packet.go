@@ -7,7 +7,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/ooni/minivpn/bytesx"
+	"github.com/ooni/minivpn/internal/bytesx"
 )
 
 // Opcode is an OpenVPN packet opcode.
@@ -25,6 +25,41 @@ const (
 	P_CONTROL_HARD_RESET_SERVER_V2                    // 8
 	P_DATA_V2                                         // 9
 )
+
+// String returns the opcode string representation
+func (op Opcode) String() string {
+	switch op {
+	case P_CONTROL_HARD_RESET_CLIENT_V1:
+		return "P_CONTROL_HARD_RESET_CLIENT_V1"
+
+	case P_CONTROL_HARD_RESET_SERVER_V1:
+		return "P_CONTROL_HARD_RESET_SERVER_V1"
+
+	case P_CONTROL_SOFT_RESET_V1:
+		return "P_CONTROL_SOFT_RESET_V1"
+
+	case P_CONTROL_V1:
+		return "P_CONTROL_V1"
+
+	case P_ACK_V1:
+		return "P_ACK_V1"
+
+	case P_DATA_V1:
+		return "P_DATA_V1"
+
+	case P_CONTROL_HARD_RESET_CLIENT_V2:
+		return "P_CONTROL_HARD_RESET_CLIENT_V2"
+
+	case P_CONTROL_HARD_RESET_SERVER_V2:
+		return "P_CONTROL_HARD_RESET_SERVER_V2"
+
+	case P_DATA_V2:
+		return "P_DATA_V2"
+
+	default:
+		return "P_UNKNOWN"
+	}
+}
 
 // IsControl returns true when this opcode is a control opcode.
 func (op Opcode) IsControl() bool {

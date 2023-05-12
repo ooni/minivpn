@@ -78,7 +78,8 @@ stateDiagram
     pmUp --> relUp: chan *model.Packet
     relUp --> ccUp: chan *model.Packet
     dcUp --> tunRead: chan *TUNPacket [NB, buffered]
-    ccUp --> tlsWorker: chan *Reset [NB, !!!]
+    pmUp --> tlsWorker: chan *Notification [NB, !!!]
+    ccUp --> tlsWorker: chan *Notification [NB, !!!]
     ccUp --> tlsWorker: chan *TLSRecord
     tunRead --> [*]
 

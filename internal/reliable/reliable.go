@@ -3,12 +3,9 @@ package reliable
 
 import (
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/service"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/internal/workers"
 )
-
-// FIXME: what kind of channel should the notification be like???? we
-// should actually not have this notification
 
 // StartWorkers starts the reliable-transport workers. See the [ARCHITECTURE]
 // file for more information about the reliable-transport workers.
@@ -16,9 +13,8 @@ import (
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func StartWorkers(
 	logger model.Logger,
-	serviceManager *service.Manager,
+	workersManager *workers.Manager,
 	sessionManager *session.Manager,
-	notifications <-chan *model.Notification,
 	packetDownBottom chan<- *model.Packet,
 	packetDownTop <-chan *model.Packet,
 	packetUpBottom <-chan *model.Packet,
@@ -26,25 +22,21 @@ func StartWorkers(
 ) {
 	ws := &workersState{
 		logger:           logger,
-		notifications:    notifications,
 		packetDownBottom: packetDownBottom,
 		packetDownTop:    packetDownTop,
 		packetUpBottom:   packetUpBottom,
 		packetUpTop:      packetUpTop,
-		serviceManager:   serviceManager,
 		sessionManager:   sessionManager,
+		workersManager:   workersManager,
 	}
-	serviceManager.StartWorker(ws.moveUpWorker)
-	serviceManager.StartWorker(ws.moveDownWorker)
+	workersManager.StartWorker(ws.moveUpWorker)
+	workersManager.StartWorker(ws.moveDownWorker)
 }
 
-// workersState contains the reliable service state
+// workersState contains the reliable workers state
 type workersState struct {
 	// logger is the logger to use
 	logger model.Logger
-
-	// notifications is the channel from which we read notifications.
-	notifications <-chan *model.Notification
 
 	// packetDownBottom is the channel where we write packets going down the stack.
 	packetDownBottom chan<- *model.Packet
@@ -58,22 +50,25 @@ type workersState struct {
 	// packetUpTop is the channel where we write packets going up the stack.
 	packetUpTop chan<- *model.Packet
 
-	// serviceManager controls the workers lifecycle.
-	serviceManager *service.Manager
-
 	// sessionManager manages the OpenVPN session.
 	sessionManager *session.Manager
+
+	// workersManager controls the workers lifecycle.
+	workersManager *workers.Manager
 }
 
 // moveUpWorker moves packets up the stack
 func (ws *workersState) moveUpWorker() {
 	defer func() {
-		ws.serviceManager.OnWorkerDone()
-		ws.serviceManager.StartShutdown()
-		ws.logger.Debug("reliable: moveUpLoop: done")
+		ws.workersManager.OnWorkerDone()
+		ws.workersManager.StartShutdown()
+		ws.logger.Debug("reliable: moveUpWorker: done")
 	}()
 
-	ws.logger.Debug("reliable: moveUpLoop: started")
+	ws.logger.Debug("reliable: moveUpWorker: started")
+
+	// TODO: do we need to have notifications from the control channel
+	// to reset state or can we do this implicitly?
 
 	for {
 		// POSSIBLY BLOCK reading a packet to move up the stack
@@ -82,13 +77,13 @@ func (ws *workersState) moveUpWorker() {
 		case packet := <-ws.packetUpBottom:
 			// drop a packet that is not for our session
 			if packet.RemoteSessionID != ws.sessionManager.LocalSessionID() {
-				ws.logger.Warn("reliable: moveUpLoop: packet with invalid RemoteSessionID")
+				ws.logger.Warn("reliable: moveUpWorker: packet with invalid RemoteSessionID")
 				continue
 			}
 
 			// possibly ACK the incoming packet
 			if err := ws.maybeACK(packet); err != nil {
-				ws.logger.Warnf("reliable: moveUpLoop: cannot ACK packet: %s", err.Error())
+				ws.logger.Warnf("reliable: moveUpWorker: cannot ACK packet: %s", err.Error())
 				continue
 			}
 
@@ -97,16 +92,11 @@ func (ws *workersState) moveUpWorker() {
 			// POSSIBLY BLOCK delivering to the upper layer
 			select {
 			case ws.packetUpTop <- packet:
-			case <-ws.serviceManager.ShouldShutdown():
+			case <-ws.workersManager.ShouldShutdown():
 				return
 			}
 
-		case note := <-ws.notifications:
-			if (note.Flags & model.NotificationReset) != 0 {
-				// TODO: reset the reliable transport state
-			}
-
-		case <-ws.serviceManager.ShouldShutdown():
+		case <-ws.workersManager.ShouldShutdown():
 			return
 		}
 	}
@@ -115,12 +105,12 @@ func (ws *workersState) moveUpWorker() {
 // moveDownWorker moves packets down the stack
 func (ws *workersState) moveDownWorker() {
 	defer func() {
-		ws.serviceManager.OnWorkerDone()
-		ws.serviceManager.StartShutdown()
-		ws.logger.Debug("reliable: moveDownLoop: done")
+		ws.workersManager.OnWorkerDone()
+		ws.workersManager.StartShutdown()
+		ws.logger.Debug("reliable: moveDownWorker: done")
 	}()
 
-	ws.logger.Debug("reliable: moveDownLoop: started")
+	ws.logger.Debug("reliable: moveDownWorker: started")
 
 	// TODO: we should have timer for retransmission
 	for {
@@ -132,11 +122,11 @@ func (ws *workersState) moveDownWorker() {
 			// POSSIBLY BLOCK delivering this packet to the lower layer
 			select {
 			case ws.packetDownBottom <- packet:
-			case <-ws.serviceManager.ShouldShutdown():
+			case <-ws.workersManager.ShouldShutdown():
 				return
 			}
 
-		case <-ws.serviceManager.ShouldShutdown():
+		case <-ws.workersManager.ShouldShutdown():
 			return
 		}
 	}
@@ -157,7 +147,7 @@ func (ws *workersState) maybeACK(packet *model.Packet) error {
 	select {
 	case ws.packetDownBottom <- ACK:
 		return nil
-	case <-ws.serviceManager.ShouldShutdown():
-		return service.ErrShutdown
+	case <-ws.workersManager.ShouldShutdown():
+		return workers.ErrShutdown
 	}
 }

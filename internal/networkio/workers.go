@@ -2,7 +2,7 @@ package networkio
 
 import (
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/service"
+	"github.com/ooni/minivpn/internal/workers"
 )
 
 // StartWorkers starts the network I/O workers. See the [ARCHITECTURE]
@@ -13,7 +13,7 @@ import (
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func StartWorkers(
 	logger model.Logger,
-	manager *service.Manager,
+	manager *workers.Manager,
 	conn FramingConn,
 	rawPacketDown <-chan []byte,
 	rawPacketUp chan<- []byte,
@@ -38,7 +38,7 @@ type workersState struct {
 	logger model.Logger
 
 	// manager controls the workers lifecycle
-	manager *service.Manager
+	manager *workers.Manager
 
 	// rawPacketDown is the channel for reading outgoing packets
 	rawPacketDown <-chan []byte
@@ -53,23 +53,23 @@ func (ws *workersState) moveUpWorker() {
 		// make sure the manager knows we're done
 		ws.manager.OnWorkerDone()
 
-		// tear down everything else because a service exited
+		// tear down everything else because a workers exited
 		ws.manager.StartShutdown()
 
 		// we OWN the connection
 		ws.conn.Close()
 
 		// emit useful debug message
-		ws.logger.Debug("networkio: moveUpLoop: done")
+		ws.logger.Debug("networkio: moveUpWorker: done")
 	}()
 
-	ws.logger.Debug("networkio: moveUpLoop: started")
+	ws.logger.Debug("networkio: moveUpWorker: started")
 
 	for {
 		// POSSIBLY BLOCK on the connection to read a new packet
 		pkt, err := ws.conn.ReadRawPacket()
 		if err != nil {
-			ws.logger.Infof("networkio: moveUpLoop: ReadRawPacket: %s", err.Error())
+			ws.logger.Infof("networkio: moveUpWorker: ReadRawPacket: %s", err.Error())
 			return
 		}
 
@@ -87,10 +87,10 @@ func (ws *workersState) moveDownWorker() {
 	defer func() {
 		ws.manager.StartShutdown()
 		ws.manager.OnWorkerDone()
-		ws.logger.Debug("networkio: moveDownLoop: done")
+		ws.logger.Debug("networkio: moveDownWorker: done")
 	}()
 
-	ws.logger.Debug("networkio: moveDownLoop: started")
+	ws.logger.Debug("networkio: moveDownWorker: started")
 
 	for {
 		// While this channel receive could possibly block, the [ARCHITECTURE] is
@@ -103,7 +103,7 @@ func (ws *workersState) moveDownWorker() {
 
 			// POSSIBLY BLOCK on the connection to write the packet
 			if err := ws.conn.WriteRawPacket(pkt); err != nil {
-				ws.logger.Infof("networkio: moveDownLoop: WriteRawPacket: %s", err.Error())
+				ws.logger.Infof("networkio: moveDownWorker: WriteRawPacket: %s", err.Error())
 				return
 			}
 

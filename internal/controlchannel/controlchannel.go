@@ -1,27 +1,23 @@
 package controlchannel
 
 import (
+	"bytes"
+	"errors"
+
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/service"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/internal/workers"
 )
 
-// StartWorkers starts the control-channel workers.
+// StartWorkers starts the control-channel workers. See the [ARCHITECTURE]
+// file for more information about the packet-muxer workers.
 //
-// We start two workers:
-//
-// 1. moveUpLoop BLOCKS on packetUpBottom to read a raw packet and
-// eventually BLOCKS on packetUpTop to deliver it; this loop also
-// BLOCKS on notifications to handle RESET messages;
-//
-// 2. moveDownLoop BLOCKS on packetDownTop to read a packet and
-// eventually BLOCKS on packetDownBottom to deliver it;
+// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func StartWorkers(
 	logger model.Logger,
-	serviceManager *service.Manager,
+	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 	notifyTLS chan<- *model.Notification,
-	notifyReliable chan<- *model.Notification,
 	packetDown chan<- *model.Packet,
 	packetUp <-chan *model.Packet,
 	tlsRecordDown <-chan []byte,
@@ -29,28 +25,147 @@ func StartWorkers(
 ) {
 	ws := &workersState{
 		logger:         logger,
-		serviceManager: serviceManager,
 		notifyTLS:      notifyTLS,
-		notifyReliable: notifyReliable,
 		packetDown:     packetDown,
 		packetUp:       packetUp,
 		tlsRecordDown:  tlsRecordDown,
 		tlsRecordUp:    tlsRecordUp,
 		sessionManager: sessionManager,
+		workersManager: workersManager,
 	}
-	serviceManager.StartWorker(ws.moveUpLoop)
-	serviceManager.StartWorker(ws.moveDownLoop)
+	workersManager.StartWorker(ws.moveUpWorker)
+	workersManager.StartWorker(ws.moveDownWorker)
 }
 
 // workersState contains the control channel state.
 type workersState struct {
 	logger         model.Logger
-	serviceManager *service.Manager
 	notifyTLS      chan<- *model.Notification
-	notifyReliable chan<- *model.Notification
 	packetDown     chan<- *model.Packet
 	packetUp       <-chan *model.Packet
 	tlsRecordDown  <-chan []byte
 	tlsRecordUp    chan<- []byte
 	sessionManager *session.Manager
+	workersManager *workers.Manager
+}
+
+func (ws *workersState) moveUpWorker() {
+	defer func() {
+		ws.workersManager.OnWorkerDone()
+		ws.workersManager.StartShutdown()
+		ws.logger.Debug("controlchannel: moveUpWorker: done")
+	}()
+
+	ws.logger.Debug("controlchannel: moveUpWorker: started")
+
+	for {
+		// POSSIBLY BLOCK on reading the packet moving up the stack
+		select {
+		case packet := <-ws.packetUp:
+			// route the packets depending on their opcode
+			switch packet.Opcode {
+
+			case model.P_CONTROL_SOFT_RESET_V1:
+				// We cannot blindly accept SOFT_RESET requests. They only make sense
+				// when we have generated keys. Note that a SOFT_RESET returns us to
+				// the INITIAL state, therefore, we cannot have concurrent resets in place.
+				if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+					continue
+				}
+				ws.sessionManager.SetNegotiationState(session.S_INITIAL)
+
+				// notify the TLS layer that it should TLS handshake and fetch
+				// us new keys for the data channel
+				select {
+				case ws.notifyTLS <- &model.Notification{Flags: model.NotificationReset}:
+					// nothing
+
+				case <-ws.workersManager.ShouldShutdown():
+					return
+				}
+
+			case model.P_CONTROL_V1:
+				// If we've got a P_CONTROL_V1 message, it contains a TLS record
+				// that we need to forward to the TLS worker
+				record, err := parseControlMessage(packet.Payload)
+				if err != nil {
+					ws.logger.Warnf("controlchannel: parseControlMessage: %s", err.Error())
+					continue
+				}
+
+				// send the packet to the TLS layer
+				select {
+				case ws.tlsRecordUp <- record:
+					// nothing
+
+				case <-ws.workersManager.ShouldShutdown():
+					return
+				}
+			}
+
+		case <-ws.workersManager.ShouldShutdown():
+			return
+		}
+	}
+}
+
+func (ws *workersState) moveDownWorker() {
+	defer func() {
+		ws.workersManager.OnWorkerDone()
+		ws.workersManager.StartShutdown()
+		ws.logger.Debug("controlchannel: moveUpWorker: done")
+	}()
+
+	ws.logger.Debug("controlchannel: moveUpWorker: started")
+
+	for {
+		// POSSIBLY BLOCK on reading the TLS record moving down the stack
+		select {
+		case record := <-ws.tlsRecordDown:
+			// transform the record into a control message
+			packet := ws.sessionManager.NewPacket(
+				model.P_CONTROL_V1,
+				tlsRecordToControlMessage(record),
+			)
+
+			// POSSIBLY BLOCK on sending the packet down the stack
+			select {
+			case ws.packetDown <- packet:
+				// nothing
+
+			case <-ws.workersManager.ShouldShutdown():
+				return
+			}
+
+		case <-ws.workersManager.ShouldShutdown():
+			return
+		}
+	}
+}
+
+// controlMessageHeader is the header prefixed to control messages
+var controlMessageHeader = []byte{0x00, 0x00, 0x00, 0x00}
+
+// tlsRecordToControlMessage converts a TLS record to a control message.
+func tlsRecordToControlMessage(tlsRecord []byte) (out []byte) {
+	out = append(out, controlMessageHeader...)
+	out = append(out, tlsRecord...)
+	return out
+}
+
+// ErrMissingHeader indicates that we're missing the four-byte all-zero header.
+var ErrMissingHeader = errors.New("missing four-byte all-zero header")
+
+// ErrInvalidHeader indicates that the header is not a sequence of four zeroed bytes.
+var ErrInvalidHeader = errors.New("expected four-byte all-zero header")
+
+// parseControlMessage parses a control message and returns the TLS record inside it.
+func parseControlMessage(message []byte) ([]byte, error) {
+	if len(message) < 4 {
+		return nil, ErrMissingHeader
+	}
+	if !bytes.Equal(message[:4], controlMessageHeader) {
+		return nil, ErrInvalidHeader
+	}
+	return message[4:], nil
 }
