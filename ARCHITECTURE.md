@@ -57,6 +57,47 @@ class reliableTransporter
 reliableTransporter : +start()
 reliableTransporter : +stop()
 
-reliableTransport ..> session 
+reliableTransport ..> session
 reliableTransport --|> reliableTransporter : implements
+```
+
+## New architecture
+
+```mermaid
+stateDiagram
+    state "networkio.moveUpWorker {1}" as nioUp
+    state "packetmuxer.moveUpWorker {1}" as pmUp
+    state "datachannel.moveUpWorker {1}" as dcUp
+    state "reliable.moveUpWorker {1}" as relUp
+    state "controlchannel.moveUpWorker {1}" as ccUp
+    state "tlsstate.Worker {1}" as tlsWorker
+    state "TUN.Read() {1}" as tunRead
+
+    nioUp --> pmUp: chan []byte
+    pmUp --> dcUp: chan *model.Packet
+    pmUp --> relUp: chan *model.Packet
+    relUp --> ccUp: chan *model.Packet
+    dcUp --> tunRead: chan *TUNPacket [NB, buffered]
+    ccUp --> tlsWorker: chan *Reset [NB, !!!]
+    ccUp --> tlsWorker: chan *TLSRecord
+    tunRead --> [*]
+
+    state "networkio.moveDownWorker {1}" as nioDown
+    state "datachannel.moveDownWorker {1}" as dcDown
+    state "packetmuxer.moveDownWorker {1}" as pmDown
+    state "controlchannel.moveDownWorker {1}" as ccDown
+    state "TUN.Write() {1}" as tunWrite
+    state "reliable.moveDownWorker {1}" as relDown
+
+    tunWrite --> dcDown: chan *TUNPacket
+    dcDown --> pmDown: chan *model.Packet
+    pmDown --> nioDown: chan []byte [NB, buffered]
+    ccDown --> relDown: chan *model.Packet
+    relDown --> pmDown: chan *model.Packet
+    tlsWorker --> ccDown: chan *TLSRecord
+    relUp --> pmDown: chan *model.Packet [ACK]
+    [*] --> tunWrite
+
+    nioDown --> internet: conn.Write() [!!!]
+    internet --> nioUp: conn.Read() [!!!]
 ```
