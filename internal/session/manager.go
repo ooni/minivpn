@@ -188,8 +188,12 @@ func (m *Manager) ActiveKey() (*DataChannelKey, error) {
 		return nil, fmt.Errorf("%w: %s", errDataChannelKey, "no such key id")
 	}
 	dck := m.keys[m.keyID]
-	if !dck.Ready() {
-		return nil, fmt.Errorf("%w: %s", errDataChannelKey, "not ready")
-	}
+	// TODO(bassosimone): the following code would prevent us from
+	// creating a new session at the beginning--refactor?
+	/*
+		if !dck.Ready() {
+			return nil, fmt.Errorf("%w: %s", errDataChannelKey, "not ready")
+		}
+	*/
 	return dck, nil
 }

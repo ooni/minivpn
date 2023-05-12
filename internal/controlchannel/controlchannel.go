@@ -9,27 +9,33 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+// Service is the controlchannel service. Make sure you initialize
+// the channels before invoking [Service.StartWorkers].
+type Service struct {
+	NotifyTLS     *chan *model.Notification
+	PacketDown    *chan *model.Packet
+	PacketUp      chan *model.Packet
+	TLSRecordDown chan []byte
+	TLSRecordUp   *chan []byte
+}
+
 // StartWorkers starts the control-channel workers. See the [ARCHITECTURE]
 // file for more information about the packet-muxer workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func StartWorkers(
+func (svc *Service) StartWorkers(
 	logger model.Logger,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
-	notifyTLS chan<- *model.Notification,
-	packetDown chan<- *model.Packet,
-	packetUp <-chan *model.Packet,
-	tlsRecordDown <-chan []byte,
-	tlsRecordUp chan<- []byte,
+
 ) {
 	ws := &workersState{
 		logger:         logger,
-		notifyTLS:      notifyTLS,
-		packetDown:     packetDown,
-		packetUp:       packetUp,
-		tlsRecordDown:  tlsRecordDown,
-		tlsRecordUp:    tlsRecordUp,
+		notifyTLS:      *svc.NotifyTLS,
+		packetDown:     *svc.PacketDown,
+		packetUp:       svc.PacketUp,
+		tlsRecordDown:  svc.TLSRecordDown,
+		tlsRecordUp:    *svc.TLSRecordUp,
 		sessionManager: sessionManager,
 		workersManager: workersManager,
 	}

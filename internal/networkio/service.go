@@ -5,25 +5,30 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+// Service is the network I/O service. Make sure you initialize
+// the channels before invoking [Service.StartWorkers].
+type Service struct {
+	RawPacketDown chan []byte
+	RawPacketUp   *chan []byte
+}
+
 // StartWorkers starts the network I/O workers. See the [ARCHITECTURE]
 // file for more information about the network I/O workers.
 //
 // This function TAKES OWNERSHIP of the conn.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func StartWorkers(
+func (svc *Service) StartWorkers(
 	logger model.Logger,
 	manager *workers.Manager,
 	conn FramingConn,
-	rawPacketDown <-chan []byte,
-	rawPacketUp chan<- []byte,
 ) {
 	ws := &workersState{
 		conn:          conn,
 		logger:        logger,
 		manager:       manager,
-		rawPacketDown: rawPacketDown,
-		rawPacketUp:   rawPacketUp,
+		rawPacketDown: svc.RawPacketDown,
+		rawPacketUp:   *svc.RawPacketUp,
 	}
 	manager.StartWorker(ws.moveUpWorker) // TAKES conn ownership
 	manager.StartWorker(ws.moveDownWorker)

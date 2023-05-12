@@ -7,29 +7,34 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+// Service is the packetmuxer service. Make sure you initialize
+// the channels before invoking [Service.StartWorkers].
+type Service struct {
+	ControlPacketUp *chan *model.Packet
+	DataPacketUp    *chan *model.Packet
+	HardReset       chan any
+	PacketDown      chan *model.Packet
+	RawPacketDown   *chan []byte
+	RawPacketUp     chan []byte
+}
+
 // StartWorkers starts the packet-muxer workers. See the [ARCHITECTURE]
 // file for more information about the packet-muxer workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func StartWorkers(
+func (svc *Service) StartWorkers(
 	logger model.Logger,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
-	controlPacketUp chan<- *model.Packet,
-	dataPacketUp chan<- *model.Packet,
-	hardReset <-chan any,
-	packetDown <-chan *model.Packet,
-	rawPacketDown chan<- []byte,
-	rawPacketUp <-chan []byte,
 ) {
 	ws := &workersState{
 		logger:          logger,
-		controlPacketUp: controlPacketUp,
-		dataPacketUp:    dataPacketUp,
-		hardReset:       hardReset,
-		packetDown:      packetDown,
-		rawPacketDown:   rawPacketDown,
-		rawPacketUp:     rawPacketUp,
+		controlPacketUp: *svc.ControlPacketUp,
+		dataPacketUp:    *svc.DataPacketUp,
+		hardReset:       svc.HardReset,
+		packetDown:      svc.PacketDown,
+		rawPacketDown:   *svc.RawPacketDown,
+		rawPacketUp:     svc.RawPacketUp,
 		sessionManager:  sessionManager,
 		workersManager:  workersManager,
 	}

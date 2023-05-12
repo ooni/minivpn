@@ -7,25 +7,30 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+// Service is the reliable service. Make sure you initialize
+// the channels before invoking [Service.StartWorkers].
+type Service struct {
+	PacketDownBottom *chan *model.Packet
+	PacketDownTop    chan *model.Packet
+	PacketUpBottom   chan *model.Packet
+	PacketUpTop      *chan *model.Packet
+}
+
 // StartWorkers starts the reliable-transport workers. See the [ARCHITECTURE]
 // file for more information about the reliable-transport workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func StartWorkers(
+func (svc *Service) StartWorkers(
 	logger model.Logger,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
-	packetDownBottom chan<- *model.Packet,
-	packetDownTop <-chan *model.Packet,
-	packetUpBottom <-chan *model.Packet,
-	packetUpTop chan<- *model.Packet,
 ) {
 	ws := &workersState{
 		logger:           logger,
-		packetDownBottom: packetDownBottom,
-		packetDownTop:    packetDownTop,
-		packetUpBottom:   packetUpBottom,
-		packetUpTop:      packetUpTop,
+		packetDownBottom: *svc.PacketDownBottom,
+		packetDownTop:    svc.PacketDownTop,
+		packetUpBottom:   svc.PacketUpBottom,
+		packetUpTop:      *svc.PacketUpTop,
 		sessionManager:   sessionManager,
 		workersManager:   workersManager,
 	}
