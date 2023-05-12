@@ -82,8 +82,16 @@ func (ws *workersState) moveUpWorker() {
 		// or POSSIBLY BLOCK waiting for notifications
 		select {
 		case packet := <-ws.packetUpBottom:
+			ws.logger.Infof(
+				"< %s localID=%x remoteID=%x [%d bytes]",
+				packet.Opcode,
+				packet.LocalSessionID,
+				packet.RemoteSessionID,
+				len(packet.Payload),
+			)
+
 			// drop a packet that is not for our session
-			if !bytes.Equal(packet.RemoteSessionID[:], ws.sessionManager.LocalSessionID()) {
+			if !bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()) {
 				ws.logger.Warnf(
 					"reliable: moveUpWorker: packet with invalid RemoteSessionID: expected %x; got %x",
 					ws.sessionManager.LocalSessionID(),
@@ -97,14 +105,6 @@ func (ws *workersState) moveUpWorker() {
 				ws.logger.Warnf("reliable: moveUpWorker: cannot ACK packet: %s", err.Error())
 				continue
 			}
-
-			ws.logger.Infof(
-				"< %s localID=%x remoteID=%x [%d bytes]",
-				packet.Opcode,
-				packet.LocalSessionID,
-				packet.RemoteSessionID,
-				len(packet.Payload),
-			)
 
 			// TODO: here we should track ACKs
 
