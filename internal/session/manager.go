@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/ooni/minivpn/internal/model"
@@ -81,6 +83,7 @@ type Manager struct {
 	mu                   sync.Mutex
 	negState             SessionNegotiationState
 	remoteSessionID      optional.Value[model.SessionID]
+	tunnelInfo           model.TunnelInfo
 }
 
 // NewManager returns a [Manager] ready to be used.
@@ -94,6 +97,7 @@ func NewManager(logger model.Logger) (*Manager, error) {
 		mu:              sync.Mutex{},
 		negState:        0,
 		remoteSessionID: optional.None[model.SessionID](),
+		tunnelInfo:      model.TunnelInfo{},
 	}
 
 	randomBytes, err := randomFn(8)
@@ -266,8 +270,70 @@ func (m *Manager) ActiveKey() (*DataChannelKey, error) {
 
 // SetRemoteSessionID sets the remote session ID.
 func (m *Manager) SetRemoteSessionID(remoteSessionID model.SessionID) {
-	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.mu.Lock()
 	runtimex.Assert(m.remoteSessionID.IsNone(), "SetRemoteSessionID called more than once")
 	m.remoteSessionID = optional.Some(remoteSessionID)
+}
+
+// InitTunnelInfo initializes TunnelInfo from data obtained from the auth response.
+func (m *Manager) InitTunnelInfo(remoteOption string) error {
+	defer m.mu.Unlock()
+	m.mu.Lock()
+	ti, err := newTunnelInfoFromRemoteOptionsString(remoteOption)
+	if err != nil {
+		return err
+	}
+	m.tunnelInfo = *ti
+	m.logger.Infof("Tunnel MTU: %v", m.tunnelInfo.MTU)
+	return nil
+}
+
+// newTunnelInfoFromRemoteOptionsString parses the options string returned by
+// server. It returns a new tunnelInfo object where the needed fields have been
+// updated. At the moment, we only parse the tun-mtu parameter.
+func newTunnelInfoFromRemoteOptionsString(remoteOpts string) (*model.TunnelInfo, error) {
+	t := &model.TunnelInfo{}
+	opts := strings.Split(remoteOpts, ",")
+	for _, opt := range opts {
+		vals := strings.Split(opt, " ")
+		if len(vals) < 2 {
+			continue
+		}
+		k, v := vals[0], vals[1:]
+		if k == "tun-mtu" {
+			mtu, err := strconv.Atoi(v[0])
+			if err != nil {
+				return nil, err
+			}
+			t.MTU = mtu
+		}
+	}
+	return t, nil
+}
+
+// UpdateTunnelInfo updates the internal tunnel info from the push response message
+func (m *Manager) UpdateTunnelInfo(ti *model.TunnelInfo) {
+	defer m.mu.Unlock()
+	m.mu.Lock()
+
+	m.tunnelInfo.IP = ti.IP
+	m.tunnelInfo.GW = ti.GW
+	m.tunnelInfo.PeerID = ti.PeerID
+
+	m.logger.Infof("Tunnel IP: %s", ti.IP)
+	m.logger.Infof("Gateway IP: %s", ti.GW)
+	m.logger.Infof("Peer ID: %d", ti.PeerID)
+}
+
+// TunnelInfo returns a copy the current TunnelInfo
+func (m *Manager) TunnelInfo() model.TunnelInfo {
+	defer m.mu.Unlock()
+	m.mu.Lock()
+	return model.TunnelInfo{
+		MTU:    m.tunnelInfo.MTU,
+		IP:     m.tunnelInfo.IP,
+		GW:     m.tunnelInfo.GW,
+		PeerID: m.tunnelInfo.PeerID,
+	}
 }

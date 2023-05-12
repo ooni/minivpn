@@ -177,62 +177,35 @@ func (o *Options) ServerOptionsString() string {
 	return s
 }
 
-// tunnelInfo holds state about the VPN tunnelInfo that has longer duration than a
+// TunnelInfo holds state about the VPN TunnelInfo that has longer duration than a
 // given session. This information is gathered at different stages:
 // - during the handshake (mtu).
 // - after server pushes config options(ip, gw).
-type tunnelInfo struct {
-	mtu    int
-	ip     string
-	gw     string
-	peerID int
+type TunnelInfo struct {
+	MTU    int
+	IP     string
+	GW     string
+	PeerID int
 }
 
-// TODO(ainghazal): we should better explain why we have two functions
-// that produce a tunnel info and what each of them do.
-
-// newTunnelInfoFromRemoteOptionsString parses the options string returned by
-// server. It returns a new tunnelInfo object where the needed fields have been
-// updated. At the moment, we only parse the tun-mtu parameter.
-func newTunnelInfoFromRemoteOptionsString(remoteOpts string) *tunnelInfo {
-	t := &tunnelInfo{}
-	opts := strings.Split(remoteOpts, ",")
-	for _, opt := range opts {
-		vals := strings.Split(opt, " ")
-		if len(vals) < 2 {
-			continue
-		}
-		k, v := vals[0], vals[1:]
-		if k == "tun-mtu" {
-			mtu, err := strconv.Atoi(v[0])
-			if err != nil {
-				log.Println("bad mtu:", err)
-				continue
-			}
-			t.mtu = mtu
-		}
-	}
-	return t
-}
-
-// newTunnelInfoFromPushedOptions takes a map of string to array of strings, and returns
+// NewTunnelInfoFromPushedOptions takes a map of string to array of strings, and returns
 // a new tunnel struct with the relevant info.
-func newTunnelInfoFromPushedOptions(opts map[string][]string) *tunnelInfo {
-	t := &tunnelInfo{}
+func NewTunnelInfoFromPushedOptions(opts map[string][]string) *TunnelInfo {
+	t := &TunnelInfo{}
 	if r := opts["route"]; len(r) >= 1 {
-		t.gw = r[0]
+		t.GW = r[0]
 	} else if r := opts["route-gateway"]; len(r) >= 1 {
-		t.gw = r[0]
+		t.GW = r[0]
 	}
 	ip := opts["ifconfig"]
 	if len(ip) >= 1 {
-		t.ip = ip[0]
+		t.IP = ip[0]
 	}
 	peerID := opts["peer-id"]
 	if len(peerID) == 1 {
 		i, err := parseIntFromOption(peerID[0])
 		if err == nil {
-			t.peerID = i
+			t.PeerID = i
 		} else {
 			log.Println("Cannot parse peer-id:", err.Error())
 		}
@@ -252,12 +225,12 @@ func parseIntFromOption(s string) (int, error) {
 	return 0, nil
 }
 
-// pushedOptionsAsMap returns a map for the server-pushed options,
+// PushedOptionsAsMap returns a map for the server-pushed options,
 // where the options are the keys and each space-separated value is the value.
 // This function always returns an initialized map, even if empty.
-func pushedOptionsAsMap(pushedOptions []byte) map[string][]string {
+func PushedOptionsAsMap(pushedOptions []byte) map[string][]string {
 	optMap := make(map[string][]string)
-	if pushedOptions == nil || len(pushedOptions) == 0 {
+	if len(pushedOptions) == 0 {
 		return optMap
 	}
 

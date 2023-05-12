@@ -115,19 +115,118 @@ func (ws *workersState) tlsAuth() error {
 	}
 }
 
-// doTLSAuth is the internal implementation of tlsAuth.
+// doTLSAuth is the internal implementation of tlsAuth such that tlsAuth
+// can interrupt this function early if needed.
 func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch chan<- error) {
 	ws.logger.Debug("tlsstate: doTLSAuth: started")
 	defer ws.logger.Debug("tlsstate: doTLSAuth: done")
 
+	// do the TLS handshake
 	tlsConn, err := tlsHandshakeFn(conn, config)
 	if err != nil {
 		errorch <- err
 		return
 	}
-	defer tlsConn.Close()
+	//defer tlsConn.Close() // <- we don't care since the underlying conn is a tlsBio
 
-	_ = tlsConn
+	// we need the active key to create the first control message
+	activeKey, err := ws.sessionManager.ActiveKey()
+	if err != nil {
+		errorch <- err
+		return
+	}
+
+	// send the first control message with random material
+	if err := ws.sendAuthRequestMessage(tlsConn, activeKey); err != nil {
+		errorch <- err
+		return
+	}
+	ws.sessionManager.SetNegotiationState(session.S_SENT_KEY)
+
+	// read the server's keySource and options
+	remoteKey, serverOptions, err := ws.recvAuthReplyMessage(tlsConn)
+	if err != nil {
+		errorch <- err
+		return
+	}
+	ws.logger.Debugf("Remote options: %s", serverOptions)
+
+	// init the tunnel info
+	if err := ws.sessionManager.InitTunnelInfo(serverOptions); err != nil {
+		errorch <- err
+		return
+	}
+
+	// add the remote key to the active key
+	activeKey.AddRemoteKey(remoteKey)
+	ws.sessionManager.SetNegotiationState(session.S_GOT_KEY)
+
+	// send the push request
+	if err := ws.sendPushRequestMessage(tlsConn); err != nil {
+		errorch <- err
+		return
+	}
+
+	// obtain tunnel info from the push response
+	tinfo, err := ws.recvPushResponseMessage(tlsConn)
+	if err != nil {
+		errorch <- err
+		return
+	}
+
+	// update with extra information obtained from push response
+	ws.sessionManager.UpdateTunnelInfo(tinfo)
+
+	// progress to the ACTIVE state
+	ws.sessionManager.SetNegotiationState(session.S_ACTIVE)
 
 	errorch <- nil
+}
+
+// sendAuthRequestMessage sends the auth request message
+func (ws *workersState) sendAuthRequestMessage(tlsConn net.Conn, activeKey *session.DataChannelKey) error {
+	// this message is sending our options and asking the server to get AUTH
+	ctrlMsg, err := encodeClientControlMessageAsBytes(activeKey.Local(), ws.options)
+	if err != nil {
+		return err
+	}
+
+	// let's fire off the message
+	_, err = tlsConn.Write(ctrlMsg)
+	return err
+}
+
+// recvAuthReplyMessage reads and parses the first control response.
+func (ws *workersState) recvAuthReplyMessage(conn net.Conn) (*session.KeySource, string, error) {
+	// read raw bytes
+	buffer := make([]byte, 1<<17)
+	count, err := conn.Read(buffer)
+	if err != nil {
+		return nil, "", err
+	}
+	data := buffer[:count]
+
+	// parse what we received
+	return parseServerControlMessage(data)
+}
+
+// sendPushRequestMessage sends the push request message
+func (ws *workersState) sendPushRequestMessage(conn net.Conn) error {
+	data := append([]byte("PUSH_REQUEST"), 0x00)
+	_, err := conn.Write(data)
+	return err
+}
+
+// recvPushResponseMessage receives and parses the push response message
+func (ws *workersState) recvPushResponseMessage(conn net.Conn) (*model.TunnelInfo, error) {
+	// read raw bytes
+	buffer := make([]byte, 1<<17)
+	count, err := conn.Read(buffer)
+	if err != nil {
+		return nil, err
+	}
+	data := buffer[:count]
+
+	// parse what we received
+	return parseServerPushReply(data)
 }

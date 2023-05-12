@@ -137,33 +137,3 @@ func (ws *workersState) moveDownWorker() {
 		}
 	}
 }
-
-// THIS BELONGS TO TLS: WE NEED TO APPLY THIS LATER
-/*
-// controlMessageHeader is the header prefixed to control messages
-var controlMessageHeader = []byte{0x00, 0x00, 0x00, 0x00}
-
-// tlsRecordToControlMessage converts a TLS record to a control message.
-func tlsRecordToControlMessage(tlsRecord []byte) (out []byte) {
-	out = append(out, controlMessageHeader...)
-	out = append(out, tlsRecord...)
-	return out
-}
-
-// ErrMissingHeader indicates that we're missing the four-byte all-zero header.
-var ErrMissingHeader = errors.New("missing four-byte all-zero header")
-
-// ErrInvalidHeader indicates that the header is not a sequence of four zeroed bytes.
-var ErrInvalidHeader = errors.New("expected four-byte all-zero header")
-
-// parseControlMessage parses a control message and returns the TLS record inside it.
-func parseControlMessage(message []byte) ([]byte, error) {
-	if len(message) < 4 {
-		return nil, ErrMissingHeader
-	}
-	if !bytes.Equal(message[:4], controlMessageHeader) {
-		return nil, ErrInvalidHeader
-	}
-	return message[4:], nil
-}
-*/
