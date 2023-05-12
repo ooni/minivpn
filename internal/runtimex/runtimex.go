@@ -1,8 +1,8 @@
 // Package runtimex contains [runtime] extensions.
 package runtimex
 
-// Assert calls panic with the given message if the given statement is false.
-func Assert(stmt bool, message interface{}) {
+// PanicIfFalse calls panic with the given message if the given statement is false.
+func PanicIfFalse(stmt bool, message interface{}) {
 	if !stmt {
 		panic(message)
 	}
@@ -14,3 +14,6 @@ func PanicIfTrue(stmt bool, message interface{}) {
 		panic(message)
 	}
 }
+
+// Assert calls panic with the given message if the given statement is false.
+var Assert = PanicIfFalse
