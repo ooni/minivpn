@@ -16,17 +16,17 @@ var errRandomBytes = errors.New("error generating random bytes")
 
 // KeySource contains random data to generate keys.
 type KeySource struct {
-	r1        [32]byte
-	r2        [32]byte
-	preMaster [48]byte
+	R1        [32]byte
+	R2        [32]byte
+	PreMaster [48]byte
 }
 
 // Bytes returns the byte representation of a keySource.
 func (k *KeySource) Bytes() []byte {
 	buf := &bytes.Buffer{}
-	buf.Write(k.preMaster[:])
-	buf.Write(k.r1[:])
-	buf.Write(k.r2[:])
+	buf.Write(k.PreMaster[:])
+	buf.Write(k.R1[:])
+	buf.Write(k.R2[:])
 	return buf.Bytes()
 }
 
@@ -53,8 +53,8 @@ func NewKeySource() (*KeySource, error) {
 	}
 	copy(preMaster[:], random3)
 	return &KeySource{
-		r1:        r1,
-		r2:        r2,
-		preMaster: preMaster,
+		R1:        r1,
+		R2:        r2,
+		PreMaster: preMaster,
 	}, nil
 }

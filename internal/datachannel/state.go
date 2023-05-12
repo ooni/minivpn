@@ -25,14 +25,15 @@ type dataChannelState struct {
 	keyID           int // not used at the moment, paving the way for key rotation.
 	peerID          int
 
-	remotePacketID model.PacketID
 	// TODO(ainghazal): we need to keep a local packetID too. It should be separated from the control channel.
+	// TODO: move this to sessionManager perhaps?
+	remotePacketID model.PacketID
 
 	hash func() hash.Hash
 	mu   sync.Mutex
 }
 
-// SetSetRemotePacketID stores the passed packetID internally.
+// SetRemotePacketID stores the passed packetID internally.
 func (dcs *dataChannelState) SetRemotePacketID(id model.PacketID) {
 	dcs.mu.Lock()
 	defer dcs.mu.Unlock()

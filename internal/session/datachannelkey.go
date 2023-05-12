@@ -25,13 +25,23 @@ type DataChannelKey struct {
 // errDayaChannelKey is a [DataChannelKey] error.
 var errDataChannelKey = errors.New("bad data-channel key")
 
+// Local returns the local [KeySource]
+func (dck *DataChannelKey) Local() *KeySource {
+	return dck.local
+}
+
+// Remote returns the local [KeySource]
+func (dck *DataChannelKey) Remote() *KeySource {
+	return dck.remote
+}
+
 // AddRemoteKey adds the server keySource to our dataChannelKey. This makes the
 // dataChannelKey ready to be used.
 func (dck *DataChannelKey) AddRemoteKey(k *KeySource) error {
 	dck.mu.Lock()
 	defer dck.mu.Unlock()
 	if dck.ready {
-		return fmt.Errorf("%w:%s", errDataChannelKey, "cannot overwrite remote key slot")
+		return fmt.Errorf("%w: %s", errDataChannelKey, "cannot overwrite remote key slot")
 	}
 	dck.remote = k
 	dck.ready = true

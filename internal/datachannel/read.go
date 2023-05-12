@@ -9,11 +9,10 @@ import (
 
 	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/options"
 	"github.com/ooni/minivpn/internal/runtimex"
 )
 
-func decodeEncryptedPayloadAEAD(buf []byte, state *dataChannelState) (*encryptedData, error) {
+func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, state *dataChannelState) (*encryptedData, error) {
 	//   P_DATA_V2 GCM data channel crypto format
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
@@ -97,7 +96,7 @@ func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, state *dataChan
 // modes are supported at the moment, so no real decompression is done. It
 // returns a byte array, and an error if the operation could not be completed
 // successfully.
-func maybeDecompress(b []byte, st *dataChannelState, opt *options.Options) ([]byte, error) {
+func maybeDecompress(b []byte, st *dataChannelState, opt *model.Options) ([]byte, error) {
 	if st == nil || st.dataCipher == nil {
 		return []byte{}, fmt.Errorf("%w:%s", errBadInput, "bad state")
 	}
@@ -113,7 +112,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *options.Options) ([]by
 	switch st.dataCipher.isAEAD() {
 	case true:
 		switch opt.Compress {
-		case options.CompressionStub, options.CompressionLZONo:
+		case model.CompressionStub, model.CompressionLZONo:
 			// these are deprecated in openvpn 2.5.x
 			compr = b[0]
 			payload = b[1:]
@@ -133,7 +132,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *options.Options) ([]by
 		st.SetRemotePacketID(remotePacketID)
 
 		switch opt.Compress {
-		case options.CompressionStub, options.CompressionLZONo:
+		case model.CompressionStub, model.CompressionLZONo:
 			compr = b[4]
 			payload = b[5:]
 		default:

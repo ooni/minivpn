@@ -6,8 +6,7 @@ package datachannel
 
 import (
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/service"
-	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/internal/workers"
 )
 
 // Service is the datachannel service. Make sure you initialize
@@ -26,10 +25,10 @@ type Service struct {
 //
 // 2. moveDownLoop BLOCKS on packetDownTop to read a packet and
 // eventually BLOCKS on packetDownBottom to deliver it;
-func StartWorkers(
+func (s *Service) StartWorkers(
 	logger model.Logger,
-	serviceManager *service.Manager,
-	sessionManager *session.Manager,
+	serviceManager *workers.Manager,
+	sessionManager *workers.Manager,
 	notifyTLS chan<- *model.Notification,
 	notifyReliable chan<- *model.Notification,
 	packetDown chan<- *model.Packet,
@@ -53,12 +52,12 @@ func StartWorkers(
 // workersState contains the control channel state.
 type workersState struct {
 	logger         model.Logger
-	serviceManager *service.Manager
+	serviceManager *workers.Manager
 	notifyTLS      chan<- *model.Notification
 	notifyReliable chan<- *model.Notification
 	packetDown     chan<- *model.Packet
 	packetUp       <-chan *model.Packet
-	sessionManager *session.Manager
+	sessionManager *workers.Manager
 }
 
 // moveUpWorker moves packets up the stack

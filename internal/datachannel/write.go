@@ -7,6 +7,7 @@ package datachannel
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/ooni/minivpn/internal/bytesx"
@@ -16,8 +17,9 @@ import (
 
 // encryptAndEncodePayloadAEAD peforms encryption and encoding of the payload in AEAD modes (i.e., AES-GCM).
 // TODO(ainghazal): for testing we can pass both the state object and the encryptFn
-func encryptAndEncodePayloadAEAD(padded []byte, session *session.Session, state *dataChannelState) ([]byte, error) {
-	nextPacketID, err := session.LocalPacketID()
+func encryptAndEncodePayloadAEAD(log model.Logger, padded []byte, session *session.Manager, state *dataChannelState) ([]byte, error) {
+	// TODO(ainghazal): call Session.NewPacket() instead?
+	nextPacketID, err := session.LocalDataPacketID()
 	if err != nil {
 		return []byte{}, fmt.Errorf("bad packet id")
 	}
@@ -64,12 +66,12 @@ func encryptAndEncodePayloadAEAD(padded []byte, session *session.Session, state 
 }
 
 // encryptAndEncodePayloadNonAEAD peforms encryption and encoding of the payload in Non-AEAD modes (i.e., AES-CBC).
-func encryptAndEncodePayloadNonAEAD(padded []byte, session *session.Session, state *dataChannelState) ([]byte, error) {
+func encryptAndEncodePayloadNonAEAD(log model.Logger, padded []byte, session *session.Manager, state *dataChannelState) ([]byte, error) {
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I am assuming this is good enough for our current purposes.
 	blockSize := state.dataCipher.blockSize()
 
-	iv, err := randomFn(int(blockSize))
+	iv, err := bytesx.GenRandomBytes(int(blockSize))
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +107,7 @@ func encryptAndEncodePayloadNonAEAD(padded []byte, session *session.Session, sta
 // and it adds the compression preamble, according to the spec. compression
 // lzo-no also adds a preamble. It returns a byte array and an error if the
 // operation could not be completed.
-func doCompress(b []byte, compress options.Compression) ([]byte, error) {
+func doCompress(b []byte, compress model.Compression) ([]byte, error) {
 	switch compress {
 	case "stub":
 		// compression stub: send first byte to last
@@ -119,13 +121,15 @@ func doCompress(b []byte, compress options.Compression) ([]byte, error) {
 	return b, nil
 }
 
+var errPadding = errors.New("padding error")
+
 // doPadding does pkcs7 padding of the encryption payloads as
 // needed. if we're using the compression stub the padding is applied without taking the
 // trailing bit into account. it returns the resulting byte array, and an error
 // if the operatio could not be completed.
-func doPadding(b []byte, compress options.Compression, blockSize uint8) ([]byte, error) {
+func doPadding(b []byte, compress model.Compression, blockSize uint8) ([]byte, error) {
 	if len(b) == 0 {
-		return nil, fmt.Errorf("%w: nothing to pad", errBadInput)
+		return nil, fmt.Errorf("%w: %s", errPadding, "nothing to pad")
 	}
 	if compress == "stub" {
 		// if we're using the compression stub
@@ -146,6 +150,7 @@ func doPadding(b []byte, compress options.Compression, blockSize uint8) ([]byte,
 	return padded, nil
 }
 
+// TODO(ainghazal): move to a different layer?
 // prependPacketID returns the original buffer with the passed packetID
 // concatenated at the beginning.
 func prependPacketID(p model.PacketID, buf []byte) []byte {
