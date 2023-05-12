@@ -146,24 +146,11 @@ func (ws *workersState) moveDownWorker() {
 
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
-	// create a CONTROL_HARD_RESET_CLIENT_V2 packet
-	packet := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
-	rawPacket, err := packet.Bytes()
-	if err != nil {
-		ws.logger.Warnf("packetmuxer: NewPacket: %s", err.Error())
+	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
+	pkt := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
+	if err := ws.serializeAndEmit(pkt); err != nil {
 		return err
 	}
-
-	// pass the packet to the lower layer
-	select {
-	case ws.rawPacketDown <- rawPacket:
-		// nothing
-
-	case <-ws.workersManager.ShouldShutdown():
-		return workers.ErrShutdown
-	}
-
-	ws.logger.Info("> P_CONTROL_HARD_RESET_CLIENT_V2")
 
 	// reset the state to become initial again
 	ws.sessionManager.SetNegotiationState(session.S_PRE_START)
@@ -179,7 +166,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	packet, err := model.ParsePacket(rawPacket)
 	if err != nil {
 		ws.logger.Warnf("packetmuxer: moveUpWorker: ParsePacket: %s", err.Error())
-		return err
+		return nil // keep running
 	}
 
 	ws.logger.Infof("< %s", packet.Opcode)
@@ -187,8 +174,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	// handle the case where we're performing a HARD_RESET
 	if ws.sessionManager.NegotiationState() == session.S_PRE_START &&
 		packet.Opcode == model.P_CONTROL_HARD_RESET_SERVER_V2 {
-		// XXX we need to implement
-		return nil
+		return ws.finishThreeWayHandshake(packet)
 	}
 
 	// TODO: introduce other sanity checks here
@@ -212,11 +198,46 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 }
 
 // finishThreeWayHandshake responsds to the HARD_RESET_SERVER and finishes the handshake.
-func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) {
-	// register the server's session (note: the PoV is the one of the server)
+func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
+	// register the server's session (note: the PoV is the server's one)
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
 
 	// we need to manually ACK because the reliable layer is above us
 	ws.logger.Info("< P_CONTROL_HARD_RESET_SERVER_V2")
 
+	// create the ACK packet
+	ACK, err := ws.sessionManager.NewACKForPacket(packet)
+	if err != nil {
+		return err
+	}
+
+	// emit the packet
+	if err := ws.serializeAndEmit(ACK); err != nil {
+		return err
+	}
+
+	// advance the state
+	ws.sessionManager.SetNegotiationState(session.S_START)
+	return nil
+}
+
+// serializeAndEmit was written because Ain Ghazal was very insistent about it.
+func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
+	// serialize it
+	rawPacket, err := packet.Bytes()
+	if err != nil {
+		return err
+	}
+
+	// emit the packet
+	select {
+	case ws.rawPacketDown <- rawPacket:
+		// nothing
+
+	case <-ws.workersManager.ShouldShutdown():
+		return workers.ErrShutdown
+	}
+
+	ws.logger.Infof("> %s", packet.Opcode)
+	return nil
 }
