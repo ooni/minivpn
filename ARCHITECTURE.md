@@ -98,6 +98,7 @@ stateDiagram
     tlsWorker --> ccDown: chan *TLSRecord
     relUp --> pmDown: chan *model.Packet [ACK]
     [*] --> tunWrite
+    tlsWorker --> dcUp: chan *DataChannelKey
 
     nioDown --> internet: conn.Write() [!!!]
     internet --> nioUp: conn.Read() [!!!]
