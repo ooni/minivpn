@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ooni/minivpn/vpn/mocks"
 	tls "github.com/refraction-networking/utls"
+	"openVPN/vpn/mocks"
 )
 
 func Test_newMuxerFromOptions(t *testing.T) {

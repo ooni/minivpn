@@ -1,4 +1,4 @@
-module github.com/ooni/minivpn
+module openVPN
 
 go 1.18
 
@@ -15,6 +15,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/m-lab/ndt7-client-go v0.7.0
+	github.com/ooni/minivpn v0.0.5
 	github.com/ory/dockertest/v3 v3.9.1
 	github.com/pborman/getopt/v2 v2.1.0
 	github.com/refraction-networking/utls v1.3.1

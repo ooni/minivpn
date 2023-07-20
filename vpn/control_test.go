@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ooni/minivpn/vpn/mocks"
+	"openVPN/vpn/mocks"
 )
 
 func Test_newSession(t *testing.T) {

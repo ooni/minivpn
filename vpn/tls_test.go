@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/google/martian/mitm"
-	"github.com/ooni/minivpn/vpn/mocks"
 	tls "github.com/refraction-networking/utls"
+	"openVPN/vpn/mocks"
 )
 
 func makeDummyOptionsForCertPaths() *Options {

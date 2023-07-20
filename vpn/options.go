@@ -105,9 +105,11 @@ type Options struct {
 	CaPath    string
 	CertPath  string
 	KeyPath   string
+	TaPath    string
 	Ca        []byte
 	Cert      []byte
 	Key       []byte
+	Ta        []byte
 	Compress  compression
 	Cipher    string
 	Auth      string
@@ -382,6 +384,22 @@ func parseAuthUser(p []string, o *Options, basedir string) error {
 	return nil
 }
 
+func parseTLSAuth(p []string, o *Options, basedir string) error {
+	e := fmt.Errorf("%w: %s", errBadCfg, "tls-auth expects a valid file")
+	if len(p) != 2 {
+		return e
+	}
+	auth := toAbs(p[0], basedir)
+	if sub, _ := isSubdir(basedir, auth); !sub {
+		return fmt.Errorf("%w: %s", errBadCfg, "auth must be below config path")
+	}
+	if !existsFile(auth) {
+		return e
+	}
+	o.TaPath = auth
+	return nil
+}
+
 func parseCompress(p []string, o *Options) error {
 	if len(p) > 1 {
 		return fmt.Errorf("%w: %s", errBadCfg, "compress: only empty/stub options supported")
@@ -446,6 +464,7 @@ var pMapDir = map[string]interface{}{
 	"cert":           parseCert,
 	"key":            parseKey,
 	"auth-user-pass": parseAuthUser,
+	"tls-auth":       parseTLSAuth,
 }
 
 func parseOption(o *Options, dir, key string, p []string, lineno int) error {
@@ -455,7 +474,7 @@ func parseOption(o *Options, dir, key string, p []string, lineno int) error {
 		if e := fn(p, o); e != nil {
 			return e
 		}
-	case "ca", "cert", "key", "auth-user-pass":
+	case "ca", "cert", "key", "auth-user-pass", "tls-auth":
 		fn := pMapDir[key].(func([]string, *Options, string) error)
 		if e := fn(p, o, dir); e != nil {
 			return e

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ooni/minivpn/vpn/mocks"
+	"openVPN/vpn/mocks"
 )
 
 func Test_readPacketFromUDP(t *testing.T) {

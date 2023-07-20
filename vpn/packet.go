@@ -131,7 +131,7 @@ func (packet *packet) Bytes() []byte {
 	buf.WriteByte((packet.opcode << 3) | (packet.keyID & 0x07))
 	buf.Write(packet.localSessionID[:])
 	// we write a byte with the number of acks, and then
-	// serialize each ack.
+	// serialize each ack.w
 	nAcks := len(packet.acks)
 	if nAcks > 255 {
 		logger.Warnf("packet %d had too many acks (%d)", packet.id, nAcks)

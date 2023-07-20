@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ooni/minivpn/vpn/mocks"
 	tls "github.com/refraction-networking/utls"
 	"golang.zx2c4.com/wireguard/tun/netstack"
+	"openVPN/vpn/mocks"
 )
 
 func makeTestingClient(opt *Options) *Client {

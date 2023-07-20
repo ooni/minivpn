@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ooni/minivpn/vpn/mocks"
+	"openVPN/vpn/mocks"
 )
 
 const (
