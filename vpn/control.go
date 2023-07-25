@@ -232,18 +232,19 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	out := []byte{0x38}
 	out = append(out, s.LocalSessionID[:]...)
 
-	packetNum := []byte{0, 0, 0, 1}
 	ackBytes := []byte{0, 0, 0, 0, 0}
 	timestamp := uint32(time.Now().Unix())
 	timeBytes := numToBytes.I32tob(timestamp)
+	packetIDBytes := []byte{0, 0, 0, 1}
 
 	secret, _ := hex.DecodeString(secretKey)
 	hmacHash := hmac.New(sha1.New, secret)
-	hmacHash.Write(out)
+	hmacHash.Write([]byte{0x38})
+	hmacHash.Write(s.LocalSessionID[:])
 	hmacResult := hmacHash.Sum(nil)
 	out = append(out, hmacResult...)
 
-	out = append(out, packetNum...)
+	out = append(out, packetIDBytes...)
 
 	out = append(out, timeBytes...)
 
