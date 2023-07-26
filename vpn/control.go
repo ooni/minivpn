@@ -194,17 +194,41 @@ func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
 func sendACK(conn net.Conn, s *session, pid packetID) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
-	p := newACKPacket(pid, s)
+	/*p := newACKPacket(pid, s)
 	payload := p.Bytes()
-	payload = maybeAddSizeFrame(conn, payload)
+	payload = maybeAddSizeFrame(conn, payload)*/
 
-	_, err := conn.Write(payload)
+	out := append([]byte{0x28}, s.LocalSessionID[:]...)
+
+	ackBytes := []byte{1, 0, 0, 0, 0}
+	timestamp := uint32(time.Now().Unix())
+	timeBytes := numToBytes.I32tob(timestamp)
+	packetIDBytes := []byte{0, 0, 0, 2}
+
+	secret, _ := hex.DecodeString(secretKey)
+	hmacHash := hmac.New(sha1.New, secret[:20])
+	hmacHash.Write(packetIDBytes)
+	hmacHash.Write(timeBytes)
+	hmacHash.Write(out)
+	hmacHash.Write(ackBytes)
+	hmacHash.Write(s.RemoteSessionID[:])
+	hmacResult := hmacHash.Sum(nil)
+	out = append(out, hmacResult...)
+
+	out = append(out, packetIDBytes...)
+	out = append(out, timeBytes...)
+	out = append(out, ackBytes...)
+	out = append(out, s.RemoteSessionID[:]...)
+
+	out = maybeAddSizeFrame(conn, out)
+
+	_, err := conn.Write(out)
 	if err != nil {
 		return err
 	}
 
 	logger.Debug(fmt.Sprintln("write ack:", pid))
-	logger.Debug(fmt.Sprintln(hex.Dump(payload)))
+	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 
 	return s.UpdateLastACK(pid)
 }
@@ -213,12 +237,12 @@ var sendACKFn = sendACK
 
 var _ controlHandler = &control{} // Ensure that we implement controlHandler
 
-const secretKey = "d0acf9487b71636f2f000bdffef9f7dae4a18bc09a538bd23c9136dfe02a0bafeaf0aed77c3d2d54fb104df01110e897ff51c3e036f844b29611c628f67b8a4eeb06e92e96c10b1359520587ef5dd7b0b9d225288d2f1853385f8ba2d284580442c3c8dc38027a84625f6a177937af8d0379eb6ca8bd7a5ddb541a45575c79ebcb711148aa8a9f7ad4b1001f2b2129f7384510f94bbd0831172d156db0fd364864886cb9771fb61cf3268c2c8d8534c742d5505a24c839379f5eba645f0288426293872740499e5b421a5d2dac2c027f190b0dcaafb43be697a862af0c3b8ee14eeabc7992ee7687724e6f7dc05b694607e10791eb304147dacdb50e2944251d"
+const secretKey = "6293872740499e5b421a5d2dac2c027f190b0dcaafb43be697a862af0c3b8ee14eeabc7992ee7687724e6f7dc05b694607e10791eb304147dacdb50e2944251d"
 
 // sendControlPacket crafts a control packet with the given opcode and payload,
 // and writes it to the passed net.Conn.
 func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload []byte) (n int, err error) {
-	/*if s == nil {
+	if s == nil {
 		return 0, fmt.Errorf("%w:%s", errBadInput, "nil session")
 	}
 	p := newPacketFromPayload(uint8(opcode), 0, payload)
@@ -228,26 +252,26 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	if err != nil {
 		return 0, err
 	}
-	out := p.Bytes()*/
-	out := []byte{0x38}
-	out = append(out, s.LocalSessionID[:]...)
-
 	ackBytes := []byte{0, 0, 0, 0, 0}
 	timestamp := uint32(time.Now().Unix())
 	timeBytes := numToBytes.I32tob(timestamp)
 	packetIDBytes := []byte{0, 0, 0, 1}
 
+	out := p.Bytes()
+	out = []byte{0x38}
+	out = append(out, s.LocalSessionID[:]...)
+
 	secret, _ := hex.DecodeString(secretKey)
-	hmacHash := hmac.New(sha1.New, secret)
-	hmacHash.Write([]byte{0x38})
-	hmacHash.Write(s.LocalSessionID[:])
+	hmacHash := hmac.New(sha1.New, secret[:20])
+	hmacHash.Write(packetIDBytes)
+	hmacHash.Write(timeBytes)
+	hmacHash.Write(out)
+	hmacHash.Write(ackBytes)
 	hmacResult := hmacHash.Sum(nil)
 	out = append(out, hmacResult...)
 
 	out = append(out, packetIDBytes...)
-
 	out = append(out, timeBytes...)
-
 	out = append(out, ackBytes...)
 
 	out = maybeAddSizeFrame(conn, out)
