@@ -113,7 +113,7 @@ func parsePacketFromBytes(buf []byte) (*packet, error) {
 	p := &packet{
 		opcode:  opcode,
 		keyID:   keyID,
-		payload: payload[28:],
+		payload: payload,
 		id:      packetID(binary.BigEndian.Uint32(buf[29:33])),
 	}
 	return parsePacket(p)
