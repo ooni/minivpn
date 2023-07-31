@@ -135,8 +135,12 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 		return fmt.Errorf("%w:%s", errBadInput, "tlsTransport badly initialized")
 
 	}
+	id, err := t.session.LocalPacketID()
+	if err != nil {
+		return err
+	}
 	p := newPacketFromPayload(opcodeKeyID, 0, data)
-
+	p.id = id
 	//TODO: что-то сделать с этим костылем
 	time.Sleep(time.Second * 1)
 

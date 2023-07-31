@@ -196,7 +196,7 @@ func parsePacket(p *packet) (*packet, error) {
 		return parseControlPacket(p)
 	}
 	//TODO: что-то сделать с этим костылем
-	p.payload = p.payload[28:]
+	//p.payload = p.payload[28:]
 	return p, nil
 }
 
