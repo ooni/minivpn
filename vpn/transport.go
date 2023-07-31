@@ -171,7 +171,7 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	logger.Debug(fmt.Sprintln("tls write:", len(out)))
 	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 
-	_, err := t.Conn.Write(out)
+	_, err = t.Conn.Write(out)
 	return err
 }
 
