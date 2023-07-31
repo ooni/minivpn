@@ -9,12 +9,15 @@ package vpn
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"openVPN/util/numToBytes"
 	"time"
 )
 
@@ -138,9 +141,31 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	}
 	p.id = id
 	p.localSessionID = t.session.LocalSessionID
-	payload := p.Bytes()
+	//payload := p.Bytes()
 
-	out := maybeAddSizeFrame(t.Conn, payload)
+	out := append([]byte{0x20}, t.session.LocalSessionID[:]...)
+
+	ackBytes := []byte{0, 0, 0, 0, 1}
+	timestamp := uint32(time.Now().Unix())
+	timeBytes := numToBytes.I32tob(timestamp)
+	packetIDBytes := []byte{0, 0, 0, 3}
+
+	secret, _ := hex.DecodeString(secretKey)
+	hmacHash := hmac.New(sha1.New, secret[:20])
+	hmacHash.Write(packetIDBytes)
+	hmacHash.Write(timeBytes)
+	hmacHash.Write(out)
+	hmacHash.Write(ackBytes)
+	hmacHash.Write(data)
+	hmacResult := hmacHash.Sum(nil)
+	out = append(out, hmacResult...)
+
+	out = append(out, packetIDBytes...)
+	out = append(out, timeBytes...)
+	out = append(out, ackBytes...)
+	out = append(out, data...)
+
+	out = maybeAddSizeFrame(t.Conn, out)
 
 	logger.Debug(fmt.Sprintln("tls write:", len(out)))
 	logger.Debug(fmt.Sprintln(hex.Dump(out)))

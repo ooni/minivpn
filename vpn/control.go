@@ -203,7 +203,8 @@ func sendACK(conn net.Conn, s *session, pid packetID) error {
 	ackBytes := []byte{1, 0, 0, 0, 0}
 	timestamp := uint32(time.Now().Unix())
 	timeBytes := numToBytes.I32tob(timestamp)
-	packetIDBytes := []byte{0, 0, 0, 2}
+	s.localPacketID++
+	packetIDBytes := numToBytes.I32tob(uint32(s.localPacketID))
 
 	secret, _ := hex.DecodeString(secretKey)
 	hmacHash := hmac.New(sha1.New, secret[:20])

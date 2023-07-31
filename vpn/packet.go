@@ -105,6 +105,9 @@ func parsePacketFromBytes(buf []byte) (*packet, error) {
 		payload = buf[1:]
 	}
 
+	/*remoteSessionID := [8]byte{buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]}
+	localSessionID := [8]byte{buf[42], buf[43], buf[44], buf[45], buf[46], buf[47], buf[48], buf[49]}*/
+
 	// TODO missing peerID
 	p := &packet{
 		opcode:  opcode,
@@ -210,6 +213,9 @@ func parseControlPacket(p *packet) (*packet, error) {
 	if err != nil {
 		return p, fmt.Errorf("%w: bad sessionID: %s", errBadInput, err)
 	}
+
+	buf.Next(20)
+	buf.Next(8)
 
 	// ack array
 	ackBuf, err := buf.ReadByte()
