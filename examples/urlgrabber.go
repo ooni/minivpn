@@ -27,6 +27,7 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
+
 	ctx := context.Background()
 	err = c.Start(ctx)
 	if err != nil {

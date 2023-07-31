@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"openVPN/util/numToBytes"
 	"time"
 )
 
@@ -122,10 +121,10 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 		return &packet{}, err
 	}
 	//TODO: что-то сделать с этим костылем
-	/*if p.isACK() {
+	if p.isACK() {
 		logger.Warn("tls: got ACK (ignored)")
 		return &packet{}, nil
-	}*/
+	}
 	return p, nil
 }
 
@@ -143,14 +142,14 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	p.localSessionID = t.session.LocalSessionID
 	p.id = id
 	//TODO: что-то сделать с этим костылем
-	time.Sleep(time.Second * 1)
+	//time.Sleep(time.Second * 1)
 
 	out := append([]byte{0x20}, t.session.LocalSessionID[:]...)
 
 	ackBytes := []byte{0, 0, 0, 0, 1}
 	timestamp := uint32(time.Now().Unix())
-	timeBytes := numToBytes.I32tob(timestamp)
-	packetIDBytes := numToBytes.I32tob(uint32(p.id))
+	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
+	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(p.id))
 
 	secret, _ := hex.DecodeString(secretKey)
 	hmacHash := hmac.New(sha1.New, secret[:20])

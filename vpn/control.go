@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"openVPN/util/numToBytes"
 	"sync"
 	"time"
 )
@@ -194,17 +193,16 @@ func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
 func sendACK(conn net.Conn, s *session, pid packetID) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
-	/*p := newACKPacket(pid, s)
-	payload := p.Bytes()
-	payload = maybeAddSizeFrame(conn, payload)*/
-
 	out := append([]byte{0x28}, s.LocalSessionID[:]...)
 
 	ackBytes := []byte{1, 0, 0, 0, 0}
 	timestamp := uint32(time.Now().Unix())
-	timeBytes := numToBytes.I32tob(timestamp)
-	s.localPacketID++
-	packetIDBytes := numToBytes.I32tob(uint32(s.localPacketID))
+	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
+	id, err := s.LocalPacketID()
+	if err != nil {
+		return nil
+	}
+	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(id))
 
 	secret, _ := hex.DecodeString(secretKey)
 	hmacHash := hmac.New(sha1.New, secret[:20])
@@ -223,12 +221,12 @@ func sendACK(conn net.Conn, s *session, pid packetID) error {
 
 	out = maybeAddSizeFrame(conn, out)
 
-	_, err := conn.Write(out)
+	_, err = conn.Write(out)
 	if err != nil {
 		return err
 	}
 
-	logger.Debug(fmt.Sprintln("write ack:", pid))
+	logger.Info(fmt.Sprintln("write ack:", pid))
 	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 
 	return s.UpdateLastACK(pid)
@@ -252,14 +250,15 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	p := newPacketFromPayload(uint8(opcode), 0, payload)
 	p.localSessionID = s.LocalSessionID
 
+	s.localPacketID++
 	p.id, err = s.LocalPacketID()
 	if err != nil {
 		return 0, err
 	}
 	ackBytes := []byte{0, 0, 0, 0, 0}
 	timestamp := uint32(time.Now().Unix())
-	timeBytes := numToBytes.I32tob(timestamp)
-	packetIDBytes := []byte{0, 0, 0, 1}
+	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
+	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(p.id))
 
 	out := p.Bytes()
 	out = []byte{0x38}

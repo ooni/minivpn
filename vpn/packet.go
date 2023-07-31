@@ -195,8 +195,6 @@ func parsePacket(p *packet) (*packet, error) {
 	if p.isControl() {
 		return parseControlPacket(p)
 	}
-	//TODO: что-то сделать с этим костылем
-	//p.payload = p.payload[28:]
 	return p, nil
 }
 
@@ -219,7 +217,17 @@ func parseControlPacket(p *packet) (*packet, error) {
 	}
 
 	buf.Next(20)
-	buf.Next(8)
+
+	// packet id
+	if p.opcode != pACKV1 {
+		val, err := bufReadUint32(buf)
+		if err != nil {
+			return p, fmt.Errorf("%w: bad packetID: %s", errBadInput, err)
+		}
+		p.id = packetID(val)
+	}
+
+	buf.Next(4)
 
 	// ack array
 	ackBuf, err := buf.ReadByte()
@@ -242,15 +250,6 @@ func parseControlPacket(p *packet) (*packet, error) {
 		if err != nil {
 			return p, fmt.Errorf("%w: bad remote sessionID: %s", errBadInput, err)
 		}
-	}
-
-	// packet id
-	if p.opcode != pACKV1 {
-		val, err := bufReadUint32(buf)
-		if err != nil {
-			return p, fmt.Errorf("%w: bad packetID: %s", errBadInput, err)
-		}
-		p.id = packetID(val)
 	}
 
 	// payload

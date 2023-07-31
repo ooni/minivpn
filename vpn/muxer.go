@@ -300,7 +300,7 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 	// we assume id is 0, this is the first packet we ack.
 	// XXX I could parse the real packet id from server instead. this
 	// _might_ be important when re-keying?
-	return m.control.SendACK(m.conn, m.session, packetID(0))
+	return m.control.SendACK(m.conn, m.session, packetID(1))
 }
 
 //
@@ -394,7 +394,7 @@ func (m *muxer) readTLSPacket() ([]byte, error) {
 // that will be of use later.
 func (m *muxer) readAndLoadRemoteKey() error {
 	//TODO: что-то сделать с этим костылем
-	m.session.lastACK += 1
+	//m.session.lastACK += 1
 	data, err := m.readTLSPacket()
 	if err != nil {
 		return err
