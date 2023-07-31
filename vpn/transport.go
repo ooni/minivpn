@@ -121,10 +121,11 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 	if err != nil {
 		return &packet{}, err
 	}
-	if p.isACK() {
+	//TODO: что-то сделать с этим костылем
+	/*if p.isACK() {
 		logger.Warn("tls: got ACK (ignored)")
 		return &packet{}, nil
-	}
+	}*/
 	return p, nil
 }
 
@@ -135,20 +136,16 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 
 	}
 	p := newPacketFromPayload(opcodeKeyID, 0, data)
-	id, err := t.session.LocalPacketID()
-	if err != nil {
-		return err
-	}
-	p.id = id
-	p.localSessionID = t.session.LocalSessionID
-	//payload := p.Bytes()
+
+	//TODO: что-то сделать с этим костылем
+	time.Sleep(time.Second * 1)
 
 	out := append([]byte{0x20}, t.session.LocalSessionID[:]...)
 
 	ackBytes := []byte{0, 0, 0, 0, 1}
 	timestamp := uint32(time.Now().Unix())
 	timeBytes := numToBytes.I32tob(timestamp)
-	packetIDBytes := []byte{0, 0, 0, 3}
+	packetIDBytes := numToBytes.I32tob(uint32(p.id))
 
 	secret, _ := hex.DecodeString(secretKey)
 	hmacHash := hmac.New(sha1.New, secret[:20])
@@ -170,7 +167,7 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	logger.Debug(fmt.Sprintln("tls write:", len(out)))
 	logger.Debug(fmt.Sprintln(hex.Dump(out)))
 
-	_, err = t.Conn.Write(out)
+	_, err := t.Conn.Write(out)
 	return err
 }
 

@@ -238,6 +238,9 @@ var sendACKFn = sendACK
 
 var _ controlHandler = &control{} // Ensure that we implement controlHandler
 
+// TODO: что-то сделать с этим костылем (сделать парсинг ключа
+// TODO: сделать интерфейсы для удобной работы как с tls-auth, так и без
+// TODO: возможность работы с различными алгоритмами шифрования
 const secretKey = "6293872740499e5b421a5d2dac2c027f190b0dcaafb43be697a862af0c3b8ee14eeabc7992ee7687724e6f7dc05b694607e10791eb304147dacdb50e2944251d"
 
 // sendControlPacket crafts a control packet with the given opcode and payload,

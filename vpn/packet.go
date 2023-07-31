@@ -6,6 +6,7 @@ package vpn
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -112,7 +113,8 @@ func parsePacketFromBytes(buf []byte) (*packet, error) {
 	p := &packet{
 		opcode:  opcode,
 		keyID:   keyID,
-		payload: payload,
+		payload: payload[28:],
+		id:      packetID(binary.BigEndian.Uint32(buf[29:33])),
 	}
 	return parsePacket(p)
 }
@@ -193,6 +195,8 @@ func parsePacket(p *packet) (*packet, error) {
 	if p.isControl() {
 		return parseControlPacket(p)
 	}
+	//TODO: что-то сделать с этим костылем
+	p.payload = p.payload[28:]
 	return p, nil
 }
 
