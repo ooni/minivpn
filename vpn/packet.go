@@ -252,6 +252,8 @@ func parseControlPacket(p *packet) (*packet, error) {
 		}
 	}
 
+	buf.Next(4)
+
 	// payload
 	p.payload = buf.Bytes()
 	return p, nil
