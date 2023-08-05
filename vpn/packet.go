@@ -97,7 +97,7 @@ func parsePacketFromBytes(buf []byte) (*packet, error) {
 	opcode := buf[0] >> 3
 	keyID := buf[0] & 0x07
 
-	var payload = []byte{}
+	var payload []byte
 
 	switch opcode {
 	case pDataV2:
@@ -106,16 +106,13 @@ func parsePacketFromBytes(buf []byte) (*packet, error) {
 		payload = buf[1:]
 	}
 
-	/*remoteSessionID := [8]byte{buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]}
-	localSessionID := [8]byte{buf[42], buf[43], buf[44], buf[45], buf[46], buf[47], buf[48], buf[49]}*/
-
-	// TODO missing peerID
 	p := &packet{
 		opcode:  opcode,
 		keyID:   keyID,
 		payload: payload,
 		id:      packetID(binary.BigEndian.Uint32(buf[29:33])),
 	}
+	fmt.Printf("Got packet №%d\n", p.id)
 	return parsePacket(p)
 }
 

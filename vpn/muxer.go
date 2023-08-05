@@ -393,8 +393,7 @@ func (m *muxer) readTLSPacket() ([]byte, error) {
 // packet, it will store the remote key and the parts of the remote options
 // that will be of use later.
 func (m *muxer) readAndLoadRemoteKey() error {
-	//TODO: что-то сделать с этим костылем
-	//m.session.lastACK += 1
+	m.session.lastACK = 6
 	data, err := m.readTLSPacket()
 	if err != nil {
 		return err
@@ -523,7 +522,10 @@ func (m *muxer) InitDataWithRemoteKey() error {
 		return err
 	}
 
-	m.data.SetPeerID(m.tunnel.peerID)
+	err = m.data.SetPeerID(m.tunnel.peerID)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
