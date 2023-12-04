@@ -18,7 +18,7 @@ import (
 )
 
 func main() {
-	opts, err := vpn.NewOptionsFromFilePath("openvpn/kolosya.conf")
+	opts, err := vpn.NewOptionsFromFilePath("openvpn/client.conf")
 	if err != nil {
 		panic(err)
 	}

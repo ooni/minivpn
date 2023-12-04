@@ -121,6 +121,7 @@ func (s *session) isNextPacket(p *packet) bool {
 	if p == nil {
 		return false
 	}
+	fmt.Printf("p.id=%d, s.lastACK=%d\n", p.id, s.lastACK)
 	return p.id-s.lastACK == 1
 }
 
@@ -193,9 +194,15 @@ func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
 func sendACK(conn net.Conn, s *session, pid packetID) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
+	//TODO: kostylnoe
+	if pid == packetID(4) {
+		return nil
+	}
+
 	out := append([]byte{0x28}, s.LocalSessionID[:]...)
 
-	ackBytes := []byte{1, 0, 0, 0, 0}
+	ackBytes := binary.BigEndian.AppendUint32([]byte{1}, uint32(pid-1))
+	fmt.Println(ackBytes)
 	timestamp := uint32(time.Now().Unix())
 	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
 	id, err := s.LocalPacketID()
@@ -239,7 +246,7 @@ var _ controlHandler = &control{} // Ensure that we implement controlHandler
 // TODO: что-то сделать с этим костылем (сделать парсинг ключа
 // TODO: сделать интерфейсы для удобной работы как с tls-auth, так и без
 // TODO: возможность работы с различными алгоритмами шифрования
-const secretKey = "6293872740499e5b421a5d2dac2c027f190b0dcaafb43be697a862af0c3b8ee14eeabc7992ee7687724e6f7dc05b694607e10791eb304147dacdb50e2944251d"
+const secretKey = "4c3e03723a0c92509c1c845b604b060a361a45a1886814de50610d824298aedcb8dfc049d0ef381f432ce846a9207ebedacfde77b054a80a330f1e1e3e2897b9"
 
 // sendControlPacket crafts a control packet with the given opcode and payload,
 // and writes it to the passed net.Conn.

@@ -393,7 +393,8 @@ func (m *muxer) readTLSPacket() ([]byte, error) {
 // packet, it will store the remote key and the parts of the remote options
 // that will be of use later.
 func (m *muxer) readAndLoadRemoteKey() error {
-	m.session.lastACK = 6
+	//TODO: mega-kostyl
+	m.session.lastACK++
 	data, err := m.readTLSPacket()
 	if err != nil {
 		return err

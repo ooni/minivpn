@@ -122,9 +122,11 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 	}
 
 	if p.isACK() {
+		//TODO: think about it
 		/*if err := sendACKFn(t.Conn, t.session, p.id); err != nil {
 			return &packet{}, err
 		}*/
+		t.session.lastACK++
 		logger.Warn("tls: got ACK (ignored)")
 		return &packet{}, nil
 	}
@@ -138,6 +140,7 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 
 	}
 	id, err := t.session.LocalPacketID()
+	fmt.Println(id)
 	if err != nil {
 		return err
 	}

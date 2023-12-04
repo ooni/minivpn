@@ -134,7 +134,7 @@ func NewOptionsFromFilePath(filePath string) (*Options, error) {
 // certsFromPath returns true when the options object is configured to load
 // certificates from paths; false when we have inline certificates.
 func (o *Options) certsFromPath() bool {
-	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != ""
+	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != "" && o.TaPath != ""
 }
 
 // hasAuthInfo returns true if:
@@ -326,6 +326,22 @@ func parseCA(p []string, o *Options, basedir string) error {
 		return e
 	}
 	o.CaPath = ca
+	return nil
+}
+
+func parseTA(p []string, o *Options, basedir string) error {
+	e := fmt.Errorf("%w: %s", errBadCfg, "ta expects a valid file")
+	if len(p) != 1 {
+		return e
+	}
+	ta := toAbs(p[0], basedir)
+	if sub, _ := isSubdir(basedir, ta); !sub {
+		return fmt.Errorf("%w: %s", errBadCfg, "ta must be below config path")
+	}
+	if !existsFile(ta) {
+		return e
+	}
+	o.TaPath = ta
 	return nil
 }
 
