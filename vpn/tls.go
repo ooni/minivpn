@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"strings"
 
 	tls "github.com/refraction-networking/utls"
 )
@@ -24,6 +25,7 @@ var (
 	ErrBadTLSHandshake = errors.New("handshake failure")
 	// ErrBadCA is returned when the CA file cannot be found or is not valid.
 	ErrBadCA = errors.New("bad ca conf")
+	ErrBadTA = errors.New("bad tls-auth conf")
 	// ErrBadKeypair is returned when the key or cert file cannot be found or is not valid.
 	ErrBadKeypair = errors.New("bad keypair conf")
 	// ErrBadParrot is returned for errors during TLS parroting
@@ -48,6 +50,7 @@ type certPaths struct {
 	certPath string
 	keyPath  string
 	caPath   string
+	taPath   string
 }
 
 // loadCertAndCAFromPath parses the PEM certificates contained in the paths pointed by
@@ -64,6 +67,10 @@ func loadCertAndCAFromPath(pth certPaths) (*certConfig, error) {
 	}
 
 	cfg := &certConfig{ca: ca}
+	cfg.ta, err = loadTAFromFile(pth.taPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadTA, err)
+	}
 	if pth.certPath != "" && pth.keyPath != "" {
 		cert, err := tls.LoadX509KeyPair(pth.certPath, pth.keyPath)
 		if err != nil {
@@ -80,6 +87,7 @@ type certBytes struct {
 	cert []byte
 	key  []byte
 	ca   []byte
+	ta   []byte
 }
 
 // loadCertAndCAFromBytes parses the PEM certificates from the byte arrays in the
@@ -91,6 +99,11 @@ func loadCertAndCAFromBytes(crt certBytes) (*certConfig, error) {
 		return nil, fmt.Errorf("%w: %s", ErrBadCA, "cannot parse ca cert")
 	}
 	cfg := &certConfig{ca: ca}
+	var err error
+	cfg.ta, err = parseTAFromBytes(crt.ta)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadTA, err)
+	}
 	if crt.cert != nil && crt.key != nil {
 		cert, err := tls.X509KeyPair(crt.cert, crt.key)
 		if err != nil {
@@ -112,6 +125,7 @@ type authorityPinner interface {
 type certConfig struct {
 	cert tls.Certificate
 	ca   *x509.CertPool
+	ta   []byte
 }
 
 // newCertConfigFromOptions is a constructor that returns a certConfig object initialized
@@ -125,15 +139,69 @@ func newCertConfigFromOptions(o *Options) (*certConfig, error) {
 			certPath: o.CertPath,
 			keyPath:  o.KeyPath,
 			caPath:   o.CaPath,
+			taPath:   o.TaPath,
 		})
 	} else {
 		cfg, err = loadCertAndCAFromBytes(certBytes{
 			cert: o.Cert,
 			key:  o.Key,
 			ca:   o.Ca,
+			ta:   o.Ta,
 		})
 	}
 	return cfg, err
+}
+
+func parseTAFromBytes(taBytes []byte) ([]byte, error) {
+	return parseTAFromLines(
+		strings.Split(string(taBytes), "\n"),
+	)
+}
+
+func loadTAFromFile(taPath string) ([]byte, error) {
+	lines, err := getLinesFromFile(taPath)
+	if err != nil {
+		return nil, err
+	}
+	return parseTAFromLines(lines)
+}
+
+func parseTAFromLines(lines []string) ([]byte, error) {
+	const (
+		initState = iota
+		beginState
+		endState
+	)
+	state := initState
+	e := fmt.Errorf("invalid tls-auth key")
+	var res []byte
+	for _, line := range lines {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.Contains(line, "BEGIN") {
+			if state != initState {
+				return nil, e
+			}
+			state = beginState
+			continue
+		}
+		if strings.Contains(line, "END") {
+			if state != beginState {
+				return nil, e
+			}
+			state = endState
+		}
+		switch state {
+		case initState:
+			continue
+		case beginState:
+			res = append(res, []byte(line)...)
+		case endState:
+			break
+		}
+	}
+	return res, nil
 }
 
 // authority implements authorityPinner interface.

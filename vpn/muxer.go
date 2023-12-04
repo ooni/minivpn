@@ -211,7 +211,6 @@ func (m *muxer) Handshake(ctx context.Context) (err error) {
 }
 
 func (m *muxer) handshake() error {
-
 	// 1. control channel sends reset, parse response.
 
 	m.emit(EventReset)
