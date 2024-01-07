@@ -39,7 +39,7 @@ func (c *tlsBio) Read(data []byte) (int, error) {
 	for {
 		count, _ := c.readBuffer.Read(data)
 		if count > 0 {
-			log.Printf("[netcoro] received %d bytes", len(data))
+			log.Printf("[tlsbio] received %d bytes", len(data))
 			return count, nil
 		}
 		select { // we are currently blocked here
@@ -52,7 +52,7 @@ func (c *tlsBio) Read(data []byte) (int, error) {
 }
 
 func (c *tlsBio) Write(data []byte) (int, error) {
-	log.Printf("[netcoro] requested to write %d bytes", len(data))
+	log.Printf("[tlsbio] requested to write %d bytes", len(data))
 	select {
 	case c.directionDown <- data:
 		return len(data), nil
