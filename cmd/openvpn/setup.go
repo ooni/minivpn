@@ -57,6 +57,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	// create the datachannel service.
 	datach := &datachannel.Service{
 		DataPacketUp: make(chan *model.Packet),
+		KeyUp:        make(chan *session.DataChannelKey, 1),
 	}
 
 	// connect the packetmuxer and the datachannel
@@ -90,6 +91,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	// create the tlsstate service
 	tlsx := &tlsstate.Service{
 		NotifyTLS:     make(chan *model.Notification, 1),
+		KeyUp:         nil,
 		TLSRecordUp:   make(chan []byte),
 		TLSRecordDown: nil,
 	}
@@ -98,6 +100,9 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	connectChannel(tlsx.NotifyTLS, &ctrl.NotifyTLS)
 	connectChannel(tlsx.TLSRecordUp, &ctrl.TLSRecordUp)
 	connectChannel(ctrl.TLSRecordDown, &tlsx.TLSRecordDown)
+
+	// connect tlsstate service and the datachannel service
+	connectChannel(datach.KeyUp, &tlsx.KeyUp)
 
 	// connect the muxer and the tlsstate service
 	connectChannel(tlsx.NotifyTLS, &muxer.NotifyTLS)
@@ -113,6 +118,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	muxer.StartWorkers(logger, workersManager, sessionManager)
 	rel.StartWorkers(logger, workersManager, sessionManager)
 	ctrl.StartWorkers(logger, workersManager, sessionManager)
+	datach.StartWorkers(logger, workersManager, sessionManager, options)
 	tlsx.StartWorkers(logger, workersManager, sessionManager, options)
 
 	return workersManager

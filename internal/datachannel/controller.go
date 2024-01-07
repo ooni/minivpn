@@ -2,7 +2,6 @@ package datachannel
 
 import (
 	"crypto/hmac"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -11,10 +10,6 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
-)
-
-var (
-	errDataChannel = errors.New("datachannel error")
 )
 
 // dataChannelHandler manages the data "channel".
@@ -27,9 +22,9 @@ type dataChannelHandler interface {
 	encryptAndEncodePayload([]byte, *dataChannelState) ([]byte, error)
 }
 
-// dataChannel represents the data "channel", that will encrypt and decrypt the tunnel payloads.
+// DataChannel represents the data "channel", that will encrypt and decrypt the tunnel payloads.
 // data implements the dataHandler interface.
-type dataChannel struct {
+type DataChannel struct {
 	options         *model.Options
 	sessionManager  *session.Manager
 	state           *dataChannelState
@@ -39,20 +34,20 @@ type dataChannel struct {
 	log             model.Logger
 }
 
-var _ dataChannelHandler = &dataChannel{} // Ensure that we implement dataChannelHandler
+var _ dataChannelHandler = &DataChannel{} // Ensure that we implement dataChannelHandler
 
 // NewDataChannelFromOptions returns a new data object, initialized with the
 // options given. it also returns any error raised.
 func NewDataChannelFromOptions(log model.Logger,
 	opt *model.Options,
-	sessionManager *session.Manager) (*dataChannel, error) {
+	sessionManager *session.Manager) (*DataChannel, error) {
 	runtimex.Assert(opt != nil, "openvpn datachannel: opts cannot be nil")
 	runtimex.Assert(opt != nil, "openvpn datachannel: opts cannot be nil")
 	runtimex.Assert(len(opt.Cipher) != 0, "need a configured cipher option")
 	runtimex.Assert(len(opt.Auth) != 0, "need a configured auth option")
 
 	state := &dataChannelState{}
-	data := &dataChannel{
+	data := &DataChannel{
 		options:        opt,
 		sessionManager: sessionManager,
 		state:          state,
@@ -74,7 +69,7 @@ func NewDataChannelFromOptions(log model.Logger,
 
 	hmacHash, ok := newHMACFactory(strings.ToLower(opt.Auth))
 	if !ok {
-		return data, fmt.Errorf("%w: %s", errDataChannel, "no such mac: %v", opt.Auth)
+		return data, fmt.Errorf("%w: %s", errDataChannel, fmt.Sprintf("no such mac: %v", opt.Auth))
 	}
 	data.state.hash = hmacHash
 	data.decryptFn = state.dataCipher.decrypt
@@ -86,13 +81,13 @@ func NewDataChannelFromOptions(log model.Logger,
 }
 
 // DecodeEncryptedPayload calls the corresponding function for AEAD or Non-AEAD decryption.
-func (d *dataChannel) decodeEncryptedPayload(b []byte, dcs *dataChannelState) (*encryptedData, error) {
+func (d *DataChannel) decodeEncryptedPayload(b []byte, dcs *dataChannelState) (*encryptedData, error) {
 	return d.decodeFn(d.log, b, dcs)
 }
 
 // setSetupKeys performs the key expansion from the local and remote
 // keySources, initializing the data channel state.
-func (d *dataChannel) setupKeys(dck *session.DataChannelKey) error {
+func (d *DataChannel) setupKeys(dck *session.DataChannelKey) error {
 	runtimex.Assert(dck != nil, "data channel key cannot be nil")
 	if !dck.Ready() {
 		return fmt.Errorf("%w: %s", errDataChannelKey, "key not ready")
@@ -142,7 +137,7 @@ func (d *dataChannel) setupKeys(dck *session.DataChannelKey) error {
 // write + encrypt
 //
 
-func (d *dataChannel) writePacket(conn net.Conn, payload []byte) (int, error) {
+func (d *DataChannel) writePacket(conn net.Conn, payload []byte) (int, error) {
 	runtimex.Assert(d.state != nil, "data: nil state")
 	runtimex.Assert(d.state.dataCipher != nil, "data.state: nil dataCipher")
 
@@ -189,7 +184,7 @@ func (d *dataChannel) writePacket(conn net.Conn, payload []byte) (int, error) {
 // Due to the particularities of the iv generation on each of the modes, encryption and encoding are
 // done together in the same function.
 // TODO accept state for symmetry
-func (d *dataChannel) encryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
+func (d *DataChannel) encryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
 	runtimex.Assert(dcs != nil, "datachanelState is nil")
 	runtimex.Assert(dcs.dataCipher != nil, "dcs.dataCipher is nil")
 
@@ -216,7 +211,7 @@ func (d *dataChannel) encryptAndEncodePayload(plaintext []byte, dcs *dataChannel
 // read + decrypt
 //
 
-func (d *dataChannel) readPacket(p *model.Packet) ([]byte, error) {
+func (d *DataChannel) readPacket(p *model.Packet) ([]byte, error) {
 	if len(p.Payload) == 0 {
 		return nil, fmt.Errorf("%w: %s", ErrCannotDecrypt, "empty payload")
 	}
@@ -231,7 +226,7 @@ func (d *dataChannel) readPacket(p *model.Packet) ([]byte, error) {
 	return maybeDecompress(plaintext, d.state, d.options)
 }
 
-func (d *dataChannel) decrypt(encrypted []byte) ([]byte, error) {
+func (d *DataChannel) decrypt(encrypted []byte) ([]byte, error) {
 	if d.decryptFn == nil {
 		return []byte{}, errInitError
 	}
@@ -252,7 +247,7 @@ func (d *dataChannel) decrypt(encrypted []byte) ([]byte, error) {
 }
 
 // SetPeerID updates the data state field with the info sent by the server.
-func (d *dataChannel) setPeerID(i int) error {
+func (d *DataChannel) setPeerID(i int) error {
 	d.state.peerID = i
 	return nil
 }

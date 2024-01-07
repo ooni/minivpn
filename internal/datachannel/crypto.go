@@ -23,11 +23,6 @@ import (
 // TODO(ainghazal,bassosimone): see if it's feasible to use stdlib
 // functionality rather than using the code below.
 
-var (
-	ErrCannotEncrypt = errors.New("cannot encrypt")
-	ErrCannotDecrypt = errors.New("cannot decrypt")
-)
-
 type (
 	// cipherMode describes a cipher mode (e.g., GCM).
 	cipherMode string
@@ -45,20 +40,6 @@ const (
 
 	// cipherNameAES is an AES-based cipher.
 	cipherNameAES = cipherName("aes")
-)
-
-var (
-	// errInvalidKeySize means that the key size is invalid.
-	errInvalidKeySize = errors.New("invalid key size")
-
-	// errUnsupportedCipher indicates we don't support the desired cipher.
-	errUnsupportedCipher = errors.New("unsupported cipher")
-
-	// errUnsupportedMode indicates that the mode is not uspported.
-	errUnsupportedMode = errors.New("unsupported mode")
-
-	// errBadInput indicates invalid inputs to encrypt/decrypt functions.
-	errBadInput = errors.New("bad input")
 )
 
 // encrypteData holds the different parts needed to decrypt an encrypted data

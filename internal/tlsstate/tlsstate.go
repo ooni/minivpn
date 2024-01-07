@@ -15,6 +15,7 @@ import (
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
 	NotifyTLS     chan *model.Notification
+	KeyUp         *chan *session.DataChannelKey
 	TLSRecordUp   chan []byte
 	TLSRecordDown *chan []byte
 }
@@ -33,6 +34,7 @@ func (svc *Service) StartWorkers(
 		logger:         logger,
 		notifyTLS:      svc.NotifyTLS,
 		options:        options,
+		keyUp:          *svc.KeyUp,
 		tlsRecordDown:  *svc.TLSRecordDown,
 		tlsRecordUp:    svc.TLSRecordUp,
 		sessionManager: sessionManager,
@@ -48,6 +50,7 @@ type workersState struct {
 	options        *model.Options
 	tlsRecordDown  chan<- []byte
 	tlsRecordUp    <-chan []byte
+	keyUp          chan<- *session.DataChannelKey
 	sessionManager *session.Manager
 	workersManager *workers.Manager
 }
@@ -179,6 +182,9 @@ func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch cha
 
 	// progress to the ACTIVE state
 	ws.sessionManager.SetNegotiationState(session.S_ACTIVE)
+
+	// notify the datachannel that we've got a key pair ready to use
+	ws.keyUp <- activeKey
 
 	errorch <- nil
 }
