@@ -30,26 +30,22 @@ func (s *Service) StartWorkers(
 	serviceManager *workers.Manager,
 	sessionManager *workers.Manager,
 	notifyTLS chan<- *model.Notification,
-	notifyReliable chan<- *model.Notification,
 	packetDown chan<- *model.Packet,
 	packetUp <-chan *model.Packet,
-	tlsRecordDown <-chan []byte,
-	tlsRecordUp chan<- []byte,
 ) {
 	ws := &workersState{
 		logger:         logger,
 		serviceManager: serviceManager,
+		sessionManager: sessionManager,
 		notifyTLS:      notifyTLS,
-		notifyReliable: notifyReliable,
 		packetDown:     packetDown,
 		packetUp:       packetUp,
-		sessionManager: sessionManager,
 	}
 	serviceManager.StartWorker(ws.moveUpWorker)
 	serviceManager.StartWorker(ws.moveDownWorker)
 }
 
-// workersState contains the control channel state.
+// workersState contains the data channel state.
 type workersState struct {
 	logger         model.Logger
 	serviceManager *workers.Manager
