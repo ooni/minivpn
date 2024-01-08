@@ -29,8 +29,8 @@ func encryptAndEncodePayloadAEAD(log model.Logger, padded []byte, session *sessi
 	// - 3 bytes: peer-id (we're using P_DATA_V2)
 	// - 4 bytes: packet-id
 	aead := &bytes.Buffer{}
-	aead.WriteByte(opcodeAndKeyHeader(state))
-	bytesx.WriteUint24(aead, uint32(state.peerID))
+	aead.WriteByte(opcodeAndKeyHeader(session))
+	bytesx.WriteUint24(aead, uint32(session.TunnelInfo().PeerID))
 	bytesx.WriteUint32(aead, uint32(nextPacketID))
 
 	// the iv is the packetID (again) concatenated with the 8 bytes of the
@@ -93,8 +93,8 @@ func encryptAndEncodePayloadNonAEAD(log model.Logger, padded []byte, session *se
 	computedMAC := state.hmacLocal.Sum(nil)
 
 	out := &bytes.Buffer{}
-	out.WriteByte(opcodeAndKeyHeader(state))
-	bytesx.WriteUint24(out, uint32(state.peerID))
+	out.WriteByte(opcodeAndKeyHeader(session))
+	bytesx.WriteUint24(out, uint32(session.TunnelInfo().PeerID))
 
 	out.Write(computedMAC)
 	out.Write(iv)
@@ -164,6 +164,6 @@ func prependPacketID(p model.PacketID, buf []byte) []byte {
 
 // opcodeAndKeyHeader returns the header byte encoding the opcode and keyID (3 upper
 // and 5 lower bits, respectively)
-func opcodeAndKeyHeader(st *dataChannelState) byte {
-	return byte((byte(model.P_DATA_V2) << 3) | (byte(st.keyID) & 0x07))
+func opcodeAndKeyHeader(session *session.Manager) byte {
+	return byte((byte(model.P_DATA_V2) << 3) | (byte(session.CurrentKeyID()) & 0x07))
 }

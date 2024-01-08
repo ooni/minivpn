@@ -283,6 +283,12 @@ func (m *Manager) SetRemoteSessionID(remoteSessionID model.SessionID) {
 	m.remoteSessionID = optional.Some(remoteSessionID)
 }
 
+func (m *Manager) CurrentKeyID() uint8 {
+	defer m.mu.Unlock()
+	m.mu.Lock()
+	return m.keyID
+}
+
 // InitTunnelInfo initializes TunnelInfo from data obtained from the auth response.
 func (m *Manager) InitTunnelInfo(remoteOption string) error {
 	defer m.mu.Unlock()

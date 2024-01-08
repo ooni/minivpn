@@ -260,23 +260,31 @@ var ErrMarshalPacket = errors.New("openvpn: cannot marshal packet")
 // Bytes returns a byte array that is ready to be sent on the wire.
 func (p *Packet) Bytes() ([]byte, error) {
 	buf := &bytes.Buffer{}
-	buf.WriteByte((byte(p.Opcode) << 3) | (p.KeyID & 0x07))
-	buf.Write(p.LocalSessionID[:])
-	// we write a byte with the number of acks, and then serialize each ack.
-	nAcks := len(p.ACKs)
-	if nAcks > math.MaxUint8 {
-		return nil, fmt.Errorf("%w: too many ACKs", ErrMarshalPacket)
-	}
-	buf.WriteByte(byte(nAcks))
-	for i := 0; i < nAcks; i++ {
-		bytesx.WriteUint32(buf, uint32(p.ACKs[i]))
-	}
-	// remote session id
-	if len(p.ACKs) > 0 {
-		buf.Write(p.RemoteSessionID[:])
-	}
-	if p.Opcode != P_ACK_V1 {
-		bytesx.WriteUint32(buf, uint32(p.ID))
+
+	switch p.Opcode {
+	case P_DATA_V2:
+		// we assume this is an encrypted data packet,
+		// so we serialize just the encrypted payload
+
+	default:
+		buf.WriteByte((byte(p.Opcode) << 3) | (p.KeyID & 0x07))
+		buf.Write(p.LocalSessionID[:])
+		// we write a byte with the number of acks, and then serialize each ack.
+		nAcks := len(p.ACKs)
+		if nAcks > math.MaxUint8 {
+			return nil, fmt.Errorf("%w: too many ACKs", ErrMarshalPacket)
+		}
+		buf.WriteByte(byte(nAcks))
+		for i := 0; i < nAcks; i++ {
+			bytesx.WriteUint32(buf, uint32(p.ACKs[i]))
+		}
+		// remote session id
+		if len(p.ACKs) > 0 {
+			buf.Write(p.RemoteSessionID[:])
+		}
+		if p.Opcode != P_ACK_V1 {
+			bytesx.WriteUint32(buf, uint32(p.ID))
+		}
 	}
 	//  payload
 	buf.Write(p.Payload)

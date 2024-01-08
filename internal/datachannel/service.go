@@ -89,7 +89,6 @@ func (ws *workersState) moveDownWorker() {
 			for {
 				select {
 				case data := <-ws.tunDown:
-					ws.logger.Infof("SHOULD ENCRYPT: %v", data)
 					packet, err := ws.dataChannel.writePacket(data)
 					if err != nil {
 						ws.logger.Warnf("error encrypting: %v", err)
@@ -99,9 +98,8 @@ func (ws *workersState) moveDownWorker() {
 
 					select {
 					case ws.packetDown <- packet:
-						ws.logger.Infof(">>> sent packet down")
 					default:
-						// drop the packet if the buffer is full
+					// drop the packet if the buffer is full
 					case <-ws.workersManager.ShouldShutdown():
 						return
 					}
@@ -126,16 +124,17 @@ func (ws *workersState) moveUpWorker() {
 	for {
 		select {
 		case pkt := <-ws.packetUp:
-			ws.logger.Infof("SHOULD DECRYPT: %v", pkt)
-
-			// TODO: decrypt and write for tun
 			decrypted, err := ws.dataChannel.readPacket(pkt)
 			if err != nil {
 				ws.logger.Warnf("error decrypting: %v", err)
 			}
-			ws.logger.Infof(">>> decrypted: %v", decrypted)
-			// ws.tunUp <- decrypted
-			// TODO possibly block on writing to upper
+			// possibly block on writing to upper
+			select {
+			case ws.tunUp <- decrypted:
+			// drop the packet if the buffer is full
+			case <-ws.workersManager.ShouldShutdown():
+				return
+			}
 		case <-ws.workersManager.ShouldShutdown():
 			return
 		}

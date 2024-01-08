@@ -10,9 +10,10 @@ import (
 	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/runtimex"
+	"github.com/ooni/minivpn/internal/session"
 )
 
-func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, state *dataChannelState) (*encryptedData, error) {
+func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, session *session.Manager, state *dataChannelState) (*encryptedData, error) {
 	//   P_DATA_V2 GCM data channel crypto format
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
 	//   [ OP32 ] [seq # ] [             auth tag            ] [ payload ... ]
@@ -31,8 +32,8 @@ func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, state *dataChannel
 	packet_id := buf[:4]
 
 	headers := &bytes.Buffer{}
-	headers.WriteByte(opcodeAndKeyHeader(state))
-	bytesx.WriteUint24(headers, uint32(state.peerID))
+	headers.WriteByte(opcodeAndKeyHeader(session))
+	bytesx.WriteUint24(headers, uint32(session.TunnelInfo().PeerID))
 	headers.Write(packet_id)
 
 	// we need to swap because decryption expects payload|tag
@@ -56,7 +57,7 @@ func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, state *dataChannel
 
 var errCannotDecode = errors.New("cannot decode")
 
-func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, state *dataChannelState) (*encryptedData, error) {
+func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, session *session.Manager, state *dataChannelState) (*encryptedData, error) {
 	runtimex.Assert(state != nil, "passed nil state")
 	runtimex.Assert(state.dataCipher != nil, "data cipher not initialized")
 

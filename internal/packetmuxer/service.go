@@ -2,8 +2,6 @@
 package packetmuxer
 
 import (
-	"fmt"
-
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
@@ -25,20 +23,20 @@ type Service struct {
 // file for more information about the packet-muxer workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func (svc *Service) StartWorkers(
+func (s *Service) StartWorkers(
 	logger model.Logger,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
 		logger:          logger,
-		controlPacketUp: *svc.ControlPacketUp,
-		dataPacketUp:    *svc.DataPacketUp,
-		hardReset:       svc.HardReset,
-		notifyTLS:       *svc.NotifyTLS,
-		packetDown:      svc.PacketDown,
-		rawPacketDown:   *svc.RawPacketDown,
-		rawPacketUp:     svc.RawPacketUp,
+		controlPacketUp: *s.ControlPacketUp,
+		dataPacketUp:    *s.DataPacketUp,
+		hardReset:       s.HardReset,
+		notifyTLS:       *s.NotifyTLS,
+		packetDown:      s.PacketDown,
+		rawPacketDown:   *s.RawPacketDown,
+		rawPacketUp:     s.RawPacketUp,
 		sessionManager:  sessionManager,
 		workersManager:  workersManager,
 	}
@@ -124,8 +122,6 @@ func (ws *workersState) moveDownWorker() {
 		// POSSIBLY BLOCK on reading the packet moving down the stack
 		select {
 		case packet := <-ws.packetDown:
-			fmt.Println(">>> packetmuxer: packet down")
-
 			// serialize the packet
 			rawPacket, err := packet.Bytes()
 			if err != nil {

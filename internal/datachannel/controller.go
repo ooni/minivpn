@@ -1,11 +1,13 @@
 package datachannel
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"fmt"
 	"strings"
 
 	"github.com/apex/log"
+	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
@@ -14,7 +16,6 @@ import (
 // dataChannelHandler manages the data "channel".
 type dataChannelHandler interface {
 	setupKeys(*session.DataChannelKey) error
-	setPeerID(int) error
 	writePacket([]byte) (*model.Packet, error)
 	readPacket(*model.Packet) ([]byte, error)
 	decodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
@@ -27,7 +28,7 @@ type DataChannel struct {
 	options         *model.Options
 	sessionManager  *session.Manager
 	state           *dataChannelState
-	decodeFn        func(model.Logger, []byte, *dataChannelState) (*encryptedData, error)
+	decodeFn        func(model.Logger, []byte, *session.Manager, *dataChannelState) (*encryptedData, error)
 	encryptEncodeFn func(model.Logger, []byte, *session.Manager, *dataChannelState) ([]byte, error)
 	decryptFn       func([]byte, *encryptedData) ([]byte, error)
 	log             model.Logger
@@ -81,7 +82,7 @@ func NewDataChannelFromOptions(log model.Logger,
 
 // DecodeEncryptedPayload calls the corresponding function for AEAD or Non-AEAD decryption.
 func (d *DataChannel) decodeEncryptedPayload(b []byte, dcs *dataChannelState) (*encryptedData, error) {
-	return d.decodeFn(d.log, b, dcs)
+	return d.decodeFn(d.log, b, d.sessionManager, dcs)
 }
 
 // setSetupKeys performs the key expansion from the local and remote
@@ -169,13 +170,15 @@ func (d *DataChannel) writePacket(payload []byte) (*model.Packet, error) {
 
 	// TODO(ainghazal): increment counter for used bytes?
 	// and trigger renegotiation if we're near the end of the key useful lifetime.
-	// TODO(ainghazal): get current key ID
 	// TODO(ainghazal): use sessionManager.NewPacket()
 
 	packet, err := d.sessionManager.NewPacket(model.P_DATA_V2, encrypted)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrSerialization, err)
 	}
+	peerid := &bytes.Buffer{}
+	bytesx.WriteUint24(peerid, uint32(d.sessionManager.TunnelInfo().PeerID))
+	packet.PeerID = model.PeerID(peerid.Bytes())
 	return packet, nil
 }
 
@@ -243,10 +246,4 @@ func (d *DataChannel) decrypt(encrypted []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %s", ErrCannotDecrypt, err)
 	}
 	return plainText, nil
-}
-
-// SetPeerID updates the data state field with the info sent by the server.
-func (d *DataChannel) setPeerID(i int) error {
-	d.state.peerID = i
-	return nil
 }
