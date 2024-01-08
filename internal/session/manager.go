@@ -84,6 +84,9 @@ type Manager struct {
 	negState             SessionNegotiationState
 	remoteSessionID      optional.Value[model.SessionID]
 	tunnelInfo           model.TunnelInfo
+
+	// TODO(ainghazal): look for a better way of signaling when we're ready
+	Ready chan (any)
 }
 
 // NewManager returns a [Manager] ready to be used.
@@ -98,6 +101,7 @@ func NewManager(logger model.Logger) (*Manager, error) {
 		negState:        0,
 		remoteSessionID: optional.None[model.SessionID](),
 		tunnelInfo:      model.TunnelInfo{},
+		Ready:           make(chan any),
 	}
 
 	randomBytes, err := randomFn(8)
@@ -248,6 +252,9 @@ func (m *Manager) SetNegotiationState(sns SessionNegotiationState) {
 	m.mu.Lock()
 	m.logger.Infof("[@] %s -> %s", m.negState, sns)
 	m.negState = sns
+	if sns == S_GENERATED_KEYS {
+		m.Ready <- true
+	}
 }
 
 // ActiveKey returns the dataChannelKey that is actively being used.

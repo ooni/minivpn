@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/apex/log"
+	"github.com/ooni/minivpn/extras/ping"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
@@ -42,12 +43,18 @@ func main() {
 	}
 
 	// create a tun Device
-	tunDevice := tun.NewTUNBio()
+	tunnel := tun.NewTUNBio(sessionManager)
 
 	// start all the workers
-	workersManager := startWorkers(log.Log, sessionManager, tunDevice, conn, options)
+	workersManager := startWorkers(log.Log, sessionManager, tunnel, conn, options)
+	<-sessionManager.Ready
 
-	tunDevice.Write([]byte("stuff"))
+	pinger := ping.New("8.8.8.8", tunnel)
+	pinger.Count = 3
+	err = pinger.Run(context.Background())
+	if err != nil {
+		log.WithError(err).Fatal("ping error")
+	}
 
 	// wait for workers to terminate
 	workersManager.WaitWorkersShutdown()

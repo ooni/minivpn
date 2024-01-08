@@ -90,15 +90,15 @@ func (ws *workersState) moveDownWorker() {
 				select {
 				case data := <-ws.tunDown:
 					ws.logger.Infof("SHOULD ENCRYPT: %v", data)
-					n, err := ws.dataChannel.writePacket(data)
+					packet, err := ws.dataChannel.writePacket(data)
 					if err != nil {
 						ws.logger.Warnf("error encrypting: %v", err)
 						continue
 					}
-					ws.logger.Infof("encrypted %d bytes", n)
-					// TODO: get packet ----
-					// TODO: possibly block on write in packet down
-					// ws.packetDown <- encrypted
+					ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
+					// possibly block on write in packet down
+					// FIXME ------
+					ws.packetDown <- packet
 
 				case <-ws.workersManager.ShouldShutdown():
 					return

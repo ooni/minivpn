@@ -15,7 +15,7 @@ import (
 type dataChannelHandler interface {
 	setupKeys(*session.DataChannelKey) error
 	setPeerID(int) error
-	writePacket([]byte) (int, error)
+	writePacket([]byte) (*model.Packet, error)
 	readPacket(*model.Packet) ([]byte, error)
 	decodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
 	encryptAndEncodePayload([]byte, *dataChannelState) ([]byte, error)
@@ -136,8 +136,7 @@ func (d *DataChannel) setupKeys(dck *session.DataChannelKey) error {
 // write + encrypt
 //
 
-// func (d *DataChannel) writePacket(conn net.Conn, payload []byte) (int, error) {
-func (d *DataChannel) writePacket(payload []byte) (int, error) {
+func (d *DataChannel) writePacket(payload []byte) (*model.Packet, error) {
 	runtimex.Assert(d.state != nil, "data: nil state")
 	runtimex.Assert(d.state.dataCipher != nil, "data.state: nil dataCipher")
 
@@ -148,7 +147,7 @@ func (d *DataChannel) writePacket(payload []byte) (int, error) {
 	case true:
 		plain, err = doCompress(payload, d.options.Compress)
 		if err != nil {
-			return 0, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
+			return nil, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
 		}
 	case false: // non-aead
 		localPacketID, _ := d.sessionManager.LocalDataPacketID()
@@ -156,7 +155,7 @@ func (d *DataChannel) writePacket(payload []byte) (int, error) {
 
 		plain, err = doCompress(plain, d.options.Compress)
 		if err != nil {
-			return 0, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
+			return nil, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
 		}
 	}
 
@@ -165,19 +164,15 @@ func (d *DataChannel) writePacket(payload []byte) (int, error) {
 	// parts in the packet.
 	encrypted, err := d.encryptAndEncodePayload(plain, d.state)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
+		return nil, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
 	}
-
-	_ = encrypted
 
 	// TODO(ainghazal): increment counter for used bytes?
 	// and trigger renegotiation if we're near the end of the key useful lifetime.
-
-	// ---------------------------------------------
-	// TODO: return encrypted to be written down...
-	// out := maybeAddSizeFrame(conn, encrypted)
-	return len(encrypted), nil
-
+	// TODO(ainghazal): get current key ID
+	// TODO(ainghazal): use sessionManager.NewPacket()
+	packet := model.NewPacket(model.P_DATA_V2, 0, encrypted)
+	return packet, nil
 }
 
 // encrypt calls the corresponding function for AEAD or Non-AEAD decryption.
@@ -235,10 +230,10 @@ func (d *DataChannel) decrypt(encrypted []byte) ([]byte, error) {
 		return nil, ErrCannotDecrypt
 	}
 	encryptedData, err := d.decodeEncryptedPayload(encrypted, d.state)
-
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrCannotDecrypt, err)
 	}
+
 	plainText, err := d.decryptFn(d.state.cipherKeyRemote[:], encryptedData)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrCannotDecrypt, err)

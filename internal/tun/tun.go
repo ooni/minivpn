@@ -9,6 +9,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/ooni/minivpn/internal/session"
 )
 
 // tunBio allows to use channels to read and write
@@ -18,10 +20,11 @@ type TUNBio struct {
 	TunUp      chan []byte
 	hangup     chan any
 	readBuffer *bytes.Buffer
+	session    *session.Manager
 }
 
 // newTUNBio creates a new tunBio
-func NewTUNBio() *TUNBio {
+func NewTUNBio(session *session.Manager) *TUNBio {
 	return &TUNBio{
 		closeOnce: sync.Once{},
 		TunDown:   make(chan []byte),
@@ -29,6 +32,7 @@ func NewTUNBio() *TUNBio {
 		hangup:    make(chan any),
 		// we don't need the read buffer in this case do we?
 		readBuffer: &bytes.Buffer{},
+		session:    session,
 	}
 }
 
@@ -66,11 +70,15 @@ func (t *TUNBio) Write(data []byte) (int, error) {
 }
 
 func (t *TUNBio) LocalAddr() net.Addr {
-	return &tunBioAddr{}
+	// TODO block or fail if session not ready
+	ip := t.session.TunnelInfo().IP
+	return &tunBioAddr{ip}
 }
 
 func (t *TUNBio) RemoteAddr() net.Addr {
-	return &tunBioAddr{}
+	// TODO block or fail if session not ready
+	gw := t.session.TunnelInfo().GW
+	return &tunBioAddr{gw}
 }
 
 func (c *TUNBio) SetDeadline(t time.Time) error {
@@ -86,16 +94,18 @@ func (c *TUNBio) SetWriteDeadline(t time.Time) error {
 }
 
 // tunBioAddr is the type of address returned by [Conn]
-type tunBioAddr struct{}
+type tunBioAddr struct {
+	addr string
+}
 
 var _ net.Addr = &tunBioAddr{}
 
 // Network implements net.Addr
-func (*tunBioAddr) Network() string {
+func (t *tunBioAddr) Network() string {
 	return "tunBioAddr"
 }
 
 // String implements net.Addr
-func (*tunBioAddr) String() string {
-	return "tunBioAddr"
+func (t *tunBioAddr) String() string {
+	return t.addr
 }
