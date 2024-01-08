@@ -23,6 +23,7 @@ var (
 	// errBadInput indicates invalid inputs to encrypt/decrypt functions.
 	errBadInput = errors.New("bad input")
 
+	ErrSerialization = errors.New("cannot create packet")
 	ErrCannotEncrypt = errors.New("cannot encrypt")
 	ErrCannotDecrypt = errors.New("cannot decrypt")
 )

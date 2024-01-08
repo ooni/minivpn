@@ -171,7 +171,11 @@ func (d *DataChannel) writePacket(payload []byte) (*model.Packet, error) {
 	// and trigger renegotiation if we're near the end of the key useful lifetime.
 	// TODO(ainghazal): get current key ID
 	// TODO(ainghazal): use sessionManager.NewPacket()
-	packet := model.NewPacket(model.P_DATA_V2, 0, encrypted)
+
+	packet, err := d.sessionManager.NewPacket(model.P_DATA_V2, encrypted)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrSerialization, err)
+	}
 	return packet, nil
 }
 

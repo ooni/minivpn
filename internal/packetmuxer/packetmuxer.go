@@ -2,6 +2,8 @@
 package packetmuxer
 
 import (
+	"fmt"
+
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
@@ -122,6 +124,7 @@ func (ws *workersState) moveDownWorker() {
 		// POSSIBLY BLOCK on reading the packet moving down the stack
 		select {
 		case packet := <-ws.packetDown:
+			fmt.Println(">>> packetmuxer: packet down")
 
 			// serialize the packet
 			rawPacket, err := packet.Bytes()

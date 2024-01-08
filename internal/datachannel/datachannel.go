@@ -96,9 +96,15 @@ func (ws *workersState) moveDownWorker() {
 						continue
 					}
 					ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
-					// possibly block on write in packet down
-					// FIXME ------
-					ws.packetDown <- packet
+
+					select {
+					case ws.packetDown <- packet:
+						ws.logger.Infof(">>> sent packet down")
+					default:
+						// drop the packet if the buffer is full
+					case <-ws.workersManager.ShouldShutdown():
+						return
+					}
 
 				case <-ws.workersManager.ShouldShutdown():
 					return
