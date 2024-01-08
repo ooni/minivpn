@@ -10,6 +10,7 @@ import (
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/tlsstate"
+	"github.com/ooni/minivpn/internal/tun"
 	"github.com/ooni/minivpn/internal/workers"
 )
 
@@ -26,6 +27,7 @@ func connectChannel[T any](signal chan T, slot **chan T) {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func startWorkers(logger model.Logger, sessionManager *session.Manager,
+	tunDevice *tun.TUNBio,
 	conn networkio.FramingConn, options *model.Options) *workers.Manager {
 	// create a workers manager
 	workersManager := workers.NewManager()
@@ -56,12 +58,16 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the datachannel service.
 	datach := &datachannel.Service{
-		DataPacketUp: make(chan *model.Packet),
-		KeyUp:        make(chan *session.DataChannelKey, 1),
+		DataPacketUp:   make(chan *model.Packet),
+		DataPacketDown: nil, // ok
+		KeyUp:          make(chan *session.DataChannelKey, 1),
+		TunDown:        tunDevice.TunDown,
+		TunUp:          tunDevice.TunUp,
 	}
 
 	// connect the packetmuxer and the datachannel
 	connectChannel(datach.DataPacketUp, &muxer.DataPacketUp)
+	connectChannel(muxer.PacketDown, &datach.DataPacketDown)
 
 	// create the reliable service.
 	rel := &reliable.Service{

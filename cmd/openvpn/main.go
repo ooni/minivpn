@@ -9,6 +9,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/internal/tun"
 )
 
 func main() {
@@ -40,8 +41,13 @@ func main() {
 		log.WithError(err).Fatal("session.NewManager")
 	}
 
+	// create a tun Device
+	tunDevice := tun.NewTUNBio()
+
 	// start all the workers
-	workersManager := startWorkers(log.Log, sessionManager, conn, options)
+	workersManager := startWorkers(log.Log, sessionManager, tunDevice, conn, options)
+
+	tunDevice.Write([]byte("stuff"))
 
 	// wait for workers to terminate
 	workersManager.WaitWorkersShutdown()

@@ -5,8 +5,6 @@ package datachannel
 //
 
 import (
-
-	//"github.com/ooni/minivpn/internal/datachannel"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
@@ -15,20 +13,22 @@ import (
 // Service is the datachannel service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	DataPacketUp chan *model.Packet
-	KeyUp        chan *session.DataChannelKey
+	DataPacketUp   chan *model.Packet
+	DataPacketDown *chan *model.Packet
+	KeyUp          chan *session.DataChannelKey
+	TunDown        chan []byte
+	TunUp          chan []byte
 }
 
 // StartWorkers starts the data-channel workers.
 //
 // We start three workers:
 //
-// 1. moveUpWorker BLOCKS on packetUpBottom to read a raw packet and
-// eventually BLOCKS on packetUpTop to deliver it; this loop also
-// BLOCKS on notifications to handle RESET messages;
+// 1. moveUpWorker BLOCKS on dataPacketUp to read a packet coming from the muxer and
+// eventually BLOCKS on tunUp to deliver it;
 //
-// 2. moveDownWorker BLOCKS on packetDownTop to read a packet and
-// eventually BLOCKS on packetDownBottom to deliver it;
+// 2. moveDownWorker BLOCKS on tunDown to read a packet and
+// eventually BLOCKS on packetDown to deliver it;
 //
 // 3. keyWorker BLOCKS on keyUp to read an dataChannelKey and
 // initializes the internal state with the resulting key;
@@ -49,7 +49,12 @@ func (s *Service) StartWorkers(
 		workersManager: workersManager,
 		sessionManager: sessionManager,
 		keyUp:          s.KeyUp,
+		packetUp:       s.DataPacketUp,
+		packetDown:     *s.DataPacketDown,
+		tunUp:          s.TunUp,
+		tunDown:        s.TunDown,
 		dataChannel:    dc,
+		newKey:         make(chan any),
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
 	workersManager.StartWorker(ws.moveDownWorker)
@@ -62,7 +67,41 @@ type workersState struct {
 	workersManager *workers.Manager
 	sessionManager *session.Manager
 	keyUp          <-chan *session.DataChannelKey
+	packetUp       <-chan *model.Packet
+	packetDown     chan<- *model.Packet
+	tunUp          chan<- []byte
+	tunDown        <-chan []byte
 	dataChannel    *DataChannel
+	newKey         chan any
+}
+
+// moveDownWorker moves packets down the stack. It will BLOCK on PacketDown
+func (ws *workersState) moveDownWorker() {
+	defer func() {
+		ws.workersManager.OnWorkerDone()
+		ws.workersManager.StartShutdown()
+		ws.logger.Debug("datachannel: moveDownWorker: done")
+	}()
+	for {
+		select {
+		// wait for the key to be ready
+		case <-ws.newKey:
+			for {
+				select {
+				case data := <-ws.tunDown:
+					ws.logger.Infof("SHOULD ENCRYPT: %v", data)
+					// TODO: need to block until key is ready
+					// TODO: possibly block on write in packet down
+					// ws.packetDown <- encrypted
+
+				case <-ws.workersManager.ShouldShutdown():
+					return
+				}
+			}
+		case <-ws.workersManager.ShouldShutdown():
+			return
+		}
+	}
 }
 
 // moveUpWorker moves packets up the stack
@@ -72,17 +111,17 @@ func (ws *workersState) moveUpWorker() {
 		ws.workersManager.StartShutdown()
 		ws.logger.Debug("datachannel: moveUpWorker: done")
 	}()
-	select {}
-}
-
-// moveDownWorker moves packets up the stack
-func (ws *workersState) moveDownWorker() {
-	defer func() {
-		ws.workersManager.OnWorkerDone()
-		ws.workersManager.StartShutdown()
-		ws.logger.Debug("datachannel: moveDownWorker: done")
-	}()
-	select {}
+	for {
+		select {
+		case data := <-ws.packetUp:
+			ws.logger.Infof("SHOULD DECRYPT: %v", data)
+			// TODO: decrypt and write for tun
+			// ws.tunUp <- decrypted
+			// TODO possibly block on writing to upper
+		case <-ws.workersManager.ShouldShutdown():
+			return
+		}
+	}
 }
 
 // keyWorker receives notifications from key ready
@@ -100,9 +139,10 @@ func (ws *workersState) keyWorker() {
 			err := ws.dataChannel.setupKeys(key)
 			if err != nil {
 				ws.logger.Warnf("error on key derivation: %v", err)
-			} else {
-				ws.sessionManager.SetNegotiationState(session.S_GENERATED_KEYS)
+				continue
 			}
+			ws.sessionManager.SetNegotiationState(session.S_GENERATED_KEYS)
+			ws.newKey <- true
 
 		case <-ws.workersManager.ShouldShutdown():
 			return
