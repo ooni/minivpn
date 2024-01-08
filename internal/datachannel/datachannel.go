@@ -90,7 +90,13 @@ func (ws *workersState) moveDownWorker() {
 				select {
 				case data := <-ws.tunDown:
 					ws.logger.Infof("SHOULD ENCRYPT: %v", data)
-					// TODO: need to block until key is ready
+					n, err := ws.dataChannel.writePacket(data)
+					if err != nil {
+						ws.logger.Warnf("error encrypting: %v", err)
+						continue
+					}
+					ws.logger.Infof("encrypted %d bytes", n)
+					// TODO: get packet ----
 					// TODO: possibly block on write in packet down
 					// ws.packetDown <- encrypted
 
@@ -113,9 +119,15 @@ func (ws *workersState) moveUpWorker() {
 	}()
 	for {
 		select {
-		case data := <-ws.packetUp:
-			ws.logger.Infof("SHOULD DECRYPT: %v", data)
+		case pkt := <-ws.packetUp:
+			ws.logger.Infof("SHOULD DECRYPT: %v", pkt)
+
 			// TODO: decrypt and write for tun
+			decrypted, err := ws.dataChannel.readPacket(pkt)
+			if err != nil {
+				ws.logger.Warnf("error decrypting: %v", err)
+			}
+			ws.logger.Infof(">>> decrypted: %v", decrypted)
 			// ws.tunUp <- decrypted
 			// TODO possibly block on writing to upper
 		case <-ws.workersManager.ShouldShutdown():

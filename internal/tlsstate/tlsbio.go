@@ -42,7 +42,7 @@ func (c *tlsBio) Read(data []byte) (int, error) {
 			log.Printf("[tlsbio] received %d bytes", len(data))
 			return count, nil
 		}
-		select { // we are currently blocked here
+		select {
 		case extra := <-c.directionUp:
 			c.readBuffer.Write(extra)
 		case <-c.hangup:

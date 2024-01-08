@@ -3,7 +3,6 @@ package datachannel
 import (
 	"crypto/hmac"
 	"fmt"
-	"net"
 	"strings"
 
 	"github.com/apex/log"
@@ -16,7 +15,7 @@ import (
 type dataChannelHandler interface {
 	setupKeys(*session.DataChannelKey) error
 	setPeerID(int) error
-	writePacket(net.Conn, []byte) (int, error)
+	writePacket([]byte) (int, error)
 	readPacket(*model.Packet) ([]byte, error)
 	decodeEncryptedPayload([]byte, *dataChannelState) (*encryptedData, error)
 	encryptAndEncodePayload([]byte, *dataChannelState) ([]byte, error)
@@ -137,7 +136,8 @@ func (d *DataChannel) setupKeys(dck *session.DataChannelKey) error {
 // write + encrypt
 //
 
-func (d *DataChannel) writePacket(conn net.Conn, payload []byte) (int, error) {
+// func (d *DataChannel) writePacket(conn net.Conn, payload []byte) (int, error) {
+func (d *DataChannel) writePacket(payload []byte) (int, error) {
 	runtimex.Assert(d.state != nil, "data: nil state")
 	runtimex.Assert(d.state.dataCipher != nil, "data.state: nil dataCipher")
 
@@ -176,7 +176,7 @@ func (d *DataChannel) writePacket(conn net.Conn, payload []byte) (int, error) {
 	// ---------------------------------------------
 	// TODO: return encrypted to be written down...
 	// out := maybeAddSizeFrame(conn, encrypted)
-	return 0, nil
+	return len(encrypted), nil
 
 }
 
