@@ -95,6 +95,7 @@ func (ws *workersState) moveDownWorker() {
 	defer func() {
 		ws.manager.StartShutdown()
 		ws.manager.OnWorkerDone()
+		ws.conn.Close()
 		ws.logger.Debug("networkio: moveDownWorker: done")
 	}()
 

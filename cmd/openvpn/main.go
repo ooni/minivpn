@@ -49,19 +49,20 @@ func main() {
 	}
 
 	// create a tun Device
-	tunnel := tun.NewTUNBio(sessionManager)
+	// TODO(ainghazal): tun should be the OWNER of the connection
+	tunnel := tun.NewTUN(sessionManager)
 
 	// start all the workers
-	workersManager := startWorkers(log.Log, sessionManager, tunnel, conn, options)
-	// TODO pass a specific channel to workersManager instead (tunClosed)
-	tunnel.Workers = workersManager
+	workers := startWorkers(log.Log, sessionManager, tunnel, conn, options)
+	// -----------------------------------------------------------------------
+	// TODO(ainghazal): pass a specific channel to workers instead (tunClosed)
+	tunnel.Workers = workers
 	<-sessionManager.Ready
 
 	pinger := ping.New("8.8.8.8", tunnel)
 	count := 5
 	pinger.Count = count
-	//ctx, cancel := context.WithTimeout(context.Background(), timeoutSecondsFromCount(count))
-	//defer cancel()
+
 	err = pinger.Run(context.Background())
 	if err != nil {
 		pinger.PrintStats()
@@ -70,5 +71,5 @@ func main() {
 	pinger.PrintStats()
 
 	// wait for workers to terminate
-	workersManager.WaitWorkersShutdown()
+	workers.WaitWorkersShutdown()
 }

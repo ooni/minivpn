@@ -31,14 +31,13 @@ type TUNBio struct {
 	readDeadlineDone chan any
 }
 
-// newTUNBio creates a new tunBio
-func NewTUNBio(session *session.Manager) *TUNBio {
+// newTUN creates a new tunBio
+func NewTUN(session *session.Manager) *TUNBio {
 	return &TUNBio{
-		closeOnce: sync.Once{},
-		TunDown:   make(chan []byte),
-		TunUp:     make(chan []byte, 10),
-		hangup:    make(chan any),
-		// we don't need the read buffer in this case do we?
+		closeOnce:        sync.Once{},
+		TunDown:          make(chan []byte),
+		TunUp:            make(chan []byte, 10),
+		hangup:           make(chan any),
 		readBuffer:       &bytes.Buffer{},
 		session:          session,
 		readDeadlineDone: make(chan any),
