@@ -44,17 +44,19 @@ func (t *TUNBio) Close() error {
 }
 
 func (t *TUNBio) Read(data []byte) (int, error) {
+	log.Printf("[tunbio] requested read")
 	for {
-		count, _ := t.readBuffer.Read(data)
-		if count > 0 {
-			log.Printf("[tunbio] received %d bytes", len(data))
-			return count, nil
-		}
 		select {
-		case extra := <-t.TunUp:
-			t.readBuffer.Write(extra)
+		case new := <-t.TunUp:
+			t.readBuffer.Write(new)
 		case <-t.hangup:
 			return 0, net.ErrClosed
+		default:
+			count, _ := t.readBuffer.Read(data)
+			if count > 0 {
+				log.Printf("[tunbio] received %d bytes", len(data))
+				return count, nil
+			}
 		}
 	}
 }

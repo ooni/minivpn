@@ -81,6 +81,7 @@ func (ws *workersState) moveUpWorker() {
 		// POSSIBLY BLOCK on the channel to deliver the packet
 		select {
 		case ws.rawPacketUp <- pkt:
+			ws.logger.Infof("< incoming %v bytes", len(pkt))
 		case <-ws.manager.ShouldShutdown():
 			return
 		}
@@ -111,6 +112,7 @@ func (ws *workersState) moveDownWorker() {
 				ws.logger.Infof("networkio: moveDownWorker: WriteRawPacket: %s", err.Error())
 				return
 			}
+			ws.logger.Infof("> wrote %v bytes", len(pkt))
 
 		case <-ws.manager.ShouldShutdown():
 			return

@@ -49,8 +49,8 @@ func main() {
 	workersManager := startWorkers(log.Log, sessionManager, tunnel, conn, options)
 	<-sessionManager.Ready
 
-	pinger := ping.New("8.8.8.8", tunnel)
-	pinger.Count = 3
+	pinger := ping.New("1.1.1.1", tunnel)
+	pinger.Count = 5
 	err = pinger.Run(context.Background())
 	if err != nil {
 		log.WithError(err).Fatal("ping error")

@@ -5,6 +5,9 @@ package datachannel
 //
 
 import (
+	"encoding/hex"
+	"fmt"
+
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
@@ -127,14 +130,18 @@ func (ws *workersState) moveUpWorker() {
 			decrypted, err := ws.dataChannel.readPacket(pkt)
 			if err != nil {
 				ws.logger.Warnf("error decrypting: %v", err)
+				continue
 			}
-			// possibly block on writing to upper
-			select {
-			case ws.tunUp <- decrypted:
-			// drop the packet if the buffer is full
-			case <-ws.workersManager.ShouldShutdown():
-				return
+
+			if len(decrypted) == 16 {
+				// HACK - figure out what this fixed packet is. keepalive?
+				// "2a 18 7b f3 64 1e b4 cb  07 ed 2d 0a 98 1f c7 48"
+				fmt.Println(hex.Dump(decrypted))
+				continue
 			}
+
+			fmt.Printf("< decrypted %v bytes\n", len(decrypted))
+			ws.tunUp <- decrypted
 		case <-ws.workersManager.ShouldShutdown():
 			return
 		}
