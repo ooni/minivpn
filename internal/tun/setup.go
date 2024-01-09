@@ -82,16 +82,16 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the controlchannel service.
 	ctrl := &controlchannel.Service{
-		NotifyTLS:     nil, // ok
-		PacketDown:    nil, // ok
-		PacketUp:      make(chan *model.Packet),
-		TLSRecordDown: make(chan []byte),
-		TLSRecordUp:   nil, // ok
+		NotifyTLS:            nil, // ok
+		ControlToReliable:    nil, // ok
+		ReliableToControl:    make(chan *model.Packet),
+		TLSRecordToControl:   make(chan []byte),
+		TLSRecordFromControl: nil, // ok
 	}
 
 	// connect the reliable service and the controlchannel service
-	connectChannel(rel.PacketDownTop, &ctrl.PacketDown)
-	connectChannel(ctrl.PacketUp, &rel.PacketUpTop)
+	connectChannel(rel.PacketDownTop, &ctrl.ControlToReliable)
+	connectChannel(ctrl.ReliableToControl, &rel.PacketUpTop)
 
 	// create the tlsstate service
 	tlsx := &tlsstate.Service{
@@ -103,8 +103,8 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// connect the tlsstate service and the controlchannel service
 	connectChannel(tlsx.NotifyTLS, &ctrl.NotifyTLS)
-	connectChannel(tlsx.TLSRecordUp, &ctrl.TLSRecordUp)
-	connectChannel(ctrl.TLSRecordDown, &tlsx.TLSRecordDown)
+	connectChannel(tlsx.TLSRecordUp, &ctrl.TLSRecordFromControl)
+	connectChannel(ctrl.TLSRecordToControl, &tlsx.TLSRecordDown)
 
 	// connect tlsstate service and the datachannel service
 	connectChannel(datach.KeyUp, &tlsx.KeyUp)

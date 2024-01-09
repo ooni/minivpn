@@ -9,11 +9,11 @@ import (
 // Service is the controlchannel service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	NotifyTLS     *chan *model.Notification
-	PacketDown    *chan *model.Packet
-	PacketUp      chan *model.Packet
-	TLSRecordDown chan []byte
-	TLSRecordUp   *chan []byte
+	NotifyTLS            *chan *model.Notification
+	ControlToReliable    *chan *model.Packet
+	ReliableToControl    chan *model.Packet
+	TLSRecordToControl   chan []byte
+	TLSRecordFromControl *chan []byte
 }
 
 // StartWorkers starts the control-channel workers. See the [ARCHITECTURE]
@@ -26,14 +26,14 @@ func (svc *Service) StartWorkers(
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:         logger,
-		notifyTLS:      *svc.NotifyTLS,
-		packetDown:     *svc.PacketDown,
-		packetUp:       svc.PacketUp,
-		tlsRecordDown:  svc.TLSRecordDown,
-		tlsRecordUp:    *svc.TLSRecordUp,
-		sessionManager: sessionManager,
-		workersManager: workersManager,
+		logger:               logger,
+		notifyTLS:            *svc.NotifyTLS,
+		controlToReliable:    *svc.ControlToReliable,
+		reliableToControl:    svc.ReliableToControl,
+		tlsRecordToControl:   svc.TLSRecordToControl,
+		tlsRecordFromControl: *svc.TLSRecordFromControl,
+		sessionManager:       sessionManager,
+		workersManager:       workersManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
 	workersManager.StartWorker(ws.moveDownWorker)
@@ -41,14 +41,14 @@ func (svc *Service) StartWorkers(
 
 // workersState contains the control channel state.
 type workersState struct {
-	logger         model.Logger
-	notifyTLS      chan<- *model.Notification
-	packetDown     chan<- *model.Packet
-	packetUp       <-chan *model.Packet
-	tlsRecordDown  <-chan []byte
-	tlsRecordUp    chan<- []byte
-	sessionManager *session.Manager
-	workersManager *workers.Manager
+	logger               model.Logger
+	notifyTLS            chan<- *model.Notification
+	controlToReliable    chan<- *model.Packet
+	reliableToControl    <-chan *model.Packet
+	tlsRecordToControl   <-chan []byte
+	tlsRecordFromControl chan<- []byte
+	sessionManager       *session.Manager
+	workersManager       *workers.Manager
 }
 
 func (ws *workersState) moveUpWorker() {
@@ -63,7 +63,7 @@ func (ws *workersState) moveUpWorker() {
 	for {
 		// POSSIBLY BLOCK on reading the packet moving up the stack
 		select {
-		case packet := <-ws.packetUp:
+		case packet := <-ws.reliableToControl:
 			// route the packets depending on their opcode
 			switch packet.Opcode {
 
@@ -89,7 +89,7 @@ func (ws *workersState) moveUpWorker() {
 			case model.P_CONTROL_V1:
 				// send the packet to the TLS layer
 				select {
-				case ws.tlsRecordUp <- packet.Payload:
+				case ws.tlsRecordFromControl <- packet.Payload:
 					// nothing
 
 				case <-ws.workersManager.ShouldShutdown():
@@ -115,7 +115,7 @@ func (ws *workersState) moveDownWorker() {
 	for {
 		// POSSIBLY BLOCK on reading the TLS record moving down the stack
 		select {
-		case record := <-ws.tlsRecordDown:
+		case record := <-ws.tlsRecordToControl:
 			// transform the record into a control message
 			packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_V1, record)
 			if err != nil {
@@ -125,7 +125,7 @@ func (ws *workersState) moveDownWorker() {
 
 			// POSSIBLY BLOCK on sending the packet down the stack
 			select {
-			case ws.packetDown <- packet:
+			case ws.controlToReliable <- packet:
 				// nothing
 
 			case <-ws.workersManager.ShouldShutdown():
