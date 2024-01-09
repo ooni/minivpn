@@ -1,59 +1,94 @@
 // Package tun implements the tun API for the minivpn client.
+package tun
 
 // TODO(ainghazal): this package is almost identical to tlsbio, consider refactoring.
-
-package tun
 
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/apex/log"
+	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
-	"github.com/ooni/minivpn/internal/workers"
 )
 
+func StartTUN(conn networkio.FramingConn, options *model.Options) *TUN {
+	// create a session
+	sessionManager, err := session.NewManager(log.Log)
+	if err != nil {
+		log.WithError(err).Fatal("tun.StartTUN")
+	}
+
+	// create the TUN that will OWN the connection
+	tunnel := NewTUN(log.Log, conn, sessionManager)
+
+	// start all the workers
+	workers := startWorkers(log.Log, sessionManager, tunnel, conn, options)
+	tunnel.WhenDone(func() {
+		workers.StartShutdown()
+		workers.WaitWorkersShutdown()
+	})
+
+	// signal to the session manager that we're ready to start accepting data.
+	// In practice, this means that we already have a valid TunnelInfo at this point
+	// (i.e., three way handshake has completed, and we have valid keys).
+	<-sessionManager.Ready
+	return tunnel
+}
+
 // tunBio allows to use channels to read and write
-// TODO pass logger
-type TUNBio struct {
-	closeOnce        sync.Once
+type TUN struct {
 	TunDown          chan []byte
 	TunUp            chan []byte
+	conn             networkio.FramingConn
+	logger           model.Logger
+	closeOnce        sync.Once
 	hangup           chan any
 	readBuffer       *bytes.Buffer
 	session          *session.Manager
-	Workers          *workers.Manager
 	readDeadline     *time.Timer
 	readDeadlineDone chan any
+	whenDone         func()
 }
 
-// newTUN creates a new tunBio
-func NewTUN(session *session.Manager) *TUNBio {
-	return &TUNBio{
-		closeOnce:        sync.Once{},
+// newTUN creates a new TUN.
+// This function TAKES OWNERSHIP of the conn.
+func NewTUN(logger model.Logger, conn networkio.FramingConn, session *session.Manager) *TUN {
+	return &TUN{
 		TunDown:          make(chan []byte),
 		TunUp:            make(chan []byte, 10),
+		conn:             conn,
+		closeOnce:        sync.Once{},
 		hangup:           make(chan any),
+		logger:           logger,
 		readBuffer:       &bytes.Buffer{},
-		session:          session,
 		readDeadlineDone: make(chan any),
+		session:          session,
 	}
 }
 
-func (t *TUNBio) Close() error {
+func (t *TUN) WhenDone(fn func()) {
+	t.whenDone = fn
+}
+
+func (t *TUN) Close() error {
 	t.closeOnce.Do(func() {
 		close(t.hangup)
-		fmt.Println("closed! start shutdown")
-		t.Workers.StartShutdown()
+		// We OWN the connection
+		t.conn.Close()
+		// execute any shutdown callback (useful to propagate shutdown to workers)
+		if t.whenDone != nil {
+			t.whenDone()
+		}
 	})
 	return nil
 }
 
-func (t *TUNBio) Read(data []byte) (int, error) {
+func (t *TUN) Read(data []byte) (int, error) {
 	// log.Printf("[tunbio] requested read")
 	for {
 		count, _ := t.readBuffer.Read(data)
@@ -72,7 +107,7 @@ func (t *TUNBio) Read(data []byte) (int, error) {
 	}
 }
 
-func (t *TUNBio) Write(data []byte) (int, error) {
+func (t *TUN) Write(data []byte) (int, error) {
 	// log.Printf("[tunbio] requested to write %d bytes", len(data))
 	select {
 	case t.TunDown <- data:
@@ -84,24 +119,24 @@ func (t *TUNBio) Write(data []byte) (int, error) {
 
 // These methods are specific for TUNBio, not in TLSBio
 
-func (t *TUNBio) LocalAddr() net.Addr {
+func (t *TUN) LocalAddr() net.Addr {
 	// TODO block or fail if session not ready
 	ip := t.session.TunnelInfo().IP
 	return &tunBioAddr{ip}
 }
 
-func (t *TUNBio) RemoteAddr() net.Addr {
+func (t *TUN) RemoteAddr() net.Addr {
 	// TODO block or fail if session not ready
 	gw := t.session.TunnelInfo().GW
 	return &tunBioAddr{gw}
 }
 
-func (t *TUNBio) SetDeadline(tm time.Time) error {
-	log.Println("TODO should set deadline", t)
+func (t *TUN) SetDeadline(tm time.Time) error {
+	t.logger.Infof("TODO should set deadline", t)
 	return nil
 }
 
-func (t *TUNBio) SetReadDeadline(tm time.Time) error {
+func (t *TUN) SetReadDeadline(tm time.Time) error {
 	// If there's an existing timer, stop it
 	if t.readDeadline != nil {
 		t.readDeadline.Stop()
@@ -115,8 +150,8 @@ func (t *TUNBio) SetReadDeadline(tm time.Time) error {
 	return nil
 }
 
-func (c *TUNBio) SetWriteDeadline(t time.Time) error {
-	log.Println("TODO should set write deadline", t)
+func (t *TUN) SetWriteDeadline(tm time.Time) error {
+	t.logger.Infof("TODO should set write deadline: %v", tm)
 	return nil
 }
 

@@ -27,7 +27,7 @@ func connectChannel[T any](signal chan T, slot **chan T) {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func startWorkers(logger model.Logger, sessionManager *session.Manager,
-	tunDevice *tun.TUNBio,
+	tunDevice *tun.TUN,
 	conn networkio.FramingConn, options *model.Options) *workers.Manager {
 	// create a workers manager
 	workersManager := workers.NewManager()

@@ -2,21 +2,39 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
-	"time"
+	"os/exec"
 
 	"github.com/apex/log"
-	"github.com/ooni/minivpn/extras/ping"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
-	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/tun"
+
+	"github.com/Doridian/water"
 )
 
-func timeoutSecondsFromCount(count int) time.Duration {
-	waitOnLastOne := 3 * time.Second
-	return time.Duration(count)*time.Second + waitOnLastOne
+func runIP(args ...string) {
+	cmd := exec.Command("/sbin/ip", args...)
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stdin = os.Stdin
+	err := cmd.Run()
+	if nil != err {
+		log.WithError(err).Fatal("error running /sbin/ip")
+	}
+}
+
+func runRoute(args ...string) {
+	cmd := exec.Command("/sbin/route", args...)
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stdin = os.Stdin
+	err := cmd.Run()
+	if nil != err {
+		log.WithError(err).Fatal("error running /sbin/route")
+	}
 }
 
 func main() {
@@ -42,34 +60,62 @@ func main() {
 		log.WithError(err).Fatal("dialer.DialContext")
 	}
 
-	// create a session
-	sessionManager, err := session.NewManager(log.Log)
+	// create a vpn tun Device
+	tunnel := tun.StartTUN(conn, options)
+	fmt.Println(tunnel.LocalAddr())
+	fmt.Println(tunnel.RemoteAddr())
+
+	// create a tun interface on the OS
+	iface, err := water.New(water.Config{
+		DeviceType: water.TUN,
+	})
 	if err != nil {
-		log.WithError(err).Fatal("session.NewManager")
+		log.WithError(err).Fatal("Unable to allocate TUN interface:")
 	}
 
-	// create a tun Device
-	// TODO(ainghazal): tun should be the OWNER of the connection
-	tunnel := tun.NewTUN(sessionManager)
+	MTU := 1400
+	iface.SetMTU(MTU)
 
-	// start all the workers
-	workers := startWorkers(log.Log, sessionManager, tunnel, conn, options)
-	// -----------------------------------------------------------------------
-	// TODO(ainghazal): pass a specific channel to workers instead (tunClosed)
-	tunnel.Workers = workers
-	<-sessionManager.Ready
+	localAddr := tunnel.LocalAddr().String()
+	remoteAddr := tunnel.RemoteAddr().String()
 
-	pinger := ping.New("8.8.8.8", tunnel)
-	count := 5
-	pinger.Count = count
+	// TODO: missing
+	// sudo route add 163.172.211.109 gw 192.168.18.1 enp38s0
 
-	err = pinger.Run(context.Background())
-	if err != nil {
-		pinger.PrintStats()
-		log.WithError(err).Fatal("ping error")
-	}
-	pinger.PrintStats()
+	// configure the interface and bring it up
+	runIP("addr", "add", localAddr, "dev", iface.Name())
+	runIP("link", "set", "dev", iface.Name(), "up")
+	runRoute("add", remoteAddr, "gw", localAddr)
+	// TODO this has hardcoded network for UDP
+	runRoute("add", "-net", "10.42.0.0/21", "dev", iface.Name())
+	runIP("route", "add", "default", "via", remoteAddr, "dev", iface.Name())
+	fmt.Println("iface", iface)
 
-	// wait for workers to terminate
-	workers.WaitWorkersShutdown()
+	go func() {
+		packet := make([]byte, 2000)
+		for {
+			n, err := iface.Read(packet)
+			if err != nil {
+				log.WithError(err).Fatal("error reading from tun")
+			}
+			tunnel.Write(packet[:n])
+			log.Infof("tun: packet received: % x\n", packet[:n])
+		}
+	}()
+	go func() {
+		packet := make([]byte, 2000)
+		for {
+			n, err := tunnel.Read(packet)
+			if err != nil {
+				log.WithError(err).Fatal("error reading from tun")
+			}
+			iface.Write(packet[:n])
+			log.Infof("tun: packet sent: % x\n", packet[:n])
+		}
+	}()
+	select {}
 }
+
+// /sbin/route add 10.42.0.1 gw 10.42.0.9
+// /sbin/route add -net 10.42.0.0/24 dev tun0
+// /sbin/ip route add default via 10.42.0.1 dev tun0

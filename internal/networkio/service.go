@@ -15,8 +15,6 @@ type Service struct {
 // StartWorkers starts the network I/O workers. See the [ARCHITECTURE]
 // file for more information about the network I/O workers.
 //
-// This function TAKES OWNERSHIP of the conn.
-//
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (svc *Service) StartWorkers(
 	logger model.Logger,
@@ -61,9 +59,6 @@ func (ws *workersState) moveUpWorker() {
 		// tear down everything else because a workers exited
 		ws.manager.StartShutdown()
 
-		// we OWN the connection
-		ws.conn.Close()
-
 		// emit useful debug message
 		ws.logger.Debug("networkio: moveUpWorker: done")
 	}()
@@ -95,7 +90,6 @@ func (ws *workersState) moveDownWorker() {
 	defer func() {
 		ws.manager.StartShutdown()
 		ws.manager.OnWorkerDone()
-		ws.conn.Close()
 		ws.logger.Debug("networkio: moveDownWorker: done")
 	}()
 
