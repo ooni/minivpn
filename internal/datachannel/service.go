@@ -16,11 +16,16 @@ import (
 // Service is the datachannel service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	DataPacketUp   chan *model.Packet
-	DataPacketDown *chan *model.Packet
-	KeyUp          chan *session.DataChannelKey
-	TunDown        chan []byte
-	TunUp          chan []byte
+	// MuxerToData moves packets up to us
+	MuxerToData chan *model.Packet
+	// DataOrControlToMuxer is a shared channel to write packets to the muxer layer below
+	DataOrControlToMuxer *chan *model.Packet
+	// TUNToData moves bytes down from the TUN layer above
+	TUNToData chan []byte
+	// DataToTUN moves bytes up from us to the TUN layer above us
+	DataToTUN chan []byte
+	// KeyReady is where the TLSState layer passes us any new keys
+	KeyReady chan *session.DataChannelKey
 }
 
 // StartWorkers starts the data-channel workers.
@@ -48,16 +53,16 @@ func (s *Service) StartWorkers(
 		return
 	}
 	ws := &workersState{
-		logger:         logger,
-		workersManager: workersManager,
-		sessionManager: sessionManager,
-		keyUp:          s.KeyUp,
-		packetUp:       s.DataPacketUp,
-		packetDown:     *s.DataPacketDown,
-		tunUp:          s.TunUp,
-		tunDown:        s.TunDown,
-		dataChannel:    dc,
-		newKey:         make(chan any),
+		logger:               logger,
+		muxerToData:          s.MuxerToData,
+		dataOrControlToMuxer: *s.DataOrControlToMuxer,
+		tunToData:            s.TUNToData,
+		dataToTUN:            s.DataToTUN,
+		keyReady:             s.KeyReady,
+		dataChannel:          dc,
+		newKey:               make(chan any),
+		workersManager:       workersManager,
+		sessionManager:       sessionManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
 	workersManager.StartWorker(ws.moveDownWorker)
@@ -66,16 +71,16 @@ func (s *Service) StartWorkers(
 
 // workersState contains the data channel state.
 type workersState struct {
-	logger         model.Logger
-	workersManager *workers.Manager
-	sessionManager *session.Manager
-	keyUp          <-chan *session.DataChannelKey
-	packetUp       <-chan *model.Packet
-	packetDown     chan<- *model.Packet
-	tunUp          chan<- []byte
-	tunDown        <-chan []byte
-	dataChannel    *DataChannel
-	newKey         chan any
+	logger               model.Logger
+	workersManager       *workers.Manager
+	sessionManager       *session.Manager
+	keyReady             <-chan *session.DataChannelKey
+	muxerToData          <-chan *model.Packet
+	dataOrControlToMuxer chan<- *model.Packet
+	dataToTUN            chan<- []byte
+	tunToData            <-chan []byte
+	dataChannel          *DataChannel
+	newKey               chan any
 }
 
 // moveDownWorker moves packets down the stack. It will BLOCK on PacketDown
@@ -91,7 +96,7 @@ func (ws *workersState) moveDownWorker() {
 		case <-ws.newKey:
 			for {
 				select {
-				case data := <-ws.tunDown:
+				case data := <-ws.tunToData:
 					packet, err := ws.dataChannel.writePacket(data)
 					if err != nil {
 						ws.logger.Warnf("error encrypting: %v", err)
@@ -100,7 +105,7 @@ func (ws *workersState) moveDownWorker() {
 					// ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
 
 					select {
-					case ws.packetDown <- packet:
+					case ws.dataOrControlToMuxer <- packet:
 					default:
 					// drop the packet if the buffer is full
 					case <-ws.workersManager.ShouldShutdown():
@@ -126,7 +131,8 @@ func (ws *workersState) moveUpWorker() {
 	}()
 	for {
 		select {
-		case pkt := <-ws.packetUp:
+		case pkt := <-ws.muxerToData:
+			// TODO(ainghazal): factor out as handler function
 			decrypted, err := ws.dataChannel.readPacket(pkt)
 			if err != nil {
 				ws.logger.Warnf("error decrypting: %v", err)
@@ -141,7 +147,7 @@ func (ws *workersState) moveUpWorker() {
 			}
 
 			// fmt.Printf("< decrypted %v bytes\n", len(decrypted))
-			ws.tunUp <- decrypted
+			ws.dataToTUN <- decrypted
 		case <-ws.workersManager.ShouldShutdown():
 			return
 		}
@@ -159,7 +165,7 @@ func (ws *workersState) keyWorker() {
 	ws.logger.Debug("datachannel: worker: started")
 	for {
 		select {
-		case key := <-ws.keyUp:
+		case key := <-ws.keyReady:
 			err := ws.dataChannel.setupKeys(key)
 			if err != nil {
 				ws.logger.Warnf("error on key derivation: %v", err)

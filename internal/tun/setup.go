@@ -57,16 +57,16 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the datachannel service.
 	datach := &datachannel.Service{
-		DataPacketUp:   make(chan *model.Packet),
-		DataPacketDown: nil, // ok
-		KeyUp:          make(chan *session.DataChannelKey, 1),
-		TunDown:        tunDevice.TunDown,
-		TunUp:          tunDevice.TunUp,
+		MuxerToData:          make(chan *model.Packet),
+		DataOrControlToMuxer: nil, // ok
+		KeyReady:             make(chan *session.DataChannelKey, 1),
+		TUNToData:            tunDevice.TunDown,
+		DataToTUN:            tunDevice.TunUp,
 	}
 
 	// connect the packetmuxer and the datachannel
-	connectChannel(datach.DataPacketUp, &muxer.MuxerToData)
-	connectChannel(muxer.DataOrControlToMuxer, &datach.DataPacketDown)
+	connectChannel(datach.MuxerToData, &muxer.MuxerToData)
+	connectChannel(muxer.DataOrControlToMuxer, &datach.DataOrControlToMuxer)
 
 	// create the reliabletransport service.
 	rel := &reliabletransport.Service{
@@ -107,7 +107,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	connectChannel(ctrl.TLSRecordToControl, &tlsx.TLSRecordDown)
 
 	// connect tlsstate service and the datachannel service
-	connectChannel(datach.KeyUp, &tlsx.KeyUp)
+	connectChannel(datach.KeyReady, &tlsx.KeyUp)
 
 	// connect the muxer and the tlsstate service
 	connectChannel(tlsx.NotifyTLS, &muxer.NotifyTLS)
