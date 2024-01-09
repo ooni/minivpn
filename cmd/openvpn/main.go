@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"time"
 
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/extras/ping"
@@ -12,6 +13,11 @@ import (
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/tun"
 )
+
+func timeoutSecondsFromCount(count int) time.Duration {
+	waitOnLastOne := 3 * time.Second
+	return time.Duration(count)*time.Second + waitOnLastOne
+}
 
 func main() {
 	log.SetLevel(log.DebugLevel)
@@ -47,14 +53,21 @@ func main() {
 
 	// start all the workers
 	workersManager := startWorkers(log.Log, sessionManager, tunnel, conn, options)
+	// TODO pass a specific channel to workersManager instead (tunClosed)
+	tunnel.Workers = workersManager
 	<-sessionManager.Ready
 
-	pinger := ping.New("1.1.1.1", tunnel)
-	pinger.Count = 5
+	pinger := ping.New("8.8.8.8", tunnel)
+	count := 5
+	pinger.Count = count
+	//ctx, cancel := context.WithTimeout(context.Background(), timeoutSecondsFromCount(count))
+	//defer cancel()
 	err = pinger.Run(context.Background())
 	if err != nil {
+		pinger.PrintStats()
 		log.WithError(err).Fatal("ping error")
 	}
+	pinger.PrintStats()
 
 	// wait for workers to terminate
 	workersManager.WaitWorkersShutdown()

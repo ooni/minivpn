@@ -92,40 +92,41 @@ type Manager struct {
 // NewManager returns a [Manager] ready to be used.
 func NewManager(logger model.Logger) (*Manager, error) {
 	key0 := &DataChannelKey{}
-	session := &Manager{
-		keyID:           0,
-		keys:            []*DataChannelKey{key0},
-		localSessionID:  [8]byte{},
-		logger:          logger,
-		mu:              sync.Mutex{},
-		negState:        0,
-		remoteSessionID: optional.None[model.SessionID](),
-		tunnelInfo:      model.TunnelInfo{},
-		Ready:           make(chan any),
+	sessionManager := &Manager{
+		keyID:             0,
+		keys:              []*DataChannelKey{key0},
+		localSessionID:    [8]byte{},
+		logger:            logger,
+		mu:                sync.Mutex{},
+		negState:          0,
+		remoteSessionID:   optional.None[model.SessionID](),
+		tunnelInfo:        model.TunnelInfo{},
+		Ready:             make(chan any),
+		localDataPacketID: 1,
 	}
 
 	randomBytes, err := randomFn(8)
 	if err != nil {
-		return session, err
+		return sessionManager, err
 	}
 
 	// in go 1.17, one could do:
 	//localSession := (*sessionID)(lsid)
 	var localSession model.SessionID
 	copy(localSession[:], randomBytes[:8])
-	session.localSessionID = localSession
+	sessionManager.localSessionID = localSession
 
 	localKey, err := NewKeySource()
 	if err != nil {
-		return session, err
+		return sessionManager, err
 	}
 
-	k, err := session.ActiveKey()
+	k, err := sessionManager.ActiveKey()
 	if err != nil {
-		return session, err
+		return sessionManager, err
 	}
 	k.local = localKey
-	return session, nil
+	return sessionManager, nil
 }
 
 // LocalSessionID gets the local session ID as bytes.

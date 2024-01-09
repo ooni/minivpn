@@ -78,10 +78,12 @@ func (ws *workersState) moveUpWorker() {
 			return
 		}
 
+		// ws.logger.Infof("DEBUG < read %v bytes, select", len(pkt))
+
 		// POSSIBLY BLOCK on the channel to deliver the packet
 		select {
 		case ws.rawPacketUp <- pkt:
-			ws.logger.Infof("< incoming %v bytes", len(pkt))
+			// ws.logger.Infof("< incoming %v bytes", len(pkt))
 		case <-ws.manager.ShouldShutdown():
 			return
 		}
@@ -106,13 +108,11 @@ func (ws *workersState) moveDownWorker() {
 		// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 		select {
 		case pkt := <-ws.rawPacketDown:
-
 			// POSSIBLY BLOCK on the connection to write the packet
 			if err := ws.conn.WriteRawPacket(pkt); err != nil {
 				ws.logger.Infof("networkio: moveDownWorker: WriteRawPacket: %s", err.Error())
 				return
 			}
-			ws.logger.Infof("> wrote %v bytes", len(pkt))
 
 		case <-ws.manager.ShouldShutdown():
 			return

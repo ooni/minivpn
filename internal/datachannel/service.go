@@ -97,7 +97,7 @@ func (ws *workersState) moveDownWorker() {
 						ws.logger.Warnf("error encrypting: %v", err)
 						continue
 					}
-					ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
+					// ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
 
 					select {
 					case ws.packetDown <- packet:
@@ -140,7 +140,7 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			fmt.Printf("< decrypted %v bytes\n", len(decrypted))
+			// fmt.Printf("< decrypted %v bytes\n", len(decrypted))
 			ws.tunUp <- decrypted
 		case <-ws.workersManager.ShouldShutdown():
 			return

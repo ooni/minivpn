@@ -39,10 +39,10 @@ var (
 	ipv4Proto = map[string]string{"icmp": "ip4:icmp", "udp": "udp4"}
 	ipv6Proto = map[string]string{"icmp": "ip6:ipv6-icmp", "udp": "udp6"}
 
-	errCannotWrite           = errors.New("ping: cannot write")
-	errCannotRead            = errors.New("ping: cannot read")
-	errCannotSetReadDeadline = errors.New("ping: cannot set read readline")
-	errBadPacket             = errors.New("ping: bad packet")
+	errCannotWrite           = errors.New("cannot write")
+	errCannotRead            = errors.New("cannot read")
+	errCannotSetReadDeadline = errors.New("cannot set read readline")
+	errBadPacket             = errors.New("bad packet")
 )
 
 // New returns a new Pinger struct pointer.  This function TAKES OWNERSHIP of
@@ -345,11 +345,7 @@ func (p *Pinger) run(conn net.Conn) error {
 
 	g.Go(func() error {
 		defer p.Stop()
-		for {
-			if err := p.recvICMP(recv); err == nil {
-				return nil
-			}
-		}
+		return p.recvICMP(recv)
 	})
 
 	return g.Wait()
@@ -400,6 +396,8 @@ func (p *Pinger) runLoop(recvCh <-chan *packet) error {
 
 		}
 		if p.Count > 0 && p.PacketsRecv >= p.Count {
+			fmt.Println("we're done!")
+			p.done <- true
 			return nil
 		}
 	}
@@ -487,23 +485,28 @@ func (p *Pinger) recvICMP(recv chan<- *packet) error {
 		case <-p.done:
 			return nil
 		default:
+			if p.PacketsRecv >= p.Count {
+				fmt.Println("recv done!")
+				return nil
+			}
 			buf := make([]byte, 512)
 			if err := p.conn.SetReadDeadline(time.Now().Add(delay)); err != nil {
 				return fmt.Errorf("%w: %s", errCannotSetReadDeadline, err)
 			}
 			n, err := p.conn.Read(buf)
 			if err != nil {
-				var netErr *net.OpError
+				var netErr net.Error
 				if errors.As(err, &netErr) && netErr.Timeout() {
 					// Read timeout
 					delay = expBackoff.Get()
 					continue
 				}
-				return err
+				return fmt.Errorf("%w: %s", errCannotRead, err)
 			}
 
 			select {
 			case <-p.done:
+				fmt.Println("recv done!")
 				return nil
 			case recv <- &packet{bytes: buf, nbytes: n}:
 			}
