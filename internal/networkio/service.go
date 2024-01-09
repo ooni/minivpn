@@ -8,8 +8,10 @@ import (
 // Service is the network I/O service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	RawPacketDown chan []byte
-	RawPacketUp   *chan []byte
+	// MuxerToNetwork moves bytes down from the muxer to the network IO layer
+	MuxerToNetwork chan []byte
+	// NetworkToMuxer moves bytes up from the network IO layer to the muxer
+	NetworkToMuxer *chan []byte
 }
 
 // StartWorkers starts the network I/O workers. See the [ARCHITECTURE]
@@ -22,11 +24,11 @@ func (svc *Service) StartWorkers(
 	conn FramingConn,
 ) {
 	ws := &workersState{
-		conn:          conn,
-		logger:        logger,
-		manager:       manager,
-		rawPacketDown: svc.RawPacketDown,
-		rawPacketUp:   *svc.RawPacketUp,
+		conn:           conn,
+		logger:         logger,
+		manager:        manager,
+		muxerToNetwork: svc.MuxerToNetwork,
+		networkToMuxer: *svc.NetworkToMuxer,
 	}
 	manager.StartWorker(ws.moveUpWorker) // TAKES conn ownership
 	manager.StartWorker(ws.moveDownWorker)
@@ -43,11 +45,13 @@ type workersState struct {
 	// manager controls the workers lifecycle
 	manager *workers.Manager
 
-	// rawPacketDown is the channel for reading outgoing packets
-	rawPacketDown <-chan []byte
+	// muxerToNetwork is the channel for reading outgoing packets
+	// that are coming down to us
+	muxerToNetwork <-chan []byte
 
-	// rawPacketUp is the channel for writing incoming packets
-	rawPacketUp chan<- []byte
+	// networkToMuxer is the channel for writing incoming packets
+	// that are coming up to us from the net
+	networkToMuxer chan<- []byte
 }
 
 // moveUpWorker moves packets up the stack.
@@ -77,7 +81,7 @@ func (ws *workersState) moveUpWorker() {
 
 		// POSSIBLY BLOCK on the channel to deliver the packet
 		select {
-		case ws.rawPacketUp <- pkt:
+		case ws.networkToMuxer <- pkt:
 			// ws.logger.Infof("< incoming %v bytes", len(pkt))
 		case <-ws.manager.ShouldShutdown():
 			return
@@ -102,7 +106,7 @@ func (ws *workersState) moveDownWorker() {
 		//
 		// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 		select {
-		case pkt := <-ws.rawPacketDown:
+		case pkt := <-ws.muxerToNetwork:
 			// POSSIBLY BLOCK on the connection to write the packet
 			if err := ws.conn.WriteRawPacket(pkt); err != nil {
 				ws.logger.Infof("networkio: moveDownWorker: WriteRawPacket: %s", err.Error())

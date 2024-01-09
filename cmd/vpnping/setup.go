@@ -34,27 +34,27 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the networkio service.
 	nio := &networkio.Service{
-		RawPacketDown: make(chan []byte, 1<<5),
-		RawPacketUp:   nil, // ok
+		MuxerToNetwork: make(chan []byte, 1<<5),
+		NetworkToMuxer: nil, // ok
 	}
 
 	// create the packetmuxer service.
 	muxer := &packetmuxer.Service{
-		ControlPacketUp: nil, // ok
-		DataPacketUp:    nil, // ok
-		NotifyTLS:       nil,
-		HardReset:       make(chan any, 1),
-		PacketDown:      make(chan *model.Packet),
-		RawPacketDown:   nil, // ok
-		RawPacketUp:     make(chan []byte),
+		MuxerToReliable:      nil, // ok
+		MuxerToData:          nil, // ok
+		NotifyTLS:            nil,
+		HardReset:            make(chan any, 1),
+		DataOrControlToMuxer: make(chan *model.Packet),
+		MuxerToNetwork:       nil, // ok
+		NetworkToMuxer:       make(chan []byte),
 	}
 
 	// tell the packetmuxer that it should handshake ASAP
 	muxer.HardReset <- true
 
 	// connect networkio and packetmuxer
-	connectChannel(nio.RawPacketDown, &muxer.RawPacketDown)
-	connectChannel(muxer.RawPacketUp, &nio.RawPacketUp)
+	connectChannel(nio.MuxerToNetwork, &muxer.MuxerToNetwork)
+	connectChannel(muxer.NetworkToMuxer, &nio.NetworkToMuxer)
 
 	// create the datachannel service.
 	datach := &datachannel.Service{
@@ -66,8 +66,8 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	}
 
 	// connect the packetmuxer and the datachannel
-	connectChannel(datach.DataPacketUp, &muxer.DataPacketUp)
-	connectChannel(muxer.PacketDown, &datach.DataPacketDown)
+	connectChannel(datach.DataPacketUp, &muxer.MuxerToData)
+	connectChannel(muxer.DataOrControlToMuxer, &datach.DataPacketDown)
 
 	// create the reliable service.
 	rel := &reliabletransport.Service{
@@ -78,8 +78,8 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	}
 
 	// connect reliable service and packetmuxer.
-	connectChannel(rel.PacketUpBottom, &muxer.ControlPacketUp)
-	connectChannel(muxer.PacketDown, &rel.PacketDownBottom)
+	connectChannel(rel.PacketUpBottom, &muxer.MuxerToReliable)
+	connectChannel(muxer.DataOrControlToMuxer, &rel.PacketDownBottom)
 
 	// create the controlchannel service.
 	ctrl := &controlchannel.Service{

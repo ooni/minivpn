@@ -10,13 +10,16 @@ import (
 // Service is the packetmuxer service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	ControlPacketUp *chan *model.Packet
-	DataPacketUp    *chan *model.Packet
 	HardReset       chan any
 	NotifyTLS       *chan *model.Notification
-	PacketDown      chan *model.Packet
-	RawPacketDown   *chan []byte
-	RawPacketUp     chan []byte
+	MuxerToReliable *chan *model.Packet
+	MuxerToData     *chan *model.Packet
+	// DataOrControlToMuxer moves packets down from reliable or from dataChannel
+	DataOrControlToMuxer chan *model.Packet
+	// MuxerToNetwork moves bytes down
+	MuxerToNetwork *chan []byte
+	// NetworkToMuxer moves bytes up
+	NetworkToMuxer chan []byte
 }
 
 // StartWorkers starts the packet-muxer workers. See the [ARCHITECTURE]
@@ -29,16 +32,16 @@ func (s *Service) StartWorkers(
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:          logger,
-		controlPacketUp: *s.ControlPacketUp,
-		dataPacketUp:    *s.DataPacketUp,
-		hardReset:       s.HardReset,
-		notifyTLS:       *s.NotifyTLS,
-		packetDown:      s.PacketDown,
-		rawPacketDown:   *s.RawPacketDown,
-		rawPacketUp:     s.RawPacketUp,
-		sessionManager:  sessionManager,
-		workersManager:  workersManager,
+		logger:               logger,
+		hardReset:            s.HardReset,
+		notifyTLS:            *s.NotifyTLS,
+		muxerToReliable:      *s.MuxerToReliable,
+		muxerToData:          *s.MuxerToData,
+		dataOrControlToMuxer: s.DataOrControlToMuxer,
+		muxerToNetwork:       *s.MuxerToNetwork,
+		networkToMuxer:       s.NetworkToMuxer,
+		sessionManager:       sessionManager,
+		workersManager:       workersManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
 	workersManager.StartWorker(ws.moveDownWorker)
@@ -49,26 +52,26 @@ type workersState struct {
 	// logger is the logger to use
 	logger model.Logger
 
-	// controlPacketUp is the channel for writing control packets going up the stack.
-	controlPacketUp chan<- *model.Packet
-
-	// dataPacketUp is the channel for writing data packets going up the stack.
-	dataPacketUp chan<- *model.Packet
-
 	// hardReset is the channel posted to force a hard reset.
 	hardReset <-chan any
 
 	// notifyTLS is used to send notifications to the TLS state service.
 	notifyTLS chan<- *model.Notification
 
-	// packetDown is the channel for reading all the packets traveling down the stack.
-	packetDown <-chan *model.Packet
+	// dataOrControlToMuxer is the channel for reading all the packets traveling down the stack.
+	dataOrControlToMuxer <-chan *model.Packet
 
-	// rawPacketDown is the channel for writing raw packets going down the stack.
-	rawPacketDown chan<- []byte
+	// muxerToReliable is the channel for writing control packets going up the stack.
+	muxerToReliable chan<- *model.Packet
 
-	// rawPacketUp is the channel for reading raw packets going up the stack.
-	rawPacketUp <-chan []byte
+	// muxerToData is the channel for writing data packets going up the stack.
+	muxerToData chan<- *model.Packet
+
+	// muxerToNetwork is the channel for writing raw packets going down the stack.
+	muxerToNetwork chan<- []byte
+
+	// networkToMuxer is the channel for reading raw packets going up the stack.
+	networkToMuxer <-chan []byte
 
 	// sessionManager manages the OpenVPN session.
 	sessionManager *session.Manager
@@ -90,7 +93,7 @@ func (ws *workersState) moveUpWorker() {
 	for {
 		// POSSIBLY BLOCK awaiting for incoming raw packet
 		select {
-		case rawPacket := <-ws.rawPacketUp:
+		case rawPacket := <-ws.networkToMuxer:
 			if err := ws.handleRawPacket(rawPacket); err != nil {
 				// error already printed
 				return
@@ -121,7 +124,7 @@ func (ws *workersState) moveDownWorker() {
 	for {
 		// POSSIBLY BLOCK on reading the packet moving down the stack
 		select {
-		case packet := <-ws.packetDown:
+		case packet := <-ws.dataOrControlToMuxer:
 			// serialize the packet
 			rawPacket, err := packet.Bytes()
 			if err != nil {
@@ -135,7 +138,7 @@ func (ws *workersState) moveDownWorker() {
 			//
 			// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 			select {
-			case ws.rawPacketDown <- rawPacket:
+			case ws.muxerToNetwork <- rawPacket:
 			default:
 				// drop the packet if the buffer is full as documented above
 			case <-ws.workersManager.ShouldShutdown():
@@ -188,13 +191,13 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	// multiplex the incoming packet POSSIBLY BLOCKING on delivering it
 	if packet.IsControl() || packet.Opcode == model.P_ACK_V1 {
 		select {
-		case ws.controlPacketUp <- packet:
+		case ws.muxerToReliable <- packet:
 		case <-ws.workersManager.ShouldShutdown():
 			return workers.ErrShutdown
 		}
 	} else {
 		select {
-		case ws.dataPacketUp <- packet:
+		case ws.muxerToData <- packet:
 		case <-ws.workersManager.ShouldShutdown():
 			return workers.ErrShutdown
 		}
@@ -256,7 +259,7 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 
 	// emit the packet
 	select {
-	case ws.rawPacketDown <- rawPacket:
+	case ws.muxerToNetwork <- rawPacket:
 		// nothing
 
 	case <-ws.workersManager.ShouldShutdown():
