@@ -6,7 +6,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/packetmuxer"
-	"github.com/ooni/minivpn/internal/reliable"
+	"github.com/ooni/minivpn/internal/reliabletransport"
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/tlsstate"
@@ -70,7 +70,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	connectChannel(muxer.PacketDown, &datach.DataPacketDown)
 
 	// create the reliable service.
-	rel := &reliable.Service{
+	rel := &reliabletransport.Service{
 		PacketDownBottom: nil, // ok
 		PacketDownTop:    make(chan *model.Packet),
 		PacketUpBottom:   make(chan *model.Packet),

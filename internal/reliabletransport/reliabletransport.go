@@ -1,5 +1,5 @@
-// Package reliable implements the reliable transport.
-package reliable
+// Package reliabletransport implements the reliable transport.
+package reliabletransport
 
 import (
 	"bytes"
