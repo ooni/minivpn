@@ -70,15 +70,15 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the reliabletransport service.
 	rel := &reliabletransport.Service{
-		PacketDownBottom: nil, // ok
-		PacketDownTop:    make(chan *model.Packet),
-		PacketUpBottom:   make(chan *model.Packet),
-		PacketUpTop:      nil, // ok
+		DataOrControlToMuxer: nil, // ok
+		ControlToReliable:    make(chan *model.Packet),
+		MuxerToReliable:      make(chan *model.Packet),
+		ReliableToControl:    nil, // ok
 	}
 
 	// connect reliable service and packetmuxer.
-	connectChannel(rel.PacketUpBottom, &muxer.MuxerToReliable)
-	connectChannel(muxer.DataOrControlToMuxer, &rel.PacketDownBottom)
+	connectChannel(rel.MuxerToReliable, &muxer.MuxerToReliable)
+	connectChannel(muxer.DataOrControlToMuxer, &rel.DataOrControlToMuxer)
 
 	// create the controlchannel service.
 	ctrl := &controlchannel.Service{
@@ -90,8 +90,8 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	}
 
 	// connect the reliable service and the controlchannel service
-	connectChannel(rel.PacketDownTop, &ctrl.ControlToReliable)
-	connectChannel(ctrl.ReliableToControl, &rel.PacketUpTop)
+	connectChannel(rel.ControlToReliable, &ctrl.ControlToReliable)
+	connectChannel(ctrl.ReliableToControl, &rel.ReliableToControl)
 
 	// create the tlsstate service
 	tlsx := &tlsstate.Service{

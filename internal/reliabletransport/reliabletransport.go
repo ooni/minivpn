@@ -12,29 +12,33 @@ import (
 // Service is the reliable service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	PacketDownBottom *chan *model.Packet
-	PacketDownTop    chan *model.Packet
-	PacketUpBottom   chan *model.Packet
-	PacketUpTop      *chan *model.Packet
+	// DataOrControlToMuxer is a shared channel that moves packets down to the muxer
+	DataOrControlToMuxer *chan *model.Packet
+	// ControlToReliable moves packets down to us
+	ControlToReliable chan *model.Packet
+	// MuxerToReliable moves packets up to us
+	MuxerToReliable chan *model.Packet
+	// ReliableToControl moves packets up from us to the control layer above
+	ReliableToControl *chan *model.Packet
 }
 
 // StartWorkers starts the reliable-transport workers. See the [ARCHITECTURE]
 // file for more information about the reliable-transport workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func (svc *Service) StartWorkers(
+func (s *Service) StartWorkers(
 	logger model.Logger,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:           logger,
-		packetDownBottom: *svc.PacketDownBottom,
-		packetDownTop:    svc.PacketDownTop,
-		packetUpBottom:   svc.PacketUpBottom,
-		packetUpTop:      *svc.PacketUpTop,
-		sessionManager:   sessionManager,
-		workersManager:   workersManager,
+		logger:               logger,
+		dataOrControlToMuxer: *s.DataOrControlToMuxer,
+		controlToReliable:    s.ControlToReliable,
+		muxerToReliable:      s.MuxerToReliable,
+		reliableToControl:    *s.ReliableToControl,
+		sessionManager:       sessionManager,
+		workersManager:       workersManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
 	workersManager.StartWorker(ws.moveDownWorker)
@@ -45,17 +49,17 @@ type workersState struct {
 	// logger is the logger to use
 	logger model.Logger
 
-	// packetDownBottom is the channel where we write packets going down the stack.
-	packetDownBottom chan<- *model.Packet
+	// dataOrControlToMuxer is the channel where we write packets going down the stack.
+	dataOrControlToMuxer chan<- *model.Packet
 
-	// packetDownTop is the channel from which we read packets going down the stack.
-	packetDownTop <-chan *model.Packet
+	// controlToReliable is the channel from which we read packets going down the stack.
+	controlToReliable <-chan *model.Packet
 
-	// packetUpBottom is the channel from which we read packets going up the stack.
-	packetUpBottom <-chan *model.Packet
+	// muxerToReliable is the channel from which we read packets going up the stack.
+	muxerToReliable <-chan *model.Packet
 
-	// packetUpTop is the channel where we write packets going up the stack.
-	packetUpTop chan<- *model.Packet
+	// reliableToControl is the channel where we write packets going up the stack.
+	reliableToControl chan<- *model.Packet
 
 	// sessionManager manages the OpenVPN session.
 	sessionManager *session.Manager
@@ -81,7 +85,7 @@ func (ws *workersState) moveUpWorker() {
 		// POSSIBLY BLOCK reading a packet to move up the stack
 		// or POSSIBLY BLOCK waiting for notifications
 		select {
-		case packet := <-ws.packetUpBottom:
+		case packet := <-ws.muxerToReliable:
 			ws.logger.Infof(
 				"< %s localID=%x remoteID=%x [%d bytes]",
 				packet.Opcode,
@@ -110,7 +114,7 @@ func (ws *workersState) moveUpWorker() {
 
 			// POSSIBLY BLOCK delivering to the upper layer
 			select {
-			case ws.packetUpTop <- packet:
+			case ws.reliableToControl <- packet:
 			case <-ws.workersManager.ShouldShutdown():
 				return
 			}
@@ -135,7 +139,7 @@ func (ws *workersState) moveDownWorker() {
 	for {
 		// POSSIBLY BLOCK reading the next packet we should move down the stack
 		select {
-		case packet := <-ws.packetDownTop:
+		case packet := <-ws.controlToReliable:
 			// TODO: here we should treat control packets specially
 
 			ws.logger.Infof(
@@ -148,7 +152,7 @@ func (ws *workersState) moveDownWorker() {
 
 			// POSSIBLY BLOCK delivering this packet to the lower layer
 			select {
-			case ws.packetDownBottom <- packet:
+			case ws.dataOrControlToMuxer <- packet:
 			case <-ws.workersManager.ShouldShutdown():
 				return
 			}
@@ -172,7 +176,7 @@ func (ws *workersState) maybeACK(packet *model.Packet) error {
 
 	// move the packet down
 	select {
-	case ws.packetDownBottom <- ACK:
+	case ws.dataOrControlToMuxer <- ACK:
 		return nil
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown
