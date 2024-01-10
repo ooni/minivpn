@@ -112,12 +112,7 @@ func NewManager(logger model.Logger) (*Manager, error) {
 		return sessionManager, err
 	}
 
-	// in go 1.17, one could do:
-	//localSession := (*sessionID)(lsid)
-	//var localSession model.SessionID
-	//copy(localSession[:], randomBytes[:8])
-	localSession := (model.SessionID)(randomBytes[:8])
-	sessionManager.localSessionID = localSession
+	sessionManager.localSessionID = (model.SessionID)(randomBytes[:8])
 
 	localKey, err := NewKeySource()
 	if err != nil {
