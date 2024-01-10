@@ -1,8 +1,9 @@
-minivpn
-./obfs4vpn
-./vpnping
-./geturl
-ndt7
+/minivpn
+/vpnping
+/obfs4vpn
+/geturl
+/ndt7
+.vscode
 *.swp
 *.swo
 *.pem
