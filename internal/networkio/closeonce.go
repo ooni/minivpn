@@ -7,7 +7,7 @@ import (
 
 // closeOnceConn is a [net.Conn] where the Close method has once semantics.
 //
-// The zero value is invalid; use [NewCloseOnceConn].
+// The zero value is invalid; use [newCloseOnceConn].
 type closeOnceConn struct {
 	// once ensures we close just once.
 	once sync.Once
