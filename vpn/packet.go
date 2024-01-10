@@ -6,11 +6,9 @@ package vpn
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 )
 
 const (
@@ -201,18 +199,15 @@ func parseControlPacket(p *packet) (*packet, error) {
 	if len(p.payload) == 0 {
 		return p, errEmptyPayload
 	}
-	if !p.isControl() && !p.isACK() {
-		return p, fmt.Errorf("%w: %s", errBadInput, "expected control/ack packet")
+	if !p.isControl() {
+		return p, fmt.Errorf("%w: %s", errBadInput, "expected control packet")
 	}
 
 	buf := bytes.NewBuffer(p.payload)
 
-	// TODO the error msg will be clearer if we check for the minimum lenght here.
-
 	// local session id
 	_, err := io.ReadFull(buf, p.localSessionID[:])
 	if err != nil {
-		fmt.Println(">>> ", p.localSessionID)
 		return p, fmt.Errorf("%w: bad sessionID: %s", errBadInput, err)
 	}
 
@@ -384,65 +379,4 @@ func newACKPacket(ackID packetID, s *session) *packet {
 		acks:            acks,
 	}
 	return p
-}
-
-// direct reads on the underlying conn
-// TODO split into TCP vs. UDP implementation
-
-func readPacket(conn net.Conn) ([]byte, error) {
-	switch network := conn.LocalAddr().Network(); network {
-	case "tcp", "tcp4", "tcp6":
-		return readPacketFromTCP(conn)
-	case "udp", "udp4", "upd6":
-		// for UDP we don't need to parse size frames
-		return readPacketFromUDP(conn)
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrBadConnNetwork, network)
-	}
-}
-
-func readPacketFromUDP(conn net.Conn) ([]byte, error) {
-	const enough = 1 << 17
-	buf := make([]byte, enough)
-
-	count, err := conn.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	buf = buf[:count]
-	return buf, nil
-}
-
-func readPacketFromTCP(conn net.Conn) ([]byte, error) {
-	lenbuf := make([]byte, 2)
-	if _, err := io.ReadFull(conn, lenbuf); err != nil {
-		return nil, err
-	}
-	length := binary.BigEndian.Uint16(lenbuf)
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
-// maybeAddSizeFrame prepends a two-byte header containing the size of the
-// payload if the network type for the passed net.Conn is not UDP (assumed to
-// be TCP).
-func maybeAddSizeFrame(conn net.Conn, payload []byte) []byte {
-	panicIfTrue(conn == nil, "nil conn")
-	if len(payload) == 0 {
-		return payload
-	}
-	switch conn.LocalAddr().Network() {
-	case "udp", "udp4", "udp6":
-		// nothing to do for UDP
-		return payload
-	case "tcp", "tcp4", "tcp6":
-		length := make([]byte, 2)
-		binary.BigEndian.PutUint16(length, uint16(len(payload)))
-		return append(length, payload...)
-	default:
-		return []byte{}
-	}
 }

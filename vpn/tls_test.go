@@ -552,8 +552,7 @@ func Test_tlsHandshake(t *testing.T) {
 	makeConnAndConf := func() (*controlChannelTLSConn, *tls.Config) {
 		conn := &mocks.Conn{}
 		s := makeTestingSession()
-		r := newReliableTransport(s)
-		tc, _ := newControlChannelTLSConn(conn, r)
+		tc, _ := newControlChannelTLSConn(conn, s)
 
 		conf := &tls.Config{
 			InsecureSkipVerify: true,
