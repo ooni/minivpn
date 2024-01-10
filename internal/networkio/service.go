@@ -10,6 +10,7 @@ import (
 type Service struct {
 	// MuxerToNetwork moves bytes down from the muxer to the network IO layer
 	MuxerToNetwork chan []byte
+
 	// NetworkToMuxer moves bytes up from the network IO layer to the muxer
 	NetworkToMuxer *chan []byte
 }
