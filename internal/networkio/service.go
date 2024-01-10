@@ -75,16 +75,13 @@ func (ws *workersState) moveUpWorker() {
 		// POSSIBLY BLOCK on the connection to read a new packet
 		pkt, err := ws.conn.ReadRawPacket()
 		if err != nil {
-			ws.logger.Infof("networkio: moveUpWorker: ReadRawPacket: %s", err.Error())
+			ws.logger.Debugf("networkio: moveUpWorker: ReadRawPacket: %s", err.Error())
 			return
 		}
-
-		// ws.logger.Infof("DEBUG < read %v bytes, select", len(pkt))
 
 		// POSSIBLY BLOCK on the channel to deliver the packet
 		select {
 		case ws.networkToMuxer <- pkt:
-			// ws.logger.Infof("< incoming %v bytes", len(pkt))
 		case <-ws.manager.ShouldShutdown():
 			return
 		}
@@ -102,11 +99,7 @@ func (ws *workersState) moveDownWorker() {
 	ws.logger.Debug("networkio: moveDownWorker: started")
 
 	for {
-		// While this channel receive could possibly block, the [ARCHITECTURE] is
-		// such that (1) the channel is buffered and (2) the channel sender should
-		// avoid blocking when inserting data into the channel.
-		//
-		// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
+		// POSSIBLY BLOCK when receiving from channel.
 		select {
 		case pkt := <-ws.muxerToNetwork:
 			// POSSIBLY BLOCK on the connection to write the packet
