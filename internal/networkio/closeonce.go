@@ -5,10 +5,10 @@ import (
 	"sync"
 )
 
-// CloseOnceConn is a [net.Conn] where the Close method has once semantics.
+// closeOnceConn is a [net.Conn] where the Close method has once semantics.
 //
 // The zero value is invalid; use [NewCloseOnceConn].
-type CloseOnceConn struct {
+type closeOnceConn struct {
 	// once ensures we close just once.
 	once sync.Once
 
@@ -16,18 +16,18 @@ type CloseOnceConn struct {
 	net.Conn
 }
 
-var _ net.Conn = &CloseOnceConn{}
+var _ net.Conn = &closeOnceConn{}
 
-// NewCloseOnceConn creates a [CloseOnceConn].
-func NewCloseOnceConn(conn net.Conn) *CloseOnceConn {
-	return &CloseOnceConn{
+// newCloseOnceConn creates a [CloseOnceConn].
+func newCloseOnceConn(conn net.Conn) *closeOnceConn {
+	return &closeOnceConn{
 		once: sync.Once{},
 		Conn: conn,
 	}
 }
 
 // Close implements net.Conn
-func (c *CloseOnceConn) Close() (err error) {
+func (c *closeOnceConn) Close() (err error) {
 	c.once.Do(func() {
 		err = c.Conn.Close()
 	})
