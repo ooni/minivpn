@@ -1,4 +1,7 @@
 // Package workers contains code to manage workers.
+//
+// A worker is a goroutine running in the background that performs some
+// activity related to implementing the OpenVPN protocol.
 package workers
 
 import (
