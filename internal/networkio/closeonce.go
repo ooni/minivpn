@@ -18,7 +18,7 @@ type closeOnceConn struct {
 
 var _ net.Conn = &closeOnceConn{}
 
-// newCloseOnceConn creates a [CloseOnceConn].
+// newCloseOnceConn creates a [closeOnceConn].
 func newCloseOnceConn(conn net.Conn) *closeOnceConn {
 	return &closeOnceConn{
 		once: sync.Once{},
