@@ -95,16 +95,20 @@ type Manager struct {
 func NewManager(logger model.Logger) (*Manager, error) {
 	key0 := &DataChannelKey{}
 	sessionManager := &Manager{
-		keyID:             0,
-		keys:              []*DataChannelKey{key0},
-		localSessionID:    [8]byte{},
-		logger:            logger,
-		mu:                sync.Mutex{},
-		negState:          0,
-		remoteSessionID:   optional.None[model.SessionID](),
-		tunnelInfo:        model.TunnelInfo{},
-		Ready:             make(chan any),
+		keyID:           0,
+		keys:            []*DataChannelKey{key0},
+		localSessionID:  [8]byte{},
+		logger:          logger,
+		mu:              sync.Mutex{},
+		negState:        0,
+		remoteSessionID: optional.None[model.SessionID](),
+		tunnelInfo:      model.TunnelInfo{},
+
+		// empirically, it seems that the reference OpenVPN server misbehaves if we initialize
+		// the data packet ID counter to zero.
 		localDataPacketID: 1,
+
+		Ready: make(chan any),
 	}
 
 	randomBytes, err := randomFn(8)
