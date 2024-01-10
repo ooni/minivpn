@@ -31,7 +31,8 @@ func (svc *Service) StartWorkers(
 		muxerToNetwork: svc.MuxerToNetwork,
 		networkToMuxer: *svc.NetworkToMuxer,
 	}
-	manager.StartWorker(ws.moveUpWorker) // TAKES conn ownership
+
+	manager.StartWorker(ws.moveUpWorker)
 	manager.StartWorker(ws.moveDownWorker)
 }
 
