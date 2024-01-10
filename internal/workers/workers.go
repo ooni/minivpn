@@ -1,4 +1,7 @@
 // Package workers contains code to manage workers.
+//
+// A worker is a goroutine running in the background that performs some
+// activity related to implementing the OpenVPN protocol.
 package workers
 
 import (
@@ -22,7 +25,7 @@ type Manager struct {
 	wg *sync.WaitGroup
 }
 
-// NewManager creates a new manager.
+// NewManager creates a new [*Manager].
 func NewManager() *Manager {
 	return &Manager{
 		shouldShutdown: make(chan any),
@@ -37,7 +40,7 @@ func (m *Manager) StartWorker(fx func()) {
 	go fx()
 }
 
-// OnWorkerDone must be called when a worker goroutine terminates.
+// OnWorkerDone MUST be called when a worker goroutine terminates.
 func (m *Manager) OnWorkerDone() {
 	m.wg.Done()
 }

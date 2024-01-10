@@ -5,15 +5,15 @@ import (
 	"net"
 )
 
-// DatagramConn wraps a datagram socket and implements OpenVPN framing.
-type DatagramConn struct {
+// datagramConn wraps a datagram socket and implements OpenVPN framing.
+type datagramConn struct {
 	net.Conn
 }
 
-var _ FramingConn = &DatagramConn{}
+var _ FramingConn = &datagramConn{}
 
 // ReadRawPacket implements FramingConn
-func (c *DatagramConn) ReadRawPacket() ([]byte, error) {
+func (c *datagramConn) ReadRawPacket() ([]byte, error) {
 	buffer := make([]byte, math.MaxUint16) // maximum UDP datagram size
 	count, err := c.Read(buffer)
 	if err != nil {
@@ -24,7 +24,7 @@ func (c *DatagramConn) ReadRawPacket() ([]byte, error) {
 }
 
 // WriteRawPacket implements FramingConn
-func (c *DatagramConn) WriteRawPacket(pkt []byte) error {
+func (c *datagramConn) WriteRawPacket(pkt []byte) error {
 	if len(pkt) > math.MaxUint16 {
 		return ErrPacketTooLarge
 	}

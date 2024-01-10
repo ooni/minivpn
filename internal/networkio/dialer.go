@@ -34,16 +34,16 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (Fram
 		return nil, err
 	}
 
-	d.logger.Infof("connected to %s/%s", address, network)
+	d.logger.Debugf("networkio: connected to %s/%s", address, network)
 
 	// make sure the conn has close once semantics
-	conn = NewCloseOnceConn(conn)
+	conn = newCloseOnceConn(conn)
 
 	// wrap the conn and return
 	switch conn.LocalAddr().Network() {
 	case "udp", "udp4", "udp6":
-		return &DatagramConn{conn}, nil
+		return &datagramConn{conn}, nil
 	default:
-		return &StreamConn{conn}, nil
+		return &streamConn{conn}, nil
 	}
 }

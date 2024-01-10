@@ -1,5 +1,11 @@
 package model
 
+//
+// Packet
+//
+// Parsing and serializing OpenVPN packets.
+//
+
 import (
 	"bytes"
 	"errors"

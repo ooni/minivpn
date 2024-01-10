@@ -8,15 +8,15 @@ import (
 	"net"
 )
 
-// StreamConn wraps a stream socket and implements OpenVPN framing.
-type StreamConn struct {
+// streamConn wraps a stream socket and implements OpenVPN framing.
+type streamConn struct {
 	net.Conn
 }
 
-var _ FramingConn = &StreamConn{}
+var _ FramingConn = &streamConn{}
 
 // ReadRawPacket implements FramingConn
-func (c *StreamConn) ReadRawPacket() ([]byte, error) {
+func (c *streamConn) ReadRawPacket() ([]byte, error) {
 	lenbuf := make([]byte, 2)
 	if _, err := io.ReadFull(c.Conn, lenbuf); err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func (c *StreamConn) ReadRawPacket() ([]byte, error) {
 var ErrPacketTooLarge = errors.New("openvpn: packet too large")
 
 // WriteRawPacket implements FramingConn
-func (c *StreamConn) WriteRawPacket(pkt []byte) error {
+func (c *streamConn) WriteRawPacket(pkt []byte) error {
 	if len(pkt) > math.MaxUint16 {
 		return ErrPacketTooLarge
 	}
