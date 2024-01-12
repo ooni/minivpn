@@ -88,7 +88,7 @@ type Manager struct {
 	// Ready is a channel where we signal that we can start accepting data, because we've
 	// successfully generated key material for the data channel.
 	// TODO(ainghazal): find a better way?
-	Ready chan (any)
+	Ready chan any
 }
 
 // NewManager returns a [Manager] ready to be used.
