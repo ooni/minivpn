@@ -12,6 +12,7 @@ import (
 // the short key_id that is passed in the lower 3 bits if a packet header.
 // The setup of the keys for a given data channel (that is, for every key_id)
 // is made by expanding the keysources using the prf function.
+//
 // Do note that we are not yet implementing key renegotiation - but the index
 // is provided for convenience when/if we support that in the future.
 type DataChannelKey struct {
