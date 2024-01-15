@@ -14,9 +14,23 @@ import (
 // Service is the tlsstate service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	NotifyTLS     chan *model.Notification
-	KeyUp         *chan *session.DataChannelKey
-	TLSRecordUp   chan []byte
+	// NotifyTLS is a channel where we receive incoming notifications.
+	NotifyTLS chan *model.Notification
+
+	// KeyUP is used to send newly negotiated data channel keys ready to be
+	// used.
+	KeyUp *chan *session.DataChannelKey
+
+	// TLSRecordUp is data coming up from the control channel layer to us.
+	// TODO(ainghazal): considere renaming when we have merged the whole
+	// set of components. This name might not give a good idea of what the bytes being
+	// moved around are - this is a serialized control channel packet, which is
+	// mainly used to do the initial handshake and then receive control
+	// packets encrypted with this TLS session.
+	TLSRecordUp chan []byte
+
+	// TLSRecordDown is data being transferred down from us to the control
+	// channel.
 	TLSRecordDown *chan []byte
 }
 
