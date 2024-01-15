@@ -9,10 +9,19 @@ import (
 // Service is the controlchannel service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	NotifyTLS            *chan *model.Notification
-	ControlToReliable    *chan *model.Packet
-	ReliableToControl    chan *model.Packet
-	TLSRecordToControl   chan []byte
+	// NotifyTLS is the channel that sends notifications up to the TLS layer.
+	NotifyTLS *chan *model.Notification
+
+	// ControlToReliable moves packets from us down to the reliable layer.
+	ControlToReliable *chan *model.Packet
+
+	// ReliableToControl moves packets up to us from the reliable layer below.
+	ReliableToControl chan *model.Packet
+
+	// TLSRecordToControl moves bytes down to us from the TLS layer above.
+	TLSRecordToControl chan []byte
+
+	// TLSRecordFromControl moves bytes from us up to the TLS layer above.
 	TLSRecordFromControl *chan []byte
 }
 
@@ -71,13 +80,21 @@ func (ws *workersState) moveUpWorker() {
 				// We cannot blindly accept SOFT_RESET requests. They only make sense
 				// when we have generated keys. Note that a SOFT_RESET returns us to
 				// the INITIAL state, therefore, we cannot have concurrent resets in place.
+
+				// TODO(ainghazal): revisit this assumption
+				// when we implement key rotation.  OpenVPN has
+				// the concept of a "lame duck", i.e., the
+				// retiring key that needs to be expired a fixed time after the new
+				// one starts its lifetime.
+
 				if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
 					continue
 				}
 				ws.sessionManager.SetNegotiationState(session.S_INITIAL)
 
-				// notify the TLS layer that it should TLS handshake and fetch
-				// us new keys for the data channel
+				// notify the TLS layer that it should initiate
+				// a TLS handshake and, if successful, generate
+				// new keys for the data channel
 				select {
 				case ws.notifyTLS <- &model.Notification{Flags: model.NotificationReset}:
 					// nothing
