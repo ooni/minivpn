@@ -13,7 +13,6 @@ import (
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
 	// DataOrControlToMuxer is a shared channel that moves packets down to the muxer
-
 	DataOrControlToMuxer *chan *model.Packet
 
 	// ControlToReliable moves packets down to us
