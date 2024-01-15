@@ -49,13 +49,6 @@ var controlMessageHeader = []byte{0x00, 0x00, 0x00, 0x00}
 const ivVer = "2.5.5" // OpenVPN version compat that we declare to the server
 const ivProto = "2"   // IV_PROTO declared to the server. We need to be sure to enable the peer-id bit to use P_DATA_V2.
 
-// tlsRecordToControlMessage converts a TLS record to a control message.
-//func tlsRecordToControlMessage(tlsRecord []byte) (out []byte) {
-//	out = append(out, controlMessageHeader...)
-//	out = append(out, tlsRecord...)
-//	return out
-//}
-
 // errMissingHeader indicates that we're missing the four-byte all-zero header.
 var errMissingHeader = errors.New("missing four-byte all-zero header")
 
