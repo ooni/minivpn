@@ -10,15 +10,25 @@ import (
 // Service is the packetmuxer service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
-	HardReset       chan any
-	NotifyTLS       *chan *model.Notification
+	// HardReset receives requests to initiate a hard reset, that will start the openvpn handshake.
+	HardReset chan any
+
+	// NotifyTLS sends reset notifications to tlsstate.
+	NotifyTLS *chan *model.Notification
+
+	// MuxerToReliable moves packets up to reliabletransport.
 	MuxerToReliable *chan *model.Packet
-	MuxerToData     *chan *model.Packet
-	// DataOrControlToMuxer moves packets down from reliable or from dataChannel
+
+	// MuxerToData moves packets up to the datachannel.
+	MuxerToData *chan *model.Packet
+
+	// DataOrControlToMuxer moves packets down from the reliabletransport or datachannel.
 	DataOrControlToMuxer chan *model.Packet
-	// MuxerToNetwork moves bytes down
+
+	// MuxerToNetwork moves bytes down to the networkio layer below us.
 	MuxerToNetwork *chan []byte
-	// NetworkToMuxer moves bytes up
+
+	// NetworkToMuxer moves bytes up to us from the networkio layer below.
 	NetworkToMuxer chan []byte
 }
 
@@ -47,7 +57,7 @@ func (s *Service) StartWorkers(
 	workersManager.StartWorker(ws.moveDownWorker)
 }
 
-// workersState contains the reliable transport workers state.
+// workersState contains the reliabletransport workers state.
 type workersState struct {
 	// logger is the logger to use
 	logger model.Logger
@@ -55,7 +65,7 @@ type workersState struct {
 	// hardReset is the channel posted to force a hard reset.
 	hardReset <-chan any
 
-	// notifyTLS is used to send notifications to the TLS state service.
+	// notifyTLS is used to send notifications to the TLS service.
 	notifyTLS chan<- *model.Notification
 
 	// dataOrControlToMuxer is the channel for reading all the packets traveling down the stack.
@@ -212,7 +222,7 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
 
 	// we need to manually ACK because the reliable layer is above us
-	ws.logger.Infof(
+	ws.logger.Debugf(
 		"< %s localID=%x remoteID=%x [%d bytes]",
 		packet.Opcode,
 		packet.LocalSessionID,
@@ -266,7 +276,7 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 		return workers.ErrShutdown
 	}
 
-	ws.logger.Infof(
+	ws.logger.Debugf(
 		"> %s localID=%x remoteID=%x [%d bytes]",
 		packet.Opcode,
 		packet.LocalSessionID,

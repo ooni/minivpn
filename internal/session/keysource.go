@@ -21,7 +21,7 @@ type KeySource struct {
 	PreMaster [48]byte
 }
 
-// Bytes returns the byte representation of a keySource.
+// Bytes returns the byte representation of a [KeySource].
 func (k *KeySource) Bytes() []byte {
 	buf := &bytes.Buffer{}
 	buf.Write(k.PreMaster[:])
