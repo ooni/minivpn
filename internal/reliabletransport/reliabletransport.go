@@ -14,10 +14,13 @@ import (
 type Service struct {
 	// DataOrControlToMuxer is a shared channel that moves packets down to the muxer
 	DataOrControlToMuxer *chan *model.Packet
+
 	// ControlToReliable moves packets down to us
 	ControlToReliable chan *model.Packet
+
 	// MuxerToReliable moves packets up to us
 	MuxerToReliable chan *model.Packet
+
 	// ReliableToControl moves packets up from us to the control layer above
 	ReliableToControl *chan *model.Packet
 }
@@ -168,7 +171,7 @@ func (ws *workersState) maybeACK(packet *model.Packet) error {
 	// currently we are ACKing every packet
 	// TODO: implement better ACKing strategy
 
-	// this function will fail if we won't know the remote session ID
+	// this function will fail if we don't know the remote session ID
 	ACK, err := ws.sessionManager.NewACKForPacket(packet)
 	if err != nil {
 		return err
