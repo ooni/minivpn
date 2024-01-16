@@ -1,4 +1,4 @@
-package tlsstate
+package tlssession
 
 import (
 	"bytes"

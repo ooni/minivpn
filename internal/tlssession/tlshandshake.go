@@ -1,12 +1,12 @@
-package tlsstate
+package tlssession
 
 import (
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/runtimex"
@@ -55,7 +55,7 @@ type certPaths struct {
 // the passed certPaths and return a certConfig with the client and CA certificates.
 func loadCertAndCAFromPath(pth certPaths) (*certConfig, error) {
 	ca := x509.NewCertPool()
-	caData, err := ioutil.ReadFile(pth.caPath)
+	caData, err := os.ReadFile(pth.caPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBadCA, err)
 	}
@@ -228,6 +228,7 @@ type handshaker interface {
 // is, the default tls.Client factory; and an error.
 // we're not using the default factory right now, but it comes handy to be able
 // to compare the fingerprints with a golang TLS handshake.
+// TODO(ainghazal): implement some sort of test that extracts/compares the TLS client hello.
 func defaultTLSFactory(conn net.Conn, config *tls.Config) (handshaker, error) {
 	c := tls.Client(conn, config)
 	return c, nil

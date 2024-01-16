@@ -1,4 +1,4 @@
-package tlsstate
+package tlssession
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	tls "github.com/refraction-networking/utls"
 )
 
-// Service is the tlsstate service. Make sure you initialize
+// Service is the tlssession service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
 	// NotifyTLS is a channel where we receive incoming notifications.
@@ -34,7 +34,7 @@ type Service struct {
 	TLSRecordDown *chan []byte
 }
 
-// StartWorkers starts the tls-state workers. See the [ARCHITECTURE]
+// StartWorkers starts the tlssession workers. See the [ARCHITECTURE]
 // file for more information about the packet-muxer workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
@@ -69,21 +69,21 @@ type workersState struct {
 	workersManager *workers.Manager
 }
 
-// worker is the main loop of the tlsstate
+// worker is the main loop of the tlssession
 func (ws *workersState) worker() {
 	defer func() {
 		ws.workersManager.OnWorkerDone()
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("tlsstate: worker: done")
+		ws.logger.Debug("tlssession: worker: done")
 	}()
 
-	ws.logger.Debug("tlsstate: worker: started")
+	ws.logger.Debug("tlssession: worker: started")
 	for {
 		select {
 		case notif := <-ws.notifyTLS:
 			if (notif.Flags & model.NotificationReset) != 0 {
 				if err := ws.tlsAuth(); err != nil {
-					ws.logger.Warnf("tlsstate: tlsAuth: %s", err.Error())
+					ws.logger.Warnf("tlssession: tlsAuth: %s", err.Error())
 					// TODO: is it worth checking the return value and stopping?
 				}
 			}
@@ -135,8 +135,8 @@ func (ws *workersState) tlsAuth() error {
 // doTLSAuth is the internal implementation of tlsAuth such that tlsAuth
 // can interrupt this function early if needed.
 func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch chan<- error) {
-	ws.logger.Debug("tlsstate: doTLSAuth: started")
-	defer ws.logger.Debug("tlsstate: doTLSAuth: done")
+	ws.logger.Debug("tlsession: doTLSAuth: started")
+	defer ws.logger.Debug("tlssession: doTLSAuth: done")
 
 	// do the TLS handshake
 	tlsConn, err := tlsHandshakeFn(conn, config)
