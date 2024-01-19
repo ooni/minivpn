@@ -181,7 +181,6 @@ func (d *DataChannel) writePacket(payload []byte) (*model.Packet, error) {
 // encrypt calls the corresponding function for AEAD or Non-AEAD decryption.
 // Due to the particularities of the iv generation on each of the modes, encryption and encoding are
 // done together in the same function.
-// TODO accept state for symmetry
 func (d *DataChannel) encryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
 	runtimex.Assert(dcs != nil, "datachanelState is nil")
 	runtimex.Assert(dcs.dataCipher != nil, "dcs.dataCipher is nil")

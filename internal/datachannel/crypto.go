@@ -19,6 +19,7 @@ import (
 
 	"github.com/ooni/minivpn/internal/bytesx"
 ) //#nosec G501,G505
+//  We know that sha1 and md5 are insecure, but we do not control the openvpn protocol.
 
 // TODO(ainghazal,bassosimone): see if it's feasible to use stdlib
 // functionality rather than using the code below.

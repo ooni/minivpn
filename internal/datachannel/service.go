@@ -186,7 +186,6 @@ func (ws *workersState) keyWorker(firstKeyReady chan<- any) {
 			once.Do(func() {
 				close(firstKeyReady)
 			})
-			//ws.newKey <- true
 
 		case <-ws.workersManager.ShouldShutdown():
 			return
