@@ -18,12 +18,16 @@ import (
 type Service struct {
 	// MuxerToData moves packets up to us
 	MuxerToData chan *model.Packet
+
 	// DataOrControlToMuxer is a shared channel to write packets to the muxer layer below
 	DataOrControlToMuxer *chan *model.Packet
+
 	// TUNToData moves bytes down from the TUN layer above
 	TUNToData chan []byte
+
 	// DataToTUN moves bytes up from us to the TUN layer above us
 	DataToTUN chan []byte
+
 	// KeyReady is where the TLSState layer passes us any new keys
 	KeyReady chan *session.DataChannelKey
 }
@@ -146,7 +150,6 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			// fmt.Printf("< decrypted %v bytes\n", len(decrypted))
 			ws.dataToTUN <- decrypted
 		case <-ws.workersManager.ShouldShutdown():
 			return
