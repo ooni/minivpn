@@ -63,7 +63,7 @@ type TUN struct {
 	// used to buffer reads from above.
 	readBuffer *bytes.Buffer
 
-	// used for implemeting deadlines in the net.Conn
+	// used for implementing deadlines in the net.Conn
 	readDeadline     *time.Timer
 	readDeadlineDone chan any
 
