@@ -44,7 +44,6 @@ type Service struct {
 //
 // 3. keyWorker BLOCKS on keyUp to read an dataChannelKey and
 // initializes the internal state with the resulting key;
-
 func (s *Service) StartWorkers(
 	logger model.Logger,
 	workersManager *workers.Manager,
