@@ -1,15 +1,5 @@
 package tlssession
 
-import (
-	"bytes"
-	"errors"
-	"fmt"
-
-	"github.com/ooni/minivpn/internal/bytesx"
-	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/session"
-)
-
 //
 // The functions in this file deal with control messages. These control
 // messages are sent and received over the TLS session once we've gone one
@@ -19,6 +9,16 @@ import (
 // what we receive at this stage are the cleartext payloads obtained after decrypting
 // an application data TLS record.
 //
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+
+	"github.com/ooni/minivpn/internal/bytesx"
+	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/session"
+)
 
 // encodeClientControlMessage returns a byte array with the payload for a control channel packet.
 // This is the packet that the client sends to the server with the key
