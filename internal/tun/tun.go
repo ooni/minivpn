@@ -43,17 +43,34 @@ func StartTUN(conn networkio.FramingConn, options *model.Options) *TUN {
 // TUN allows to use channels to read and write. It also OWNS the underlying connection.
 // TUN implements net.Conn
 type TUN struct {
-	TunDown          chan []byte
-	TunUp            chan []byte
-	conn             networkio.FramingConn
-	logger           model.Logger
-	closeOnce        sync.Once
-	hangup           chan any
-	readBuffer       *bytes.Buffer
-	session          *session.Manager
+	logger model.Logger
+
+	// TunDown moves bytes down to the data channel.
+	TunDown chan []byte
+
+	// TunUp moves bytes up from the data channel.
+	TunUp chan []byte
+
+	// conn is the underlying connection.
+	conn networkio.FramingConn
+
+	// hangup is used to let methods know the connection is closed.
+	hangup chan any
+
+	// ensure idempotency.
+	closeOnce sync.Once
+
+	// used to buffer reads from above.
+	readBuffer *bytes.Buffer
+
+	// used for implemeting deadlines in the net.Conn
 	readDeadline     *time.Timer
 	readDeadlineDone chan any
-	whenDone         func()
+
+	session *session.Manager
+
+	// callback to be executed on shutdown.
+	whenDone func()
 }
 
 // newTUN creates a new TUN.
@@ -120,7 +137,9 @@ func (t *TUN) Write(data []byte) (int, error) {
 	}
 }
 
-// These methods are specific for TUNBio, not in TLSBio
+//
+// These methods below are specific for TUNBio, not in TLSBio
+//
 
 func (t *TUN) LocalAddr() net.Addr {
 	// TODO block or fail if session not ready
