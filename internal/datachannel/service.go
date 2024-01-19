@@ -7,6 +7,7 @@ package datachannel
 import (
 	"encoding/hex"
 	"fmt"
+	"sync"
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
@@ -63,13 +64,15 @@ func (s *Service) StartWorkers(
 		dataToTUN:            s.DataToTUN,
 		keyReady:             s.KeyReady,
 		dataChannel:          dc,
-		newKey:               make(chan any),
 		workersManager:       workersManager,
 		sessionManager:       sessionManager,
 	}
+
+	firstKeyReady := make(chan any)
+
 	workersManager.StartWorker(ws.moveUpWorker)
-	workersManager.StartWorker(ws.moveDownWorker)
-	workersManager.StartWorker(ws.keyWorker)
+	workersManager.StartWorker(func() { ws.moveDownWorker(firstKeyReady) })
+	workersManager.StartWorker(func() { ws.keyWorker(firstKeyReady) })
 }
 
 // workersState contains the data channel state.
@@ -83,45 +86,43 @@ type workersState struct {
 	dataToTUN            chan<- []byte
 	tunToData            <-chan []byte
 	dataChannel          *DataChannel
-	newKey               chan any
 }
 
 // moveDownWorker moves packets down the stack. It will BLOCK on PacketDown
-func (ws *workersState) moveDownWorker() {
+func (ws *workersState) moveDownWorker(firstKeyReady <-chan any) {
 	defer func() {
 		ws.workersManager.OnWorkerDone()
 		ws.workersManager.StartShutdown()
 		ws.logger.Debug("datachannel: moveDownWorker: done")
 	}()
-	for {
-		select {
-		// wait for the key to be ready
-		case <-ws.newKey:
-			for {
+	select {
+	// wait for the first key to be ready
+	case <-firstKeyReady:
+		for {
+			select {
+			case data := <-ws.tunToData:
+				// TODO: writePacket should get the ACTIVE KEY (verify this)
+				packet, err := ws.dataChannel.writePacket(data)
+				if err != nil {
+					ws.logger.Warnf("error encrypting: %v", err)
+					continue
+				}
+				// ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
+
 				select {
-				case data := <-ws.tunToData:
-					packet, err := ws.dataChannel.writePacket(data)
-					if err != nil {
-						ws.logger.Warnf("error encrypting: %v", err)
-						continue
-					}
-					// ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
-
-					select {
-					case ws.dataOrControlToMuxer <- packet:
-					default:
-					// drop the packet if the buffer is full
-					case <-ws.workersManager.ShouldShutdown():
-						return
-					}
-
+				case ws.dataOrControlToMuxer <- packet:
+				default:
+				// drop the packet if the buffer is full
 				case <-ws.workersManager.ShouldShutdown():
 					return
 				}
+
+			case <-ws.workersManager.ShouldShutdown():
+				return
 			}
-		case <-ws.workersManager.ShouldShutdown():
-			return
 		}
+	case <-ws.workersManager.ShouldShutdown():
+		return
 	}
 }
 
@@ -134,6 +135,8 @@ func (ws *workersState) moveUpWorker() {
 	}()
 	for {
 		select {
+		// TODO: opportunistically try to kill lame duck
+
 		case pkt := <-ws.muxerToData:
 			// TODO(ainghazal): factor out as handler function
 			decrypted, err := ws.dataChannel.readPacket(pkt)
@@ -157,7 +160,7 @@ func (ws *workersState) moveUpWorker() {
 }
 
 // keyWorker receives notifications from key ready
-func (ws *workersState) keyWorker() {
+func (ws *workersState) keyWorker(firstKeyReady chan<- any) {
 	defer func() {
 		ws.workersManager.OnWorkerDone()
 		ws.workersManager.StartShutdown()
@@ -165,16 +168,25 @@ func (ws *workersState) keyWorker() {
 	}()
 
 	ws.logger.Debug("datachannel: worker: started")
+	once := &sync.Once{}
+
 	for {
 		select {
 		case key := <-ws.keyReady:
+			// TODO(keyrotation): thread safety here - need to lock.
+			// When we actually get to key rotation, we need to add locks.
+			// Use RW lock, reader locks.
+
 			err := ws.dataChannel.setupKeys(key)
 			if err != nil {
 				ws.logger.Warnf("error on key derivation: %v", err)
 				continue
 			}
 			ws.sessionManager.SetNegotiationState(session.S_GENERATED_KEYS)
-			ws.newKey <- true
+			once.Do(func() {
+				close(firstKeyReady)
+			})
+			//ws.newKey <- true
 
 		case <-ws.workersManager.ShouldShutdown():
 			return
