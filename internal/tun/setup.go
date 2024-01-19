@@ -47,9 +47,6 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 		NetworkToMuxer:       make(chan []byte),
 	}
 
-	// tell the packetmuxer that it should handshake ASAP
-	muxer.HardReset <- true
-
 	// connect networkio and packetmuxer
 	connectChannel(nio.MuxerToNetwork, &muxer.MuxerToNetwork)
 	connectChannel(muxer.NetworkToMuxer, &nio.NetworkToMuxer)
@@ -124,6 +121,9 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	ctrl.StartWorkers(logger, workersManager, sessionManager)
 	datach.StartWorkers(logger, workersManager, sessionManager, options)
 	tlsx.StartWorkers(logger, workersManager, sessionManager, options)
+
+	// tell the packetmuxer that it should handshake ASAP
+	muxer.HardReset <- true
 
 	return workersManager
 }
