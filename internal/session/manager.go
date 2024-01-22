@@ -336,6 +336,7 @@ func (m *Manager) UpdateTunnelInfo(ti *model.TunnelInfo) {
 	m.tunnelInfo.IP = ti.IP
 	m.tunnelInfo.GW = ti.GW
 	m.tunnelInfo.PeerID = ti.PeerID
+	m.tunnelInfo.NetMask = ti.NetMask
 
 	m.logger.Infof("Tunnel IP: %s", ti.IP)
 	m.logger.Infof("Gateway IP: %s", ti.GW)
@@ -347,9 +348,10 @@ func (m *Manager) TunnelInfo() model.TunnelInfo {
 	defer m.mu.Unlock()
 	m.mu.Lock()
 	return model.TunnelInfo{
-		MTU:    m.tunnelInfo.MTU,
-		IP:     m.tunnelInfo.IP,
-		GW:     m.tunnelInfo.GW,
-		PeerID: m.tunnelInfo.PeerID,
+		GW:      m.tunnelInfo.GW,
+		IP:      m.tunnelInfo.IP,
+		MTU:     m.tunnelInfo.MTU,
+		NetMask: m.tunnelInfo.NetMask,
+		PeerID:  m.tunnelInfo.PeerID,
 	}
 }

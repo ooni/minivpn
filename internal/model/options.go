@@ -182,9 +182,19 @@ func (o *Options) ServerOptionsString() string {
 // - during the handshake (mtu).
 // - after server pushes config options(ip, gw).
 type TunnelInfo struct {
-	MTU    int
-	IP     string
-	GW     string
+	// GW is the Route Gateway.
+	GW string
+
+	// IP is the assigned IP.
+	IP string
+
+	// MTU is the configured MTU pushed by the remote.
+	MTU int
+
+	// NetMask is the netmask configured on the TUN interface, pushed by the ifconfig command.
+	NetMask string
+
+	// PeerID is the peer-id assigned to us by the remote.
 	PeerID int
 }
 
@@ -197,9 +207,12 @@ func NewTunnelInfoFromPushedOptions(opts map[string][]string) *TunnelInfo {
 	} else if r := opts["route-gateway"]; len(r) >= 1 {
 		t.GW = r[0]
 	}
-	ip := opts["ifconfig"]
-	if len(ip) >= 1 {
-		t.IP = ip[0]
+	ifconfig := opts["ifconfig"]
+	if len(ifconfig) >= 1 {
+		t.IP = ifconfig[0]
+	}
+	if len(ifconfig) >= 2 {
+		t.NetMask = ifconfig[1]
 	}
 	peerID := opts["peer-id"]
 	if len(peerID) == 1 {
