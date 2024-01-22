@@ -3,7 +3,6 @@ package tun
 import (
 	"bytes"
 	"context"
-	"errors"
 	"net"
 	"os"
 	"sync"
@@ -13,10 +12,6 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
-)
-
-var (
-	ErrInitializationTimeout = errors.New("timeout while waiting for TUN to start")
 )
 
 // StartTUN initializes and starts the TUN device over the vpn.
@@ -44,7 +39,7 @@ func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Op
 
 	select {
 	case <-ctx.Done():
-		return nil, ErrInitializationTimeout
+		return nil, ctx.Err()
 	case <-sessionManager.Ready:
 		return tunnel, nil
 	}
