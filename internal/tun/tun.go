@@ -1,8 +1,5 @@
 package tun
 
-// TODO(ainghazal): this package shares a bunch of code with tlsbio, consider
-// refactoring common parts.
-
 import (
 	"bytes"
 	"context"
