@@ -2,6 +2,7 @@ package tlssession
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -9,6 +10,10 @@ import (
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
 	tls "github.com/refraction-networking/utls"
+)
+
+var (
+	serviceName = "tlssession"
 )
 
 // Service is the tlssession service. Make sure you initialize
@@ -71,19 +76,20 @@ type workersState struct {
 
 // worker is the main loop of the tlssession
 func (ws *workersState) worker() {
+	workerName := fmt.Sprintf("%s: worker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("tlssession: worker: done")
 	}()
 
-	ws.logger.Debug("tlssession: worker: started")
+	ws.logger.Debugf("%s: started", workerName)
 	for {
 		select {
 		case notif := <-ws.notifyTLS:
 			if (notif.Flags & model.NotificationReset) != 0 {
 				if err := ws.tlsAuth(); err != nil {
-					ws.logger.Warnf("tlssession: tlsAuth: %s", err.Error())
+					ws.logger.Warnf("%s: %s", workerName, err.Error())
 					// TODO: is it worth checking the return value and stopping?
 				}
 			}
@@ -144,7 +150,6 @@ func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch cha
 		errorch <- err
 		return
 	}
-	//defer tlsConn.Close() // <- we don't care since the underlying conn is a tlsBio
 
 	// we need the active key to create the first control message
 	activeKey, err := ws.sessionManager.ActiveKey()

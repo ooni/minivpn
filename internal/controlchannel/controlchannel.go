@@ -1,9 +1,15 @@
 package controlchannel
 
 import (
+	"fmt"
+
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
+)
+
+var (
+	serviceName = "controlchannel"
 )
 
 // Service is the controlchannel service. Make sure you initialize
@@ -61,13 +67,14 @@ type workersState struct {
 }
 
 func (ws *workersState) moveUpWorker() {
+	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("controlchannel: moveUpWorker: done")
 	}()
 
-	ws.logger.Debug("controlchannel: moveUpWorker: started")
+	ws.logger.Debugf("%s: started", workerName)
 
 	for {
 		// POSSIBLY BLOCK on reading the packet moving up the stack
@@ -121,13 +128,14 @@ func (ws *workersState) moveUpWorker() {
 }
 
 func (ws *workersState) moveDownWorker() {
+	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("controlchannel: moveUpWorker: done")
 	}()
 
-	ws.logger.Debug("controlchannel: moveUpWorker: started")
+	ws.logger.Debugf("%s: started", workerName)
 
 	for {
 		// POSSIBLY BLOCK on reading the TLS record moving down the stack
@@ -136,7 +144,7 @@ func (ws *workersState) moveDownWorker() {
 			// transform the record into a control message
 			packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_V1, record)
 			if err != nil {
-				ws.logger.Warnf("controlchannel: NewPacket: %s", err.Error())
+				ws.logger.Warnf("%s: NewPacket: %s", workerName, err.Error())
 				return
 			}
 

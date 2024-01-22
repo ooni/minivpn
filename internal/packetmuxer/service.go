@@ -7,6 +7,10 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+var (
+	serviceName = "packetmuxer"
+)
+
 // Service is the packetmuxer service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
@@ -93,9 +97,8 @@ type workersState struct {
 // moveUpWorker moves packets up the stack
 func (ws *workersState) moveUpWorker() {
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(serviceName + ":moveUpWorker")
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("packetmuxer: moveUpWorker: done")
 	}()
 
 	ws.logger.Debug("packetmuxer: moveUpWorker: started")
@@ -124,9 +127,8 @@ func (ws *workersState) moveUpWorker() {
 // moveDownWorker moves packets down the stack
 func (ws *workersState) moveDownWorker() {
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(serviceName + ":moveDownWorker")
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("packetmuxer: moveDownWorker: done")
 	}()
 
 	ws.logger.Debug("packetmuxer: moveDownWorker: started")
