@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
@@ -58,8 +59,14 @@ func main() {
 		log.WithError(err).Fatal("dialer.DialContext")
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// create a vpn tun Device
-	tunnel := tun.StartTUN(conn, options)
+	tunnel, err := tun.StartTUN(ctx, conn, options)
+	if err != nil {
+		log.WithError(err).Fatal("init error")
+	}
 	fmt.Printf("Local IP: %s\n", tunnel.LocalAddr())
 	fmt.Printf("Gateway:  %s\n", tunnel.RemoteAddr())
 
@@ -77,6 +84,7 @@ func main() {
 
 	localAddr := tunnel.LocalAddr().String()
 	remoteAddr := tunnel.RemoteAddr().String()
+	netMask := tunnel.NetMask()
 
 	// discover local gateway IP, to
 	defaultGatewayIP, err := gateway.DiscoverGateway()
@@ -97,16 +105,20 @@ func main() {
 		runRoute("add", options.Remote, "gw", defaultGatewayIP.String(), defaultInterface.Name)
 	}
 
+	ip := net.ParseIP(localAddr)
+	mask := netMask
+
+	// we want the network CIDR for setting up the routes
+	network := &net.IPNet{
+		IP:   ip.Mask(mask),
+		Mask: mask,
+	}
+
 	// configure the interface and bring it up
 	runIP("addr", "add", localAddr, "dev", iface.Name())
 	runIP("link", "set", "dev", iface.Name(), "up")
 	runRoute("add", remoteAddr, "gw", localAddr)
-	// TODO this has the hardcoded network for TCP
-	// To do it properly, we need to parse server options.
-	// We could also honor DNS etc.
-	// get: route-gateway[0] 10.41.0.1
-	// get: ifconfig[1] 255.255.248.0
-	runRoute("add", "-net", "10.41.0.0/21", "dev", iface.Name())
+	runRoute("add", "-net", network.String(), "dev", iface.Name())
 	runIP("route", "add", "default", "via", remoteAddr, "dev", iface.Name())
 
 	go func() {
