@@ -5,8 +5,8 @@ package tun
 
 import (
 	"bytes"
-	"context"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 	"github.com/ooni/minivpn/internal/session"
 )
 
+// StartTUN initializes and starts the TUN device over the vpn.
 func StartTUN(conn networkio.FramingConn, options *model.Options) *TUN {
 	// create a session
 	sessionManager, err := session.NewManager(log.Log)
@@ -24,18 +25,20 @@ func StartTUN(conn networkio.FramingConn, options *model.Options) *TUN {
 	}
 
 	// create the TUN that will OWN the connection
-	tunnel := NewTUN(log.Log, conn, sessionManager)
+	tunnel := newTUN(log.Log, conn, sessionManager)
 
 	// start all the workers
 	workers := startWorkers(log.Log, sessionManager, tunnel, conn, options)
-	tunnel.WhenDone(func() {
+	tunnel.whenDone(func() {
 		workers.StartShutdown()
 		workers.WaitWorkersShutdown()
 	})
 
-	// signal to the session manager that we're ready to start accepting data.
+	// Await for the signal from the session manager to known we're ready to start accepting data.
 	// In practice, this means that we already have a valid TunnelInfo at this point
 	// (i.e., three way handshake has completed, and we have valid keys).
+
+	// TODO(ainghazal): we need to timeout here.
 	<-sessionManager.Ready
 	return tunnel
 }
@@ -45,11 +48,11 @@ func StartTUN(conn networkio.FramingConn, options *model.Options) *TUN {
 type TUN struct {
 	logger model.Logger
 
-	// TunDown moves bytes down to the data channel.
-	TunDown chan []byte
+	// tunDown moves bytes down to the data channel.
+	tunDown chan []byte
 
-	// TunUp moves bytes up from the data channel.
-	TunUp chan []byte
+	// tunUp moves bytes up from the data channel.
+	tunUp chan []byte
 
 	// conn is the underlying connection.
 	conn networkio.FramingConn
@@ -60,39 +63,45 @@ type TUN struct {
 	// ensure idempotency.
 	closeOnce sync.Once
 
+	// network is the underlying network for the passed [networkio.FramingConn].
+	network string
+
 	// used to buffer reads from above.
 	readBuffer *bytes.Buffer
 
-	// used for implementing deadlines in the net.Conn
-	readDeadline     *time.Timer
-	readDeadlineDone chan any
+	readDeadline  tunDeadline
+	writeDeadline tunDeadline
 
 	session *session.Manager
 
 	// callback to be executed on shutdown.
-	whenDone func()
+	whenDoneFn func()
 }
 
 // newTUN creates a new TUN.
 // This function TAKES OWNERSHIP of the conn.
-func NewTUN(logger model.Logger, conn networkio.FramingConn, session *session.Manager) *TUN {
+func newTUN(logger model.Logger, conn networkio.FramingConn, session *session.Manager) *TUN {
 	return &TUN{
-		TunDown:          make(chan []byte),
-		TunUp:            make(chan []byte, 10),
-		conn:             conn,
-		closeOnce:        sync.Once{},
-		hangup:           make(chan any),
-		logger:           logger,
-		readBuffer:       &bytes.Buffer{},
-		readDeadlineDone: make(chan any),
-		session:          session,
+		logger:        logger,
+		tunDown:       make(chan []byte),
+		tunUp:         make(chan []byte, 10),
+		conn:          conn,
+		hangup:        make(chan any),
+		closeOnce:     sync.Once{},
+		readBuffer:    &bytes.Buffer{},
+		network:       conn.LocalAddr().Network(),
+		readDeadline:  makeTUNDeadline(),
+		writeDeadline: makeTUNDeadline(),
+		session:       session,
+		whenDoneFn: func() {
+		},
 	}
 }
 
-// WhenDone registers a callback to be called on shutdown.
+// whenDone registers a callback to be called on shutdown.
 // This is useful to propagate shutdown to workers.
-func (t *TUN) WhenDone(fn func()) {
-	t.whenDone = fn
+func (t *TUN) whenDone(fn func()) {
+	t.whenDoneFn = fn
 }
 
 func (t *TUN) Close() error {
@@ -101,9 +110,7 @@ func (t *TUN) Close() error {
 		// We OWN the connection
 		t.conn.Close()
 		// execute any shutdown callback
-		if t.whenDone != nil {
-			t.whenDone()
-		}
+		t.whenDoneFn()
 	})
 	return nil
 }
@@ -116,77 +123,77 @@ func (t *TUN) Read(data []byte) (int, error) {
 			// log.Printf("[tunbio] received %d bytes", len(data))
 			return count, nil
 		}
+		switch {
+		case isClosedChan(t.readDeadline.wait()):
+			return 0, os.ErrDeadlineExceeded
+		}
 		select {
-		case <-t.readDeadlineDone:
-			return 0, context.DeadlineExceeded
-		case extra := <-t.TunUp:
+		case extra := <-t.tunUp:
 			t.readBuffer.Write(extra)
 		case <-t.hangup:
 			return 0, net.ErrClosed
+		case <-t.readDeadline.wait():
+			return 0, os.ErrDeadlineExceeded
 		}
 	}
 }
 
 func (t *TUN) Write(data []byte) (int, error) {
 	// log.Printf("[tunbio] requested to write %d bytes", len(data))
+	switch {
+	case isClosedChan(t.writeDeadline.wait()):
+		return 0, os.ErrDeadlineExceeded
+	}
 	select {
-	case t.TunDown <- data:
+	case t.tunDown <- data:
 		return len(data), nil
 	case <-t.hangup:
 		return 0, net.ErrClosed
+	case <-t.writeDeadline.wait():
+		return 0, os.ErrDeadlineExceeded
 	}
 }
-
-//
-// These methods below are specific for TUNBio, not in TLSBio
-//
 
 func (t *TUN) LocalAddr() net.Addr {
 	// TODO block or fail if session not ready
 	ip := t.session.TunnelInfo().IP
-	return &tunBioAddr{ip}
+	return &tunBioAddr{ip, t.network}
 }
 
 func (t *TUN) RemoteAddr() net.Addr {
 	// TODO block or fail if session not ready
 	gw := t.session.TunnelInfo().GW
-	return &tunBioAddr{gw}
+	return &tunBioAddr{gw, t.network}
 }
 
 func (t *TUN) SetDeadline(tm time.Time) error {
-	t.logger.Infof("TODO should set deadline", t)
+	t.readDeadline.set(tm)
+	t.writeDeadline.set(tm)
 	return nil
 }
 
 func (t *TUN) SetReadDeadline(tm time.Time) error {
-	// If there's an existing timer, stop it
-	if t.readDeadline != nil {
-		t.readDeadline.Stop()
-	}
-	// Calculate the duration until the deadline
-	duration := time.Until(tm)
-	// Create a new timer
-	t.readDeadline = time.AfterFunc(duration, func() {
-		t.readDeadlineDone <- true
-	})
+	t.readDeadline.set(tm)
 	return nil
 }
 
 func (t *TUN) SetWriteDeadline(tm time.Time) error {
-	t.logger.Infof("TODO should set write deadline: %v", tm)
+	t.writeDeadline.set(tm)
 	return nil
 }
 
 // tunBioAddr is the type of address returned by [Conn]
 type tunBioAddr struct {
 	addr string
+	net  string
 }
 
 var _ net.Addr = &tunBioAddr{}
 
-// Network implements net.Addr
+// Network implements net.Addr. It returns the network
+// for the underlying connection.
 func (t *tunBioAddr) Network() string {
-	return "tunBioAddr"
+	return t.net
 }
 
 // String implements net.Addr

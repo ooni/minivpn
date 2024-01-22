@@ -56,8 +56,8 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 		MuxerToData:          make(chan *model.Packet),
 		DataOrControlToMuxer: nil, // ok
 		KeyReady:             make(chan *session.DataChannelKey, 1),
-		TUNToData:            tunDevice.TunDown,
-		DataToTUN:            tunDevice.TunUp,
+		TUNToData:            tunDevice.tunDown,
+		DataToTUN:            tunDevice.tunUp,
 	}
 
 	// connect the packetmuxer and the datachannel
