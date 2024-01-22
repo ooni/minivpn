@@ -42,8 +42,13 @@ func main() {
 	}
 
 	// create a tun Device
-	// TODO(ainghazal): tun should be the OWNER of the connection
-	tunnel := tun.StartTUN(conn, options)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	tunnel, err := tun.StartTUN(ctx, conn, options)
+	if err != nil {
+		log.WithError(err).Fatal("init error")
+	}
 
 	pinger := ping.New("8.8.8.8", tunnel)
 	count := 5
