@@ -29,18 +29,18 @@
          │                                           │     Ready   │ Manager      │
          └────▲───────┬──────────────────────────────┘◄────────────┤              │
               │       │                                            │              │
-              │tunUp  │tunDown                                     │              │
+         [10] │tunUp  │tunDown                                     │              │
          ┌────┴───────▼──────────────────────────────┐             │              │
          │                                           │     shtdwn! │              │
          │   datachannel                             │◄────────────┤              │
          │                                           │             │              │
          └───▲────────┬────────────────────────▲─────┘             │              │
-             │        │                  keyUp │           shtdwn! │              │
+             │        │              [1] keyUp │           shtdwn! │              │
              │        │       ┌────────────────┴─────┐◄────────────┤              │
              │        │       │                      │             │              │
-             │        │       │ tlssession           ◄──┐          │              │
+             │        │       │ tlssession     [1]   ◄──┐          │              │
              │        │       └───────▲──────────▲───┘  │          │              │
-             │        │     tlsRec    │          │     notifyTLS   │              │
+             │        │     tlsRec    │          │    *notifyTLS   │              │
            muxerTo    │     Down│   tlsRecUp  notifyTLS │          │              │
            Data       │         │     │          │      │          │              │
              │        │       ┌─▼─────┴──────────┴───┐  │          │              │
@@ -53,15 +53,15 @@
              │        │       │                      │  │ ◄────────┤              │
              │        │       │ reliabletransport    │  │   shtdwn!│              │
              │        │       └───────▲──────────────┘  │          │              │
-             │     dataOrCtrlToMuxer  │ muxerToReliable │          │              │
+             │    *dataOrCtrlToMuxer  │ muxerToReliable │          │              │
              │        │         │     │                 │          │              │
          ┌───┴────────▼─────────▼─────┴──────────────┐  │          │              │
 hardReset│                                           │  │          │              │
-     ────►   packetkmuxer & HRESET                   ├──┘          │              │
+  [1]────►   packetkmuxer & HRESET                   ├──┘          │              │
          │                                           │             │              │
          └───────────────────┬────────▲──────────────┘◄────────────┤              │
-               muxerToNetwork│        │networkToMuxer      shtdwn! │              │
-         ┌───────────────────▼────────┴──────────────┐             │              │
+              *muxerToNetwork│        │networkToMuxer      shtdwn! │              │
+         ┌─────[32]──────────▼────────┴──────────────┐             │              │
          │                                           │             │              │
          │   network I/O                             │◄────────────┤              │
          │                                           │     shtdwn! │              │
