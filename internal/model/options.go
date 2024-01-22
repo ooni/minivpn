@@ -185,14 +185,14 @@ type TunnelInfo struct {
 	// GW is the Route Gateway.
 	GW string
 
-	// NetMask is the netmask configured on the TUN interface, pushed by the ifconfig command.
-	NetMask string
-
 	// IP is the assigned IP.
 	IP string
 
 	// MTU is the configured MTU pushed by the remote.
 	MTU int
+
+	// NetMask is the netmask configured on the TUN interface, pushed by the ifconfig command.
+	NetMask string
 
 	// PeerID is the peer-id assigned to us by the remote.
 	PeerID int
