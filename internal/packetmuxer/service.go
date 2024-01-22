@@ -218,7 +218,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	return nil
 }
 
-// finishThreeWayHandshake responsds to the HARD_RESET_SERVER and finishes the handshake.
+// finishThreeWayHandshake responds to the HARD_RESET_SERVER and finishes the handshake.
 func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	// register the server's session (note: the PoV is the server's one)
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)

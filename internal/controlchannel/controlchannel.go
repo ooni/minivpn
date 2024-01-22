@@ -86,18 +86,20 @@ func (ws *workersState) moveUpWorker() {
 			case model.P_CONTROL_SOFT_RESET_V1:
 				// We cannot blindly accept SOFT_RESET requests. They only make sense
 				// when we have generated keys. Note that a SOFT_RESET returns us to
-				// the INITIAL state, therefore, we cannot have concurrent resets in place.
-
-				// TODO(ainghazal): revisit this assumption
-				// when we implement key rotation.  OpenVPN has
-				// the concept of a "lame duck", i.e., the
-				// retiring key that needs to be expired a fixed time after the new
-				// one starts its lifetime.
+				// the INITIAL state, therefore, we will not have concurrent resets in place,
+				// even if after the first key generation we receive two SOFT_RESET requests
+				// back to back.
 
 				if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
 					continue
 				}
 				ws.sessionManager.SetNegotiationState(session.S_INITIAL)
+				// TODO(ainghazal): revisit this step.
+				// when we implement key rotation.  OpenVPN has
+				// the concept of a "lame duck", i.e., the
+				// retiring key that needs to be expired a fixed time after the new
+				// one starts its lifetime, and this might be a good place to try
+				// to retire the old key.
 
 				// notify the TLS layer that it should initiate
 				// a TLS handshake and, if successful, generate

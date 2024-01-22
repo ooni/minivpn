@@ -123,6 +123,7 @@ func (ws *workersState) tlsAuth() error {
 	go ws.doTLSAuth(conn, tlsConf, errorch)
 
 	// make sure we timeout after 60 seconds anyway
+	// TODO: move this to the TUN layer ------------------------------------
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
