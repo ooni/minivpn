@@ -206,3 +206,7 @@ func (t *tunBioAddr) Network() string {
 func (t *tunBioAddr) String() string {
 	return t.addr
 }
+
+func (t *TUN) NetMask() net.IPMask {
+	return net.IPMask(net.ParseIP(t.session.TunnelInfo().NetMask))
+}
