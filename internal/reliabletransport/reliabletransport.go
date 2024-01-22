@@ -3,10 +3,15 @@ package reliabletransport
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
+)
+
+var (
+	serviceName = "reliabletransport"
 )
 
 // Service is the reliable service. Make sure you initialize
@@ -73,13 +78,14 @@ type workersState struct {
 
 // moveUpWorker moves packets up the stack
 func (ws *workersState) moveUpWorker() {
+	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("reliable: moveUpWorker: done")
 	}()
 
-	ws.logger.Debug("reliable: moveUpWorker: started")
+	ws.logger.Debugf("%s: started", workerName)
 
 	// TODO: do we need to have notifications from the control channel
 	// to reset state or can we do this implicitly?
@@ -100,7 +106,8 @@ func (ws *workersState) moveUpWorker() {
 			// drop a packet that is not for our session
 			if !bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()) {
 				ws.logger.Warnf(
-					"reliable: moveUpWorker: packet with invalid RemoteSessionID: expected %x; got %x",
+					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
+					workerName,
 					ws.sessionManager.LocalSessionID(),
 					packet.RemoteSessionID,
 				)
@@ -109,7 +116,7 @@ func (ws *workersState) moveUpWorker() {
 
 			// possibly ACK the incoming packet
 			if err := ws.maybeACK(packet); err != nil {
-				ws.logger.Warnf("reliable: moveUpWorker: cannot ACK packet: %s", err.Error())
+				ws.logger.Warnf("%s: cannot ACK packet: %s", workerName, err.Error())
 				continue
 			}
 
@@ -130,13 +137,14 @@ func (ws *workersState) moveUpWorker() {
 
 // moveDownWorker moves packets down the stack
 func (ws *workersState) moveDownWorker() {
+	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("reliable: moveDownWorker: done")
 	}()
 
-	ws.logger.Debug("reliable: moveDownWorker: started")
+	ws.logger.Debugf("%s: started", workerName)
 
 	// TODO: we should have timer for retransmission
 	for {

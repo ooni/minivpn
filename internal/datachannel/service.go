@@ -14,6 +14,10 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+var (
+	serviceName = "datachannel"
+)
+
 // Service is the datachannel service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
@@ -57,11 +61,11 @@ func (s *Service) StartWorkers(
 		return
 	}
 	ws := &workersState{
+		dataOrControlToMuxer: *s.DataOrControlToMuxer,
+		dataToTUN:            s.DataToTUN,
 		logger:               logger,
 		muxerToData:          s.MuxerToData,
-		dataOrControlToMuxer: *s.DataOrControlToMuxer,
 		tunToData:            s.TUNToData,
-		dataToTUN:            s.DataToTUN,
 		keyReady:             s.KeyReady,
 		dataChannel:          dc,
 		workersManager:       workersManager,
@@ -91,9 +95,9 @@ type workersState struct {
 // moveDownWorker moves packets down the stack. It will BLOCK on PacketDown
 func (ws *workersState) moveDownWorker(firstKeyReady <-chan any) {
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(serviceName + ":moveDownWorker")
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("datachannel: moveDownWorker: done")
+		//ws.logger.Debug("datachannel: moveDownWorker: done")
 	}()
 	select {
 	// wait for the first key to be ready
@@ -129,9 +133,9 @@ func (ws *workersState) moveDownWorker(firstKeyReady <-chan any) {
 // moveUpWorker moves packets up the stack
 func (ws *workersState) moveUpWorker() {
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(serviceName + ":moveUpWorker")
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("datachannel: moveUpWorker: done")
+		//ws.logger.Debug("datachannel: moveUpWorker: done")
 	}()
 	for {
 		select {
@@ -162,9 +166,8 @@ func (ws *workersState) moveUpWorker() {
 // keyWorker receives notifications from key ready
 func (ws *workersState) keyWorker(firstKeyReady chan<- any) {
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(serviceName + ":keyWorker")
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("datachannel: worker: done")
 	}()
 
 	ws.logger.Debug("datachannel: worker: started")
