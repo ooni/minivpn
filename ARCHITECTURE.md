@@ -14,7 +14,7 @@
 
 ## Implementation 
 
-* Each layer is implemented as a service, that can be found under its own package in the `internal` path in the source code.
+* Each layer is implemented as a service, that can be found under its own package under the [internal](https://github.com/ainghazal/minivpn/blob/main/internal) path.
 * Each service initializes and starts a number of workers (typicall two: one for moving data up the stack, and another one for moving data down). Some services implement only one worker, some do three.
 * The communication among the different components happens via channels.
 * Some channels are used for event notification, some channels move sequences of `[]byte` or `*model.Packet`.
