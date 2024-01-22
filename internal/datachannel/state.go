@@ -22,9 +22,10 @@ type dataChannelState struct {
 	cipherKeyRemote keySlot
 	hmacKeyLocal    keySlot
 	hmacKeyRemote   keySlot
+
 	/*
-		keyID           int // not used at the moment, paving the way for key rotation.
-		peerID          int
+		// not used at the moment, paving the way for key rotation.
+		keyID           int
 	*/
 
 	// TODO(ainghazal): we need to keep a local packetID too. It should be separated from the control channel.

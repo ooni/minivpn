@@ -9,7 +9,7 @@ import (
 	"github.com/ooni/minivpn/internal/reliabletransport"
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
-	"github.com/ooni/minivpn/internal/tlsstate"
+	"github.com/ooni/minivpn/internal/tlssession"
 	"github.com/ooni/minivpn/internal/workers"
 )
 
@@ -26,8 +26,7 @@ func connectChannel[T any](signal chan T, slot **chan T) {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func startWorkers(logger model.Logger, sessionManager *session.Manager,
-	tunDevice *TUN,
-	conn networkio.FramingConn, options *model.Options) *workers.Manager {
+	tunDevice *TUN, conn networkio.FramingConn, options *model.Options) *workers.Manager {
 	// create a workers manager
 	workersManager := workers.NewManager()
 
@@ -48,9 +47,6 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 		NetworkToMuxer:       make(chan []byte),
 	}
 
-	// tell the packetmuxer that it should handshake ASAP
-	muxer.HardReset <- true
-
 	// connect networkio and packetmuxer
 	connectChannel(nio.MuxerToNetwork, &muxer.MuxerToNetwork)
 	connectChannel(muxer.NetworkToMuxer, &nio.NetworkToMuxer)
@@ -60,8 +56,8 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 		MuxerToData:          make(chan *model.Packet),
 		DataOrControlToMuxer: nil, // ok
 		KeyReady:             make(chan *session.DataChannelKey, 1),
-		TUNToData:            tunDevice.TunDown,
-		DataToTUN:            tunDevice.TunUp,
+		TUNToData:            tunDevice.tunDown,
+		DataToTUN:            tunDevice.tunUp,
 	}
 
 	// connect the packetmuxer and the datachannel
@@ -93,8 +89,8 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	connectChannel(rel.ControlToReliable, &ctrl.ControlToReliable)
 	connectChannel(ctrl.ReliableToControl, &rel.ReliableToControl)
 
-	// create the tlsstate service
-	tlsx := &tlsstate.Service{
+	// create the tlssession service
+	tlsx := &tlssession.Service{
 		NotifyTLS:     make(chan *model.Notification, 1),
 		KeyUp:         nil,
 		TLSRecordUp:   make(chan []byte),
@@ -125,6 +121,9 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	ctrl.StartWorkers(logger, workersManager, sessionManager)
 	datach.StartWorkers(logger, workersManager, sessionManager, options)
 	tlsx.StartWorkers(logger, workersManager, sessionManager, options)
+
+	// tell the packetmuxer that it should handshake ASAP
+	muxer.HardReset <- true
 
 	return workersManager
 }

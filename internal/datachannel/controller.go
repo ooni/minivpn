@@ -172,10 +172,6 @@ func (d *DataChannel) writePacket(payload []byte) (*model.Packet, error) {
 	// and trigger renegotiation if we're near the end of the key useful lifetime.
 
 	packet := model.NewPacket(model.P_DATA_V2, d.sessionManager.CurrentKeyID(), encrypted)
-	// packet, err := d.sessionManager.NewPacket(model.P_DATA_V2, encrypted)
-	//if err != nil {
-	//	return nil, fmt.Errorf("%w: %s", ErrSerialization, err)
-	// }
 	peerid := &bytes.Buffer{}
 	bytesx.WriteUint24(peerid, uint32(d.sessionManager.TunnelInfo().PeerID))
 	packet.PeerID = model.PeerID(peerid.Bytes())
@@ -185,7 +181,6 @@ func (d *DataChannel) writePacket(payload []byte) (*model.Packet, error) {
 // encrypt calls the corresponding function for AEAD or Non-AEAD decryption.
 // Due to the particularities of the iv generation on each of the modes, encryption and encoding are
 // done together in the same function.
-// TODO accept state for symmetry
 func (d *DataChannel) encryptAndEncodePayload(plaintext []byte, dcs *dataChannelState) ([]byte, error) {
 	runtimex.Assert(dcs != nil, "datachanelState is nil")
 	runtimex.Assert(dcs.dataCipher != nil, "dcs.dataCipher is nil")
