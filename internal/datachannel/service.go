@@ -61,15 +61,15 @@ func (s *Service) StartWorkers(
 		return
 	}
 	ws := &workersState{
+		dataChannel:          dc,
 		dataOrControlToMuxer: *s.DataOrControlToMuxer,
 		dataToTUN:            s.DataToTUN,
+		keyReady:             s.KeyReady,
 		logger:               logger,
 		muxerToData:          s.MuxerToData,
-		tunToData:            s.TUNToData,
-		keyReady:             s.KeyReady,
-		dataChannel:          dc,
-		workersManager:       workersManager,
 		sessionManager:       sessionManager,
+		tunToData:            s.TUNToData,
+		workersManager:       workersManager,
 	}
 
 	firstKeyReady := make(chan any)
@@ -81,15 +81,15 @@ func (s *Service) StartWorkers(
 
 // workersState contains the data channel state.
 type workersState struct {
-	logger               model.Logger
-	workersManager       *workers.Manager
-	sessionManager       *session.Manager
-	keyReady             <-chan *session.DataChannelKey
-	muxerToData          <-chan *model.Packet
+	dataChannel          *DataChannel
 	dataOrControlToMuxer chan<- *model.Packet
 	dataToTUN            chan<- []byte
+	keyReady             <-chan *session.DataChannelKey
+	logger               model.Logger
+	muxerToData          <-chan *model.Packet
+	sessionManager       *session.Manager
 	tunToData            <-chan []byte
-	dataChannel          *DataChannel
+	workersManager       *workers.Manager
 }
 
 // moveDownWorker moves packets down the stack. It will BLOCK on PacketDown
@@ -118,8 +118,6 @@ func (ws *workersState) moveDownWorker(firstKeyReady <-chan any) {
 
 				select {
 				case ws.dataOrControlToMuxer <- packet:
-				default:
-				// drop the packet if the buffer is full
 				case <-ws.workersManager.ShouldShutdown():
 					return
 				}
