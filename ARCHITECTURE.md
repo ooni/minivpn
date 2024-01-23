@@ -82,7 +82,21 @@ tasked with moving data across the stack, in 6 services:
 
 The `TUN` abstraction reads and writes to the `tunUp` and `tunDown` channels; TUN user is responsible for dialing the connection and passing a `networkio.FramingConn` to the `tun.StartTUN()` constructor. The TUN constructor will own the conn, and will also start an internal session.Manager and workers.Manager to deal with service coordination.
 
+By design, it is the responsibility of the upper, public layer (TUN) to account for timeouts (like the TLS handshake timeout), and to close the underlying connection and signal the teardown of all the workers.
+
 The channel communication between services is designed to be blocking, with unbuffered channels.
+
+To reason about **liveness** on the system, we make the following...
+
+## Assumptions
+
+* Any `Read()` or `Write()` from/to the underlying `conn` can block, and since all the workers in a single line are connected via blocking reads/writes this block can freely propagate across the stack. The chain moving up pauses while blocked on receiving from the network, and the chain going down pauses if blocked on sending.
+* It is the responsibility of `minivpn`'s user to keep reading from the `TUN` interface so that incoming data packets can be processed.
+* Any channels that connect the up and down processing chains (like, for instance, the internal channel that connects `packetmuxer.moveUpWorker` with `packetmuxer.moveDownWorker` to process ACKs) needs to be made buffered and with non-blocking writes.
+* The goroutine responsible for the `TLS` service handshake (meaning, the TLS handshake + the control message push and reply to exchange keys) is sequential, and therefore no Reads and Writes can happen concurrently.
+* Guarding `tlsNotify` notifications to the TLS layer need special care (to avoid concurrent notifications while processing the handshake).
+
+
 
 ```mermaid
 stateDiagram-v2
@@ -91,23 +105,27 @@ stateDiagram-v2
 
     state "TUN.Write()" as tundown
     state "TUN.Read()" as tunup
+    state tunDownCh <<join>>
+    state tunUpCh <<join>>
 
-    state "datachannel.MoveDownWorker" as datadown
-    state "datachannel.MoveUpWorker" as dataup
-    state "datachannel.KeyWorker" as datakey
+    state "datachannel.moveDownWorker" as datadown
+    state "datachannel.moveUpWorker" as dataup
+    state "datachannel.keyWorker" as datakey
 
-    state "muxer.MoveDownWorker" as muxerdown
-    state "muxer.MoveUpWorker" as muxerup
+    state "muxer.moveDownWorker" as muxerdown
+    state "muxer.moveUpWorker" as muxerup
 
-    state "reliable.MoveDownWorker" as reliabledown
-    state "reliable.MoveUpWorker" as reliableup
+    state "reliable.moveDownWorker" as reliabledown
+    state "reliable.moveUpWorker" as reliableup
 
-    state "networkio.MoveDownWorker" as networkdown
-    state "networkio.MoveUpWorker" as networkup
+
  
-    state "controlchannel.MoveDownWorker" as controldown
-    state "controlchannel.MoveUpWorker" as controlup
-    state "tlssession.Worker" as tls
+    state "controlchannel.moveDownWorker" as controldown
+    state "controlchannel.moveUpWorker" as controlup
+    state "tlssession.worker" as tls
+
+    state "networkio.moveDownWorker" as networkdown
+    state "networkio.moveUpWorker" as networkup
 
     state dataOrCtrlToMuxer <<join>>
     state tlsRecordUp <<join>>
@@ -119,9 +137,12 @@ stateDiagram-v2
     state internetout <<join>>
     state internetin <<join>>
 
-    [*] --> tundown : []byte
-    tundown:::tunrw --> datadown
+    # we begin with writes to the TUN interface
+    # (going down)
 
+    [*] --> tundown : []byte
+    tundown:::tunrw --> tunDownCh : []byte<-
+    tunDownCh --> datadown : <-[]byte
 
 
     datadown --> dataOrCtrlToMuxer
@@ -139,73 +160,37 @@ stateDiagram-v2
     tlsRecordDown --> controldown: <-tlsDown
     tls --> newkey: key<-
     newkey --> datakey: <-key
+    
+    muxerup --> muxer.checkPacket() 
 
+    # an extra boundary to force a nicer layout
+    state muxer.checkPacket() {
+        direction LR
+        state if_data <<choice>>
+        if_data --> reliableup: isControl?
+        if_data --> dataup: isData?
 
-    state if_data <<choice>>
-
-    muxerup --> if_data 
-
+    }
+    
     muxerup --> notifytls: notifyTLS<-
     controlup --> notifytls: notifyTLS<-
     notifytls --> tls: <-notifyTLS
 
     
-    if_data --> reliableup: isControl?
-    if_data --> dataup: isData?
-
-    
     reliableup --> controlup
-    reliableup --> reliabledown: ack
+
+    state packetInfo <<join>>
+
+    reliableup --> packetInfo: packetInfo <-
+    packetInfo --> reliabledown: <-packetInfo
 
     controlup --> tlsRecordUp: tlsUp <-
     tlsRecordUp --> tls: <- tlsUp
 
     networkup --> muxerup
-    dataup --> tunup
+
+    # data to tun
+    dataup --> tunUpCh
+    tunUpCh --> tunup
     tunup:::tunrw --> [*]
-```
-
-## minivpn layered architecture (may 2023)
-
-TODO: converge graph.
-
-```mermaid
-stateDiagram
-    state "networkio.moveUpWorker {1}" as nioUp
-    state "packetmuxer.moveUpWorker {1}" as pmUp
-    state "datachannel.moveUpWorker {1}" as dcUp
-    state "reliable.moveUpWorker {1}" as relUp
-    state "controlchannel.moveUpWorker {1}" as ccUp
-    state "tlsstate.Worker {1}" as tlsWorker
-    state "TUN.Read() {1}" as tunRead
-
-    nioUp --> pmUp: chan []byte
-    pmUp --> dcUp: chan *model.Packet
-    pmUp --> relUp: chan *model.Packet
-    relUp --> ccUp: chan *model.Packet
-    dcUp --> tunRead: chan *TUNPacket [NB, buffered]
-    pmUp --> tlsWorker: chan *Notification [NB, !!!]
-    ccUp --> tlsWorker: chan *Notification [NB, !!!]
-    ccUp --> tlsWorker: chan *TLSRecord
-    tunRead --> [*]
-
-    state "networkio.moveDownWorker {1}" as nioDown
-    state "datachannel.moveDownWorker {1}" as dcDown
-    state "packetmuxer.moveDownWorker {1}" as pmDown
-    state "controlchannel.moveDownWorker {1}" as ccDown
-    state "TUN.Write() {1}" as tunWrite
-    state "reliable.moveDownWorker {1}" as relDown
-
-    tunWrite --> dcDown: chan *TUNPacket
-    dcDown --> pmDown: chan *model.Packet
-    pmDown --> nioDown: chan []byte [NB, buffered]
-    ccDown --> relDown: chan *model.Packet
-    relDown --> pmDown: chan *model.Packet
-    tlsWorker --> ccDown: chan *TLSRecord
-    relUp --> pmDown: chan *model.Packet [ACK]
-    [*] --> tunWrite
-    tlsWorker --> dcUp: chan *DataChannelKey
-
-    nioDown --> internet: conn.Write() [!!!]
-    internet --> nioUp: conn.Read() [!!!]
 ```
