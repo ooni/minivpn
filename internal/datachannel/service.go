@@ -94,10 +94,14 @@ type workersState struct {
 
 // moveDownWorker moves packets down the stack. It will BLOCK on PacketDown
 func (ws *workersState) moveDownWorker(firstKeyReady <-chan any) {
+	workerName := serviceName + ":moveDownWorker"
 	defer func() {
-		ws.workersManager.OnWorkerDone(serviceName + ":moveDownWorker")
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
 	}()
+
+	ws.logger.Debugf("%s: started", workerName)
+
 	select {
 	// wait for the first key to be ready
 	case <-firstKeyReady:
@@ -131,10 +135,15 @@ func (ws *workersState) moveDownWorker(firstKeyReady <-chan any) {
 
 // moveUpWorker moves packets up the stack
 func (ws *workersState) moveUpWorker() {
+	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone(serviceName + ":moveUpWorker")
+
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
 	}()
+	ws.logger.Debugf("%s: started", workerName)
+
 	for {
 		select {
 		// TODO: opportunistically try to kill lame duck
@@ -163,12 +172,14 @@ func (ws *workersState) moveUpWorker() {
 
 // keyWorker receives notifications from key ready
 func (ws *workersState) keyWorker(firstKeyReady chan<- any) {
+	workerName := fmt.Sprintf("%s: keyWorker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone(serviceName + ":keyWorker")
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
 	}()
 
-	ws.logger.Debug("datachannel: worker: started")
+	ws.logger.Debugf("%s: started", workerName)
 	once := &sync.Once{}
 
 	for {

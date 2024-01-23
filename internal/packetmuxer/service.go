@@ -2,6 +2,8 @@
 package packetmuxer
 
 import (
+	"fmt"
+
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
@@ -96,12 +98,18 @@ type workersState struct {
 
 // moveUpWorker moves packets up the stack
 func (ws *workersState) moveUpWorker() {
+	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
+
 	defer func() {
+<<<<<<< HEAD
 		ws.workersManager.OnWorkerDone(serviceName + ":moveUpWorker")
+=======
+		ws.workersManager.OnWorkerDone(workerName)
+>>>>>>> ef28d31
 		ws.workersManager.StartShutdown()
 	}()
 
-	ws.logger.Debug("packetmuxer: moveUpWorker: started")
+	ws.logger.Debugf("%s: started", workerName)
 
 	for {
 		// POSSIBLY BLOCK awaiting for incoming raw packet
@@ -126,12 +134,18 @@ func (ws *workersState) moveUpWorker() {
 
 // moveDownWorker moves packets down the stack
 func (ws *workersState) moveDownWorker() {
+	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
+
 	defer func() {
+<<<<<<< HEAD
 		ws.workersManager.OnWorkerDone(serviceName + ":moveDownWorker")
+=======
+		ws.workersManager.OnWorkerDone(workerName)
+>>>>>>> ef28d31
 		ws.workersManager.StartShutdown()
 	}()
 
-	ws.logger.Debug("packetmuxer: moveDownWorker: started")
+	ws.logger.Debugf("%s: started", workerName)
 
 	for {
 		// POSSIBLY BLOCK on reading the packet moving down the stack
@@ -140,19 +154,21 @@ func (ws *workersState) moveDownWorker() {
 			// serialize the packet
 			rawPacket, err := packet.Bytes()
 			if err != nil {
-				ws.logger.Warnf("packetmuxer: cannot serialize packet: %s", err.Error())
+				ws.logger.Warnf("%s: cannot serialize packet: %s", workerName, err.Error())
 				continue
 			}
 
+			// FIXME: we're making unbuffered --------------------------------------------
 			// While this channel send could possibly block, the [ARCHITECTURE] is
 			// such that (1) the channel is buffered and (2) the channel sender should
 			// avoid blocking when inserting data into the channel.
 			//
 			// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
+			// ---------------------------------------------------------------------------
 			select {
 			case ws.muxerToNetwork <- rawPacket:
-			default:
-				// drop the packet if the buffer is full as documented above
+			//default:
+			// drop the packet if the buffer is full as documented above
 			case <-ws.workersManager.ShouldShutdown():
 				return
 			}
@@ -246,22 +262,23 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	// advance the state
 	ws.sessionManager.SetNegotiationState(session.S_START)
 
-	// attempt to tell TLS we want to handshake
+	// attempt to tell TLS we want to handshake. this will block if the notifyTLS channel
+	// is Full, but we make sure we control that we don't pass spurious soft-reset packets while we're
+	// doing a handshake.
 	select {
 	case ws.notifyTLS <- &model.Notification{Flags: model.NotificationReset}:
 		// nothing
-
-	default:
-		// the architecture says this notification should be nonblocking
-
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown
+		//default:
+		// the architecture says this notification should be nonblocking
+		// FIXME ---- not so now ----------------
 	}
 
 	return nil
 }
 
-// serializeAndEmit was written because Ain Ghazal was very insistent about it.
+// serializeAndEmit will write a serialized packet on the channel going down to the networkio layer.
 func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 	// serialize it
 	rawPacket, err := packet.Bytes()
@@ -269,7 +286,7 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 		return err
 	}
 
-	// emit the packet
+	// emit the packet. Possibly BLOCK writing to the networkio layer.
 	select {
 	case ws.muxerToNetwork <- rawPacket:
 		// nothing

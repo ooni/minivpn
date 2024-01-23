@@ -3,6 +3,7 @@ package tun
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"os"
 	"sync"
@@ -12,6 +13,11 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
+)
+
+var (
+	// default TLS handshake timeout, in seconds.
+	tlsHandshakeTimeoutSeconds = 10
 )
 
 // StartTUN initializes and starts the TUN device over the vpn.
@@ -33,15 +39,26 @@ func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Op
 		workers.WaitWorkersShutdown()
 	})
 
+	tlsTimeout := time.NewTimer(time.Duration(tlsHandshakeTimeoutSeconds) * time.Second)
+
 	// Await for the signal from the session manager to tell us we're ready to start accepting data.
 	// In practice, this means that we already have a valid TunnelInfo at this point
 	// (i.e., three way handshake has completed, and we have valid keys).
 
 	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	case <-sessionManager.Ready:
 		return tunnel, nil
+	case <-tlsTimeout.C:
+		defer func() {
+			log.Log.Info("tls timeout")
+			tunnel.Close()
+		}()
+		return nil, errors.New("tls timeout")
+	case <-ctx.Done():
+		defer func() {
+			tunnel.Close()
+		}()
+		return nil, ctx.Err()
 	}
 }
 
@@ -98,7 +115,7 @@ func newTUN(logger model.Logger, conn networkio.FramingConn, session *session.Ma
 		readDeadline: makeTUNDeadline(),
 		session:      session,
 		tunDown:      make(chan []byte),
-		tunUp:        make(chan []byte, 10),
+		tunUp:        make(chan []byte),
 		// this function is explicitely set empty so that we can safely use a callback even if not set.
 		whenDoneFn:    func() {},
 		writeDeadline: makeTUNDeadline(),
