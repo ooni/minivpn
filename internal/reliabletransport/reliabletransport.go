@@ -185,7 +185,7 @@ func (ws *workersState) maybeACK(packet *model.Packet) error {
 		return err
 	}
 
-	// move the packet down
+	// move the packet down. CAN BLOCK writing to the shared channel to muxer.
 	select {
 	case ws.dataOrControlToMuxer <- ACK:
 		return nil
