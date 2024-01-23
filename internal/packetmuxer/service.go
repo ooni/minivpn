@@ -152,7 +152,6 @@ func (ws *workersState) moveDownWorker() {
 
 			// POSSIBLY BLOCK on writing the packet to the networkio layer.
 			// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-			// ---------------------------------------------------------------------------
 
 			select {
 			case ws.muxerToNetwork <- rawPacket:
