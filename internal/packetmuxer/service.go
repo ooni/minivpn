@@ -101,11 +101,7 @@ func (ws *workersState) moveUpWorker() {
 	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
 
 	defer func() {
-<<<<<<< HEAD
-		ws.workersManager.OnWorkerDone(serviceName + ":moveUpWorker")
-=======
 		ws.workersManager.OnWorkerDone(workerName)
->>>>>>> ef28d31
 		ws.workersManager.StartShutdown()
 	}()
 
