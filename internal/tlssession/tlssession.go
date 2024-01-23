@@ -1,10 +1,8 @@
 package tlssession
 
 import (
-	"context"
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
@@ -123,15 +121,16 @@ func (ws *workersState) tlsAuth() error {
 	go ws.doTLSAuth(conn, tlsConf, errorch)
 
 	// make sure we timeout after 60 seconds anyway
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	// FIXME -- moved this timeout to TUN --------------------------------------------------
+	// ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// defer cancel()
 
 	select {
 	case err := <-errorch:
 		return err
 
-	case <-ctx.Done():
-		return ctx.Err()
+	// case <-ctx.Done():
+	//	return ctx.Err()
 
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown

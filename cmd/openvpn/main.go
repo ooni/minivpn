@@ -59,13 +59,14 @@ func main() {
 		log.WithError(err).Fatal("dialer.DialContext")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// create a vpn tun Device
 	tunnel, err := tun.StartTUN(ctx, conn, options)
 	if err != nil {
 		log.WithError(err).Fatal("init error")
+		return
 	}
 	fmt.Printf("Local IP: %s\n", tunnel.LocalAddr())
 	fmt.Printf("Gateway:  %s\n", tunnel.RemoteAddr())
@@ -106,12 +107,11 @@ func main() {
 	}
 
 	ip := net.ParseIP(localAddr)
-	mask := netMask
 
 	// we want the network CIDR for setting up the routes
 	network := &net.IPNet{
-		IP:   ip.Mask(mask),
-		Mask: mask,
+		IP:   ip.Mask(netMask),
+		Mask: netMask,
 	}
 
 	// configure the interface and bring it up

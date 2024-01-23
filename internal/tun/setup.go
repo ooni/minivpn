@@ -32,18 +32,18 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the networkio service.
 	nio := &networkio.Service{
-		MuxerToNetwork: make(chan []byte, 1<<5),
-		NetworkToMuxer: nil, // ok
+		MuxerToNetwork: make(chan []byte),
+		NetworkToMuxer: nil,
 	}
 
 	// create the packetmuxer service.
 	muxer := &packetmuxer.Service{
-		MuxerToReliable:      nil, // ok
-		MuxerToData:          nil, // ok
+		MuxerToReliable:      nil,
+		MuxerToData:          nil,
 		NotifyTLS:            nil,
 		HardReset:            make(chan any, 1),
 		DataOrControlToMuxer: make(chan *model.Packet),
-		MuxerToNetwork:       nil, // ok
+		MuxerToNetwork:       nil,
 		NetworkToMuxer:       make(chan []byte),
 	}
 
@@ -54,7 +54,7 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	// create the datachannel service.
 	datach := &datachannel.Service{
 		MuxerToData:          make(chan *model.Packet),
-		DataOrControlToMuxer: nil, // ok
+		DataOrControlToMuxer: nil,
 		KeyReady:             make(chan *session.DataChannelKey, 1),
 		TUNToData:            tunDevice.tunDown,
 		DataToTUN:            tunDevice.tunUp,
@@ -66,10 +66,10 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the reliabletransport service.
 	rel := &reliabletransport.Service{
-		DataOrControlToMuxer: nil, // ok
+		DataOrControlToMuxer: nil,
 		ControlToReliable:    make(chan *model.Packet),
 		MuxerToReliable:      make(chan *model.Packet),
-		ReliableToControl:    nil, // ok
+		ReliableToControl:    nil,
 	}
 
 	// connect reliable service and packetmuxer.
@@ -78,11 +78,11 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 
 	// create the controlchannel service.
 	ctrl := &controlchannel.Service{
-		NotifyTLS:            nil, // ok
-		ControlToReliable:    nil, // ok
+		NotifyTLS:            nil,
+		ControlToReliable:    nil,
 		ReliableToControl:    make(chan *model.Packet),
 		TLSRecordToControl:   make(chan []byte),
-		TLSRecordFromControl: nil, // ok
+		TLSRecordFromControl: nil,
 	}
 
 	// connect the reliable service and the controlchannel service
