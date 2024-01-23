@@ -45,9 +45,9 @@ type Service struct {
 // eventually BLOCKS on tunUp to deliver it;
 //
 // 2. moveDownWorker BLOCKS on tunDown to read a packet and
-// eventually BLOCKS on packetDown to deliver it;
+// eventually BLOCKS on dataOrControlToMuxer to deliver it;
 //
-// 3. keyWorker BLOCKS on keyUp to read an dataChannelKey and
+// 3. keyWorker BLOCKS on keyUp to read a dataChannelKey and
 // initializes the internal state with the resulting key;
 func (s *Service) StartWorkers(
 	logger model.Logger,
