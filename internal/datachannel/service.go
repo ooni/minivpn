@@ -161,6 +161,7 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
+			// POSSIBLY BLOCK writing up towards TUN
 			ws.dataToTUN <- decrypted
 		case <-ws.workersManager.ShouldShutdown():
 			return
