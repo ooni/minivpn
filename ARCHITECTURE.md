@@ -95,7 +95,7 @@ To reason about **liveness** on the system, we make the following...
 * We assume this is fine because (a) what happens after the syscall boundary is beyond our control, and (b) we want to make these blocks visible to the system (i.e., we want to avoid hiding these events by using queues).
 * It is the responsibility of `minivpn`'s user to keep reading from the `TUN` interface so that incoming data packets can be processed.
 * Any channels that connect the up and down processing chains (like, for instance, the internal channel that connects `packetmuxer.moveUpWorker` with `packetmuxer.moveDownWorker` to process ACKs) needs to be made buffered and with non-blocking writes.
-* The goroutine responsible for the `TLS` service handshake (meaning, the TLS handshake + the control message push and reply to exchange keys) is sequential, and therefore no Reads and Writes can happen concurrently.
+* The goroutine responsible for the `TLS` service handshake (meaning, the TLS handshake + the control message push and reply to exchange keys) is sequential, and therefore no reads and writes can happen concurrently.
 * Guarding `tlsNotify` notifications to the TLS layer need special care (to avoid concurrent notifications while processing the handshake).
 
 
