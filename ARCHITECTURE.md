@@ -12,7 +12,7 @@
 * Finally, the [workers.Manager](https://github.com/ainghazal/minivpn/blob/main/internal/workers/workers.go) component deals with coordination among all the components.
 
 
-## Implementation 
+## Services
 
 * Each layer is implemented as a service, that can be found under its own package under the [internal](https://github.com/ainghazal/minivpn/blob/main/internal) path.
 * Each service initializes and starts a number of workers (typicall two: one for moving data up the stack, and another one for moving data down). Some services implement only one worker, some do three.
@@ -22,6 +22,7 @@
 
 
 ```
+```
                                                         startShtdwn
          ┌───────────────────────────────────────────┬────────────►┌──────────────┐
          │                                           │     shtdwn! │              │
@@ -29,60 +30,60 @@
          │                                           │     Ready   │ Manager      │
          └────▲───────┬──────────────────────────────┘◄────────────┤              │
               │       │                                            │              │
-         [10] │tunUp  │tunDown                                     │              │
+              │tunUp  │tunDown                                     │              │
          ┌────┴───────▼──────────────────────────────┐             │              │
          │                                           │     shtdwn! │              │
          │   datachannel                             │◄────────────┤              │
          │                                           │             │              │
          └───▲────────┬────────────────────────▲─────┘             │              │
-             │        │              [1] keyUp │           shtdwn! │              │
+             │        │                  keyUp │           shtdwn! │              │
              │        │       ┌────────────────┴─────┐◄────────────┤              │
              │        │       │                      │             │              │
-             │        │       │ tlssession     [1]   ◄──┐          │              │
+             │        │       │ tlssession           ◄──┐          │              │
              │        │       └───────▲──────────▲───┘  │          │              │
-             │        │     tlsRec    │          │    *notifyTLS   │              │
+             │        │     tlsRec    │          │     notifyTLS   │              │
            muxerTo    │     Down│   tlsRecUp  notifyTLS │          │              │
            Data       │         │     │          │      │          │              │
              │        │       ┌─▼─────┴──────────┴───┐  │          │              │
              │        │       │                      │  │          │              │
              │        │       │ controlchannel       │  │          │              │
              │        │       └─┬─────▲──────────────┘  │ ◄────────┤              │
-             │        │    ctrl │     │       notifyTLS │   shtdwn!│              │
-             │        │    2Rel │  rel2Ctrl      │      │          │              │
-             │        │       ┌─▼────────────────▼───┐  │          │              │
+             │        │    ctrl │     │                 │   shtdwn!│              │
+             │        │    2Rel │  rel2Ctrl             │          │              │
+             │        │       ┌─▼────────────────────┐  │          │              │
              │        │       │                      │  │ ◄────────┤              │
              │        │       │ reliabletransport    │  │   shtdwn!│              │
              │        │       └───────▲──────────────┘  │          │              │
-             │    *dataOrCtrlToMuxer  │ muxerToReliable │          │              │
+             │     dataOrCtrlToMuxer  │ muxerToReliable │          │              │
              │        │         │     │                 │          │              │
          ┌───┴────────▼─────────▼─────┴──────────────┐  │          │              │
 hardReset│                                           │  │          │              │
-  [1]────►   packetkmuxer & HRESET                   ├──┘          │              │
+     ────►   packetkmuxer & HRESET                   ├──┘          │              │
          │                                           │             │              │
          └───────────────────┬────────▲──────────────┘◄────────────┤              │
-              *muxerToNetwork│        │networkToMuxer      shtdwn! │              │
-         ┌─────[32]──────────▼────────┴──────────────┐             │              │
+               muxerToNetwork│        │networkToMuxer      shtdwn! │              │
+         ┌───────────────────▼────────┴──────────────┐             │              │
          │                                           │             │              │
          │   network I/O                             │◄────────────┤              │
          │                                           │     shtdwn! │              │
          └───────────────────────────────────────────┘             └──────────────┘
 ```
 
-
-
 # Implementation and liveness analysis
 
 In the layered architecture detailed above, there are 12 different goroutines
-that deal with moving data across the stack, in 7 services:
+tasked with moving data across the stack, in 6 services:
 
-* networkio: 2 workers (up/down).
-* packetmuxer: 2 workers (up/down).
-* reliabletransport: 2 workers (up/down).
-* controlchannel: 2 workers (up/down).
-* tlssession: 1 worker
-* datachannel: 3 workers (up/down/key).
+* 1. networkio: 2 workers (up/down).
+* 2. packetmuxer: 2 workers (up/down).
+* 3. reliabletransport: 2 workers (up/down).
+* 4. controlchannel: 2 workers (up/down).
+* 5. tlssession: 1 worker
+* 6. datachannel: 3 workers (up/down/key).
 
-The channel communication is designed to be blocking, with unbuffered channels.
+The `TUN` abstraction reads and writes to the `tunUp` and `tunDown` channels; TUN user is responsible for dialing the connection and passing a `networkio.FramingConn` to the `tun.StartTUN()` constructor. The TUN constructor will own the conn, and will also start an internal session.Manager and workers.Manager to deal with service coordination.
+
+The channel communication between services is designed to be blocking, with unbuffered channels.
 
 ```mermaid
 stateDiagram-v2
