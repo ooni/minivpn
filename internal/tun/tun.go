@@ -17,7 +17,7 @@ import (
 
 var (
 	// default TLS handshake timeout, in seconds.
-	tlsHandshakeTimeoutSeconds = 10
+	tlsHandshakeTimeoutSeconds = 60
 )
 
 // StartTUN initializes and starts the TUN device over the vpn.
