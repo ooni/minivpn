@@ -133,11 +133,7 @@ func (ws *workersState) moveDownWorker() {
 	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
 
 	defer func() {
-<<<<<<< HEAD
-		ws.workersManager.OnWorkerDone(serviceName + ":moveDownWorker")
-=======
 		ws.workersManager.OnWorkerDone(workerName)
->>>>>>> ef28d31
 		ws.workersManager.StartShutdown()
 	}()
 
@@ -154,17 +150,13 @@ func (ws *workersState) moveDownWorker() {
 				continue
 			}
 
-			// FIXME: we're making unbuffered --------------------------------------------
-			// While this channel send could possibly block, the [ARCHITECTURE] is
-			// such that (1) the channel is buffered and (2) the channel sender should
-			// avoid blocking when inserting data into the channel.
-			//
+			// POSSIBLY BLOCK on writing the packet to the networkio layer.
 			// [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 			// ---------------------------------------------------------------------------
+
 			select {
 			case ws.muxerToNetwork <- rawPacket:
-			//default:
-			// drop the packet if the buffer is full as documented above
+				// nothing
 			case <-ws.workersManager.ShouldShutdown():
 				return
 			}
@@ -258,7 +250,8 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	// advance the state
 	ws.sessionManager.SetNegotiationState(session.S_START)
 
-	// attempt to tell TLS we want to handshake. this will block if the notifyTLS channel
+	// attempt to tell TLS we want to handshake.
+	// This WILL BLOCK if the notifyTLS channel
 	// is Full, but we make sure we control that we don't pass spurious soft-reset packets while we're
 	// doing a handshake.
 	select {
@@ -266,9 +259,6 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 		// nothing
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown
-		//default:
-		// the architecture says this notification should be nonblocking
-		// FIXME ---- not so now ----------------
 	}
 
 	return nil
