@@ -73,12 +73,12 @@ hardReset│                                           │  │          │    
 In the layered architecture detailed above, there are 12 different goroutines
 tasked with moving data across the stack, in 6 services:
 
-* 1. networkio: 2 workers (up/down).
-* 2. packetmuxer: 2 workers (up/down).
-* 3. reliabletransport: 2 workers (up/down).
-* 4. controlchannel: 2 workers (up/down).
-* 5. tlssession: 1 worker
-* 6. datachannel: 3 workers (up/down/key).
+1. **networkio**: 2 workers (up/down).
+2. **packetmuxer**: 2 workers (up/down).
+3. **reliabletransport**: 2 workers (up/down).
+4. **controlchannel**: 2 workers (up/down).
+5. **tlssession**: 1 worker
+6. **datachannel**: 3 workers (up/down/key).
 
 The `TUN` abstraction reads and writes to the `tunUp` and `tunDown` channels; TUN user is responsible for dialing the connection and passing a `networkio.FramingConn` to the `tun.StartTUN()` constructor. The TUN constructor will own the conn, and will also start an internal session.Manager and workers.Manager to deal with service coordination.
 
