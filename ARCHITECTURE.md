@@ -100,66 +100,78 @@ To reason about **liveness** on the system, we make the following...
 
 ```mermaid
 stateDiagram-v2
+    # you can edit this diagram in https://mermaid.live
+
     classDef tunrw font-style:italic,font-weight:bold,fill:yellow
 
+    # workers
 
     state "TUN.Write()" as tundown
     state "TUN.Read()" as tunup
-    state tunDownCh <<join>>
-    state tunUpCh <<join>>
 
-    state "datachannel.moveDownWorker" as datadown
-    state "datachannel.moveUpWorker" as dataup
-    state "datachannel.keyWorker" as datakey
+    state "datach.moveDownWorker" as datadown
+    state "datach.moveUpWorker" as dataup
+    state "datach.keyWorker" as datakey
 
     state "muxer.moveDownWorker" as muxerdown
+
     state "muxer.moveUpWorker" as muxerup
 
     state "reliable.moveDownWorker" as reliabledown
     state "reliable.moveUpWorker" as reliableup
 
-
- 
-    state "controlchannel.moveDownWorker" as controldown
-    state "controlchannel.moveUpWorker" as controlup
+    state "ctrlch.moveDownWorker" as controldown
+    state "ctrlch.moveUpWorker" as controlup
     state "tlssession.worker" as tls
 
     state "networkio.moveDownWorker" as networkdown
     state "networkio.moveUpWorker" as networkup
+
+    # channels
+
+    state tunDownCh <<join>>
+    state tunUpCh <<join>>
+    state muxerToNetwork <<join>>
+    state networkToMuxer <<join>>
+
 
     state dataOrCtrlToMuxer <<join>>
     state tlsRecordUp <<join>>
     state tlsRecordDown <<join>>
     state newkey <<join>>
 
+    state reliableToControl <<join>>
+    state packetInfo <<join>>
     state notifytls <<join>>
 
     state internetout <<join>>
     state internetin <<join>>
 
-    # we begin with writes to the TUN interface
+    #
+    # we begin our journey with writes to the TUN interface
     # (going down)
+    #
 
-    [*] --> tundown : []byte
-    tundown:::tunrw --> tunDownCh : []byte<-
-    tunDownCh --> datadown : <-[]byte
+    [*] --> tundown 
+    tundown:::tunrw --> tunDownCh : []byte
+    tunDownCh --> datadown 
 
+    datadown --> dataOrCtrlToMuxer : *Packet
+    reliabledown --> dataOrCtrlToMuxer : *Packet
 
-    datadown --> dataOrCtrlToMuxer
-    reliabledown --> dataOrCtrlToMuxer
-
-    dataOrCtrlToMuxer --> muxerdown: <- dataOrCtrlToMuxer
-    muxerdown --> networkdown
+    dataOrCtrlToMuxer --> muxerdown: pkt <- dataOrCtrlToMuxer
+    muxerdown --> muxerToNetwork : []byte
+    muxerToNetwork --> networkdown
 
     controldown --> reliabledown 
 
     networkdown --> internetout: conn.Write()
     internetin --> networkup: conn.Read()
 
-    tls --> tlsRecordDown: tlsDown <-
-    tlsRecordDown --> controldown: <-tlsDown
-    tls --> newkey: key<-
-    newkey --> datakey: <-key
+    tls --> tlsRecordDown: tlsDown
+    tlsRecordDown --> controldown: tlsDown
+    tls --> newkey: key
+    newkey --> datakey: key
     
     muxerup --> muxer.checkPacket() 
 
@@ -171,26 +183,32 @@ stateDiagram-v2
         if_data --> dataup: isData?
 
     }
-    
-    muxerup --> notifytls: notifyTLS<-
-    controlup --> notifytls: notifyTLS<-
-    notifytls --> tls: <-notifyTLS
 
-    
-    reliableup --> controlup
+    # second part, we read from the network 
+    # (and go up)
 
-    state packetInfo <<join>>
+    networkup --> networkToMuxer : []byte
+    networkToMuxer --> muxerup 
 
-    reliableup --> packetInfo: packetInfo <-
-    packetInfo --> reliabledown: <-packetInfo
+    muxerup --> notifytls: notifyTLS
+    controlup --> notifytls: notifyTLS
+    notifytls --> tls: notifyTLS
 
-    controlup --> tlsRecordUp: tlsUp <-
-    tlsRecordUp --> tls: <- tlsUp
+    reliableup --> reliableToControl : *Packet
+    reliableToControl --> controlup
 
-    networkup --> muxerup
+
+    reliableup --> packetInfo: packetInfo
+    packetInfo --> reliabledown: packetInfo
+
+    controlup --> tlsRecordUp: tlsUp 
+    tlsRecordUp --> tls: tlsUp
+
 
     # data to tun
     dataup --> tunUpCh
     tunUpCh --> tunup
     tunup:::tunrw --> [*]
+
+
 ```
