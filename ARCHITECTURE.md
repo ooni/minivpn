@@ -90,7 +90,9 @@ To reason about **liveness** on the system, we make the following...
 
 ## Assumptions
 
-* Any `Read()` or `Write()` from/to the underlying `conn` can block, and since all the workers in a single line are connected via blocking reads/writes this block can freely propagate across the stack. The chain moving up pauses while blocked on receiving from the network, and the chain going down pauses if blocked on sending.
+* We'll call "chain" to a series of workers, connected via shared channels, between a source and a sink.
+* Any `Read()` or `Write()` from/to the underlying `conn` can block, and since all the workers in a single chain are connected via blocking reads/writes, this block can freely propagate across the stack. The chain moving up pauses while blocked on receiving from the network, and the chain going down pauses if the system is blocked on delivering to the network.
+* We assume this is fine because (a) what happens after the syscall boundary is beyond our control, and (b) we want to make these blocks visible to the system (i.e., we want to avoid hiding these events by using queues).
 * It is the responsibility of `minivpn`'s user to keep reading from the `TUN` interface so that incoming data packets can be processed.
 * Any channels that connect the up and down processing chains (like, for instance, the internal channel that connects `packetmuxer.moveUpWorker` with `packetmuxer.moveDownWorker` to process ACKs) needs to be made buffered and with non-blocking writes.
 * The goroutine responsible for the `TLS` service handshake (meaning, the TLS handshake + the control message push and reply to exchange keys) is sequential, and therefore no Reads and Writes can happen concurrently.
