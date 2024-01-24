@@ -107,11 +107,9 @@ func main() {
 		runRoute("add", options.Remote, "gw", defaultGatewayIP.String(), defaultInterface.Name)
 	}
 
-	ip := net.ParseIP(localAddr)
-
 	// we want the network CIDR for setting up the routes
 	network := &net.IPNet{
-		IP:   ip.Mask(netMask),
+		IP:   net.ParseIP(localAddr).Mask(netMask),
 		Mask: netMask,
 	}
 
@@ -130,7 +128,6 @@ func main() {
 				log.WithError(err).Fatal("error reading from tun")
 			}
 			tunnel.Write(packet[:n])
-			//log.Infof("tun: packet received: % x\n", packet[:n])
 		}
 	}()
 	go func() {
@@ -141,32 +138,7 @@ func main() {
 				log.WithError(err).Fatal("error reading from tun")
 			}
 			iface.Write(packet[:n])
-			//log.Infof("tun: packet sent: % x\n", packet[:n])
 		}
 	}()
 	select {}
-}
-
-func getInterfaceByIP(ipAddr string) (*net.Interface, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, iface := range interfaces {
-		addrs, err := iface.Addrs()
-		if err != nil {
-			return nil, err
-		}
-
-		for _, addr := range addrs {
-			if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-				if ipNet.IP.String() == ipAddr {
-					return &iface, nil
-				}
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("interface with IP %s not found", ipAddr)
 }
