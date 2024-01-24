@@ -22,15 +22,20 @@ var (
 
 // StartTUN initializes and starts the TUN device over the vpn.
 // If the passed context expires before the TUN device is ready,
-func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Options) (*TUN, error) {
+func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Options, logger model.Logger) (*TUN, error) {
+	// be useful if passing an empty logger
+	if logger == nil {
+		logger = log.Log
+	}
+
 	// create a session
-	sessionManager, err := session.NewManager(log.Log)
+	sessionManager, err := session.NewManager(logger)
 	if err != nil {
 		return nil, err
 	}
 
 	// create the TUN that will OWN the connection
-	tunnel := newTUN(log.Log, conn, sessionManager)
+	tunnel := newTUN(logger, conn, sessionManager)
 
 	// start all the workers
 	workers := startWorkers(log.Log, sessionManager, tunnel, conn, options)

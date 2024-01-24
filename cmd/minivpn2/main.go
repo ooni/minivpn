@@ -7,13 +7,13 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/Doridian/water"
 	"github.com/apex/log"
+	"github.com/jackpal/gateway"
+
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/tun"
-
-	"github.com/Doridian/water"
-	"github.com/jackpal/gateway"
 )
 
 func runCmd(binaryPath string, args ...string) {
@@ -35,6 +35,13 @@ func runRoute(args ...string) {
 	runCmd("/sbin/route", args...)
 }
 
+/*
+func logWithElapsedTime(logger log.Interface, message string, start time.Time) {
+	elapsedTime := time.Since(startTime).Round(time.Millisecond)
+	logger.WithField("elapsed_time", elapsedTime).Info(message)
+}
+*/
+
 func main() {
 	log.SetLevel(log.DebugLevel)
 
@@ -49,10 +56,16 @@ func main() {
 	if !options.HasAuthInfo() {
 		log.Fatal("options are missing auth info")
 	}
+
+	log.SetHandler(NewHandler(os.Stderr))
+	log.SetLevel(log.DebugLevel)
+
 	// connect to the server
 	dialer := networkio.NewDialer(log.Log, &net.Dialer{})
 	ctx := context.Background()
+
 	endpoint := net.JoinHostPort(options.Remote, options.Port)
+
 	conn, err := dialer.DialContext(ctx, options.Proto.String(), endpoint)
 	if err != nil {
 		log.WithError(err).Fatal("dialer.DialContext")
@@ -64,7 +77,7 @@ func main() {
 	//defer cancel()
 
 	// create a vpn tun Device
-	tunnel, err := tun.StartTUN(ctx, conn, options)
+	tunnel, err := tun.StartTUN(ctx, conn, options, log.Log)
 	if err != nil {
 		log.WithError(err).Fatal("init error")
 		return
@@ -88,7 +101,7 @@ func main() {
 	remoteAddr := tunnel.RemoteAddr().String()
 	netMask := tunnel.NetMask()
 
-	// discover local gateway IP, to
+	// discover local gateway IP, we need it to add a route to our remote via our network gw
 	defaultGatewayIP, err := gateway.DiscoverGateway()
 	if err != nil {
 		log.Warn("could not discover default gateway IP, routes might be broken")
