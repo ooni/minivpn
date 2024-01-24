@@ -215,6 +215,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	// handle the case where we're performing a HARD_RESET
 	if ws.sessionManager.NegotiationState() == session.S_PRE_START &&
 		packet.Opcode == model.P_CONTROL_HARD_RESET_SERVER_V2 {
+		packet.Log(ws.logger, model.DirectionIncoming)
 		ws.hardResetTicker.Stop()
 		return ws.finishThreeWayHandshake(packet)
 	}
@@ -223,6 +224,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 
 	// multiplex the incoming packet POSSIBLY BLOCKING on delivering it
 	if packet.IsControl() || packet.Opcode == model.P_ACK_V1 {
+		packet.Log(ws.logger, model.DirectionIncoming)
 		select {
 		case ws.muxerToReliable <- packet:
 		case <-ws.workersManager.ShouldShutdown():
@@ -245,13 +247,6 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
 
 	// we need to manually ACK because the reliable layer is above us
-	ws.logger.Debugf(
-		"< %s localID=%x remoteID=%x [%d bytes]",
-		packet.Opcode,
-		packet.LocalSessionID,
-		packet.RemoteSessionID,
-		len(packet.Payload),
-	)
 
 	// create the ACK packet
 	ACK, err := ws.sessionManager.NewACKForPacket(packet)
@@ -298,13 +293,6 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 		return workers.ErrShutdown
 	}
 
-	ws.logger.Debugf(
-		"> %s localID=%x remoteID=%x [%d bytes]",
-		packet.Opcode,
-		packet.LocalSessionID,
-		packet.RemoteSessionID,
-		len(packet.Payload),
-	)
-
+	packet.Log(ws.logger, model.DirectionOutgoing)
 	return nil
 }

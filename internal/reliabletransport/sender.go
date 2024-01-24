@@ -28,7 +28,7 @@ func (ws *workersState) moveDownWorker() {
 		// POSSIBLY BLOCK reading the next packet we should move down the stack
 		select {
 		case packet := <-ws.controlToReliable:
-			logPacket(ws.logger, packet)
+			packet.Log(ws.logger, model.DirectionOutgoing)
 
 			sender.TryInsertOutgoingPacket(packet)
 			// schedule for inmediate wakeup
@@ -225,22 +225,9 @@ func (ws *workersState) doSendACK(packet *model.Packet) error {
 	// move the packet down. CAN BLOCK writing to the shared channel to muxer.
 	select {
 	case ws.dataOrControlToMuxer <- ACK:
-		logPacket(ws.logger, ACK)
+		ACK.Log(ws.logger, model.DirectionOutgoing)
 		return nil
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown
 	}
-}
-
-func logPacket(logger model.Logger, packet *model.Packet) {
-	logger.Infof(
-		"> %s (id=%d) [acks=%v] localID=%x remoteID=%x [%d bytes] %v",
-		packet.Opcode,
-		packet.ID,
-		packet.ACKs,
-		packet.LocalSessionID,
-		packet.RemoteSessionID,
-		len(packet.Payload),
-		time.Now(),
-	)
 }

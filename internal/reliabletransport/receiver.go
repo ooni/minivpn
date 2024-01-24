@@ -2,6 +2,7 @@ package reliabletransport
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"sort"
 
@@ -29,13 +30,7 @@ func (ws *workersState) moveUpWorker() {
 		// or POSSIBLY BLOCK waiting for notifications
 		select {
 		case packet := <-ws.muxerToReliable:
-			ws.logger.Infof(
-				"< %s localID=%x remoteID=%x [%d bytes]",
-				packet.Opcode,
-				packet.LocalSessionID,
-				packet.RemoteSessionID,
-				len(packet.Payload),
-			)
+			packet.Log(ws.logger, model.DirectionIncoming)
 
 			// drop a packet that is not for our session
 			if !bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()) {
@@ -48,27 +43,17 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			// possibly ACK the incoming packet
-			// TODO: move this responsibility to the sender.
-			/*
-				if err := ws.maybeACK(packet); err != nil {
-					ws.logger.Warnf("%s: cannot ACK packet: %s", workerName, err.Error())
-					continue
-				}
-			*/
-
 			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
 				// this packet was not inserted in the queue: we drop it
 				continue
 			}
 
-			// TODO: possibly refactor so that the writing to the channel happens here
-			// the fact this channel write is hidden makes following this harder
-			// receiver.NotifySeen(packet)
 			seenPacket, shouldDrop := receiver.newIncomingPacketSeen(packet)
 			switch shouldDrop {
 			case true:
 				receiver.logger.Warnf("got packet id %v, but last consumed is %v (dropping)\n", packet.ID, receiver.lastConsumed)
+				b, _ := packet.Bytes()
+				fmt.Println(hex.Dump(b))
 			case false:
 				ws.incomingSeen <- seenPacket
 			}
