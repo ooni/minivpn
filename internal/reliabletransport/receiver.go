@@ -48,31 +48,31 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			// TODO: drop a packet too far away (we can use lastConsumed)
-
 			// possibly ACK the incoming packet
 			// TODO: move this responsibility to the sender.
-			if err := ws.maybeACK(packet); err != nil {
-				ws.logger.Warnf("%s: cannot ACK packet: %s", workerName, err.Error())
+			/*
+				if err := ws.maybeACK(packet); err != nil {
+					ws.logger.Warnf("%s: cannot ACK packet: %s", workerName, err.Error())
+					continue
+				}
+			*/
+
+			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
+				// this packet was not inserted in the queue: we drop it
 				continue
 			}
-
-			ws.logger.Debugf(
-				"notify: <ID=%d acks=%v>",
-				packet.ID,
-				packet.ACKs,
-			)
 
 			// TODO: possibly refactor so that the writing to the channel happens here
 			// the fact this channel write is hidden makes following this harder
-			// TODO: notify before dropping?
-			receiver.NotifySeen(packet)
-
-			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
-				continue
+			// receiver.NotifySeen(packet)
+			seenPacket, shouldDrop := receiver.newIncomingPacketSeen(packet)
+			switch shouldDrop {
+			case true:
+				receiver.logger.Warnf("got packet id %v, but last consumed is %v (dropping)\n", packet.ID, receiver.lastConsumed)
+			case false:
+				ws.incomingSeen <- seenPacket
 			}
 
-			// TODO drop first ------------------------------------------------
 			ready := receiver.NextIncomingSequence()
 			for _, nextPacket := range ready {
 				// POSSIBLY BLOCK delivering to the upper layer
@@ -109,6 +109,11 @@ type reliableReceiver struct {
 	lastConsumed model.PacketID
 }
 
+// NotifySeen implements incomingPacketHandler.
+func (*reliableReceiver) NotifySeen(*model.Packet) bool {
+	panic("unimplemented")
+}
+
 func newReliableReceiver(logger model.Logger, i chan incomingPacketSeen) *reliableReceiver {
 	return &reliableReceiver{
 		logger:          logger,
@@ -119,6 +124,7 @@ func newReliableReceiver(logger model.Logger, i chan incomingPacketSeen) *reliab
 }
 
 // NotifySeen sends a incomingPacketSeen object to the shared channel where the sender will read it.
+/*
 func (r *reliableReceiver) NotifySeen(p *model.Packet) bool {
 	incoming := incomingPacketSeen{
 		id:   p.ID,
@@ -131,6 +137,7 @@ func (r *reliableReceiver) NotifySeen(p *model.Packet) bool {
 	return true
 
 }
+*/
 
 func (r *reliableReceiver) MaybeInsertIncoming(p *model.Packet) bool {
 	// we drop if at capacity, by default double the size of the outgoing buffer
@@ -166,11 +173,24 @@ func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 	}
 	r.lastConsumed = last
 	r.incomingPackets = keep
-	//if len(ready) != 0 {
-	//r.logger.Debugf(">> BUMP LAST CONSUMED TO %v", last)
-	//r.logger.Debugf(">> incoming now: %v", keep)
-	//}
 	return ready
+}
+
+func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) (incomingPacketSeen, bool) {
+	shouldDrop := false
+	incomingPacket := incomingPacketSeen{
+		id:   p.ID,
+		acks: p.ACKs,
+	}
+	r.logger.Debugf(
+		"notify: <ID=%d acks=%v>",
+		p.ID,
+		p.ACKs,
+	)
+	if p.ID > 0 && p.ID <= r.lastConsumed {
+		shouldDrop = true
+	}
+	return incomingPacket, shouldDrop
 }
 
 // assert that reliableIncoming implements incomingPacketHandler

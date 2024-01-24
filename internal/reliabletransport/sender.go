@@ -41,15 +41,39 @@ func (ws *workersState) moveDownWorker() {
 			// so that the ticker will wakeup and see if there's anything pending to be sent.
 			ticker.Reset(time.Nanosecond)
 
-		case incomingSeen := <-sender.incomingSeen:
+		case seenPacket := <-sender.incomingSeen:
 			// possibly evict any acked packet
-			sender.OnIncomingPacketSeen(incomingSeen)
+			sender.OnIncomingPacketSeen(seenPacket)
 
-			// schedule for inmediate wakeup, because we probably need to update ACKs
-			ticker.Reset(time.Nanosecond)
+			if seenPacket.id < sender.lastACKed {
+				continue
+			}
 
-			// TODO need to ACK here if no packets pending.
-			// I think we can just call withExpiredDeadline and ACK if len(expired) is 0
+			now := time.Now()
+
+			// this is quite arbitrary
+			tooLate := now.Add(1000 * time.Millisecond)
+
+			nextTimeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
+
+			if nextTimeout.After(tooLate) {
+				// we don't want to wait so much, so we do send the ACK immediately.
+				if err := ws.doSendACK(&model.Packet{ID: seenPacket.id}); err != nil {
+					sender.lastACKed += 1
+				}
+
+				// TODO: ------------------------------------------------------------
+				// discuss: how can we gauge the sending queue? should we peek what's
+				// if len(ws.controlToReliable) != 0 {
+			} else {
+				// we'll be fine by having these ACKs hitching a ride on the next outgoing packet
+				// that is scheduled to go soon anyways
+				fmt.Println(">>> SHOULD SEND SOON ENOUGH, APPEND ACK!--------------")
+				sender.pendingACKsToSend = append(sender.pendingACKsToSend, seenPacket.acks...)
+				// TODO: not needed anymore.
+				// and now we schedule for inmediate wakeup, because we probably need to update ACKs
+				// ticker.Reset(time.Nanosecond)
+			}
 
 		case <-ticker.C:
 			// First of all, we reset the ticker to the next timeout.
@@ -96,14 +120,18 @@ func (ws *workersState) moveDownWorker() {
 // reliableSender keeps state about the outgoing packet queue, and implements outgoingPacketHandler.
 // Please use the constructor `newReliableSender()`
 type reliableSender struct {
-	// logger is the logger to use
-	logger model.Logger
 
 	// incomingSeen is a channel where we receive notifications for incoming packets seen by the receiver.
 	incomingSeen <-chan incomingPacketSeen
 
 	// inFlight is the array of in-flight packets.
 	inFlight []*inFlightPacket
+
+	// lastACKed is the last packet ID from the remote that we have acked
+	lastACKed model.PacketID
+
+	// logger is the logger to use
+	logger model.Logger
 
 	// pendingACKsToSend is the array of packets that we still need to ACK.
 	pendingACKsToSend []model.PacketID
@@ -112,9 +140,10 @@ type reliableSender struct {
 // newReliableSender returns a new instance of reliableOutgoing.
 func newReliableSender(logger model.Logger, i chan incomingPacketSeen) *reliableSender {
 	return &reliableSender{
-		logger:            logger,
 		incomingSeen:      i,
 		inFlight:          make([]*inFlightPacket, 0, RELIABLE_SEND_BUFFER_SIZE),
+		lastACKed:         model.PacketID(0),
+		logger:            logger,
 		pendingACKsToSend: []model.PacketID{},
 	}
 }
@@ -192,13 +221,8 @@ func (r *reliableSender) OnIncomingPacketSeen(ips incomingPacketSeen) {
 
 var _ outgoingPacketHandler = &reliableSender{}
 
-// maybeACK sends an ACK when needed.
-func (ws *workersState) maybeACK(packet *model.Packet) error {
-	// currently we are ACKing every packet
-	// TODO: implement better ACKing strategy - this is basically moving the responsibility
-	// to the sender, and then either appending up to 4 ACKs to the ACK array of an outgoing
-	// packet, or sending a single ACK (if there's nothing pending to be sent).
-
+// doSendACK sends an ACK when needed.
+func (ws *workersState) doSendACK(packet *model.Packet) error {
 	// this function will fail if we don't know the remote session ID
 	ACK, err := ws.sessionManager.NewACKForPacket(packet)
 	if err != nil {
@@ -208,7 +232,7 @@ func (ws *workersState) maybeACK(packet *model.Packet) error {
 	// move the packet down. CAN BLOCK writing to the shared channel to muxer.
 	select {
 	case ws.dataOrControlToMuxer <- ACK:
-		ws.logger.Debugf("ack for remote packet id: %d", packet.ID)
+		ws.logger.Debugf("====> ack for remote packet id: %d", packet.ID)
 		return nil
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown
