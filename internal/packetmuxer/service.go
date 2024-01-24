@@ -3,6 +3,7 @@ package packetmuxer
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
@@ -48,12 +49,14 @@ func (s *Service) StartWorkers(
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:               logger,
-		hardReset:            s.HardReset,
+		logger:    logger,
+		hardReset: s.HardReset,
+		// initialize to a sufficiently long time from now
+		hardResetTicker:      time.NewTicker(time.Hour * 24 * 30),
 		notifyTLS:            *s.NotifyTLS,
+		dataOrControlToMuxer: s.DataOrControlToMuxer,
 		muxerToReliable:      *s.MuxerToReliable,
 		muxerToData:          *s.MuxerToData,
-		dataOrControlToMuxer: s.DataOrControlToMuxer,
 		muxerToNetwork:       *s.MuxerToNetwork,
 		networkToMuxer:       s.NetworkToMuxer,
 		sessionManager:       sessionManager,
@@ -70,6 +73,9 @@ type workersState struct {
 
 	// hardReset is the channel posted to force a hard reset.
 	hardReset <-chan any
+
+	// hardResetTicker is a channel to retry the initial send of hard reset packet.
+	hardResetTicker *time.Ticker
 
 	// notifyTLS is used to send notifications to the TLS service.
 	notifyTLS chan<- *model.Notification
@@ -113,6 +119,13 @@ func (ws *workersState) moveUpWorker() {
 		case rawPacket := <-ws.networkToMuxer:
 			if err := ws.handleRawPacket(rawPacket); err != nil {
 				// error already printed
+				return
+			}
+
+		case <-ws.hardResetTicker.C:
+			// retry the hard reset, it probably was lost
+			if err := ws.startHardReset(); err != nil {
+				// error already logged
 				return
 			}
 
@@ -169,6 +182,7 @@ func (ws *workersState) moveDownWorker() {
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
+	// TODO(ainghazal): we need to retry this hard reset if not ACKd in a reasonable time.
 	packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
 	if err != nil {
 		ws.logger.Warnf("packetmuxer: NewPacket: %s", err.Error())
@@ -178,7 +192,10 @@ func (ws *workersState) startHardReset() error {
 		return err
 	}
 
-	// reset the state to become initial again
+	// resend if not received the server's reply in 2 seconds.
+	ws.hardResetTicker.Reset(time.Second * 2)
+
+	// reset the state to become initial again.
 	ws.sessionManager.SetNegotiationState(session.S_PRE_START)
 
 	// TODO: any other change to apply in this case?
@@ -198,6 +215,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	// handle the case where we're performing a HARD_RESET
 	if ws.sessionManager.NegotiationState() == session.S_PRE_START &&
 		packet.Opcode == model.P_CONTROL_HARD_RESET_SERVER_V2 {
+		ws.hardResetTicker.Stop()
 		return ws.finishThreeWayHandshake(packet)
 	}
 
