@@ -28,13 +28,7 @@ func (ws *workersState) moveDownWorker() {
 		// POSSIBLY BLOCK reading the next packet we should move down the stack
 		select {
 		case packet := <-ws.controlToReliable:
-			ws.logger.Infof(
-				"> %s localID=%x remoteID=%x [%d bytes]",
-				packet.Opcode,
-				packet.LocalSessionID,
-				packet.RemoteSessionID,
-				len(packet.Payload),
-			)
+			logPacket(ws.logger, packet)
 
 			sender.TryInsertOutgoingPacket(packet)
 			// schedule for inmediate wakeup
@@ -52,12 +46,12 @@ func (ws *workersState) moveDownWorker() {
 			now := time.Now()
 
 			// this is quite arbitrary
-			tooLate := now.Add(1000 * time.Millisecond)
+			tooLate := now.Add(50 * time.Millisecond)
 
 			nextTimeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
 
 			if nextTimeout.After(tooLate) {
-				// we don't want to wait so much, so we do send the ACK immediately.
+				// we don't want to wait so much, so we do not wait for the ticker to wake up
 				if err := ws.doSendACK(&model.Packet{ID: seenPacket.id}); err != nil {
 					sender.lastACKed += 1
 				}
@@ -68,10 +62,9 @@ func (ws *workersState) moveDownWorker() {
 			} else {
 				// we'll be fine by having these ACKs hitching a ride on the next outgoing packet
 				// that is scheduled to go soon anyways
-				fmt.Println(">>> SHOULD SEND SOON ENOUGH, APPEND ACK!--------------")
+				fmt.Println("===> SHOULD SEND SOON ENOUGH, APPEND ACK!-----------------")
 				sender.pendingACKsToSend = append(sender.pendingACKsToSend, seenPacket.acks...)
-				// TODO: not needed anymore.
-				// and now we schedule for inmediate wakeup, because we probably need to update ACKs
+				// TODO: not needed anymore right?
 				// ticker.Reset(time.Nanosecond)
 			}
 
@@ -86,14 +79,15 @@ func (ws *workersState) moveDownWorker() {
 			now := time.Now()
 			timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
 
-			ws.logger.Debug("")
-			ws.logger.Debugf("next wakeup: %v", timeout.Sub(now))
+			// ws.logger.Debug("")
+			// ws.logger.Debugf("next wakeup: %v", timeout.Sub(now))
 
 			ticker.Reset(timeout.Sub(now))
 
 			// we flush everything that is ready to be sent.
 			scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
-			ws.logger.Debugf(":: GOT %d packets to send\n", len(scheduledNow))
+
+			// ws.logger.Debugf(":: GOT %d packets to send\n", len(scheduledNow))
 
 			for _, p := range scheduledNow {
 				p.ScheduleForRetransmission(now)
@@ -101,7 +95,6 @@ func (ws *workersState) moveDownWorker() {
 				// ideally, we want to append any pending ACKs here
 				select {
 				case ws.dataOrControlToMuxer <- p.packet:
-					ws.logger.Debugf("==> sent packet with ID: %v", p.packet.ID)
 				case <-ws.workersManager.ShouldShutdown():
 					return
 				}
@@ -232,9 +225,22 @@ func (ws *workersState) doSendACK(packet *model.Packet) error {
 	// move the packet down. CAN BLOCK writing to the shared channel to muxer.
 	select {
 	case ws.dataOrControlToMuxer <- ACK:
-		ws.logger.Debugf("====> ack for remote packet id: %d", packet.ID)
+		logPacket(ws.logger, ACK)
 		return nil
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown
 	}
+}
+
+func logPacket(logger model.Logger, packet *model.Packet) {
+	logger.Infof(
+		"> %s (id=%d) [acks=%v] localID=%x remoteID=%x [%d bytes] %v",
+		packet.Opcode,
+		packet.ID,
+		packet.ACKs,
+		packet.LocalSessionID,
+		packet.RemoteSessionID,
+		len(packet.Payload),
+		time.Now(),
+	)
 }
