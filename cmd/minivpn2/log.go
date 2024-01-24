@@ -66,7 +66,7 @@ func (h *Handler) HandleLog(e *log.Entry) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	ts := time.Since(start) // time.Microsecond
+	ts := time.Since(start)
 	fmt.Fprintf(h.Writer, "\033[%dm%6s\033[0m[%10v] %-25s", color, level, ts, e.Message)
 
 	for _, name := range names {

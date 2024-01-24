@@ -108,12 +108,6 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	// connect the muxer and the tlsstate service
 	connectChannel(tlsx.NotifyTLS, &muxer.NotifyTLS)
 
-	logger.Debugf("%T: %+v", nio, nio)
-	logger.Debugf("%T: %+v", muxer, muxer)
-	logger.Debugf("%T: %+v", rel, rel)
-	logger.Debugf("%T: %+v", ctrl, ctrl)
-	logger.Debugf("%T: %+v", tlsx, tlsx)
-
 	// start all the workers
 	nio.StartWorkers(logger, workersManager, conn)
 	muxer.StartWorkers(logger, workersManager, sessionManager)
