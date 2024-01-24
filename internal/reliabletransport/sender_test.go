@@ -224,7 +224,7 @@ func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &reliableIncoming{
+			r := &reliableReceiver{
 				logger:          log.Log,
 				incomingPackets: tt.fields.incomingPackets,
 			}
@@ -334,7 +334,7 @@ func Test_reliableQueue_NextIncomingSequence(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &reliableIncoming{
+			r := &reliableReceiver{
 				lastConsumed:    tt.fields.lastConsumed,
 				incomingPackets: tt.fields.incomingPackets,
 			}

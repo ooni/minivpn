@@ -1,10 +1,97 @@
 package reliabletransport
 
 import (
+	"fmt"
 	"sort"
+	"time"
 
 	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/workers"
 )
+
+// moveDownWorker moves packets down the stack (sender)
+// TODO move the worker to sender.go
+func (ws *workersState) moveDownWorker() {
+	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
+
+	defer func() {
+		ws.workersManager.OnWorkerDone(workerName)
+		ws.workersManager.StartShutdown()
+	}()
+
+	ws.logger.Debugf("%s: started", workerName)
+
+	sender := newReliableSender(ws.logger, ws.incomingSeen)
+	ticker := time.NewTicker(time.Duration(SENDER_TICKER_MS) * time.Millisecond)
+
+	for {
+		// POSSIBLY BLOCK reading the next packet we should move down the stack
+		select {
+		case packet := <-ws.controlToReliable:
+			ws.logger.Infof(
+				"> %s localID=%x remoteID=%x [%d bytes]",
+				packet.Opcode,
+				packet.LocalSessionID,
+				packet.RemoteSessionID,
+				len(packet.Payload),
+			)
+
+			sender.TryInsertOutgoingPacket(packet)
+			// schedule for inmediate wakeup
+			// so that the ticker will wakeup and see if there's anything pending to be sent.
+			ticker.Reset(time.Nanosecond)
+
+		case incomingSeen := <-sender.incomingSeen:
+			// possibly evict any acked packet
+			sender.OnIncomingPacketSeen(incomingSeen)
+
+			// schedule for inmediate wakeup, because we probably need to update ACKs
+			ticker.Reset(time.Nanosecond)
+
+			// TODO need to ACK here if no packets pending.
+			// I think we can just call withExpiredDeadline and ACK if len(expired) is 0
+
+		case <-ticker.C:
+			// First of all, we reset the ticker to the next timeout.
+			// By default, that's going to return one minute if there are no packets
+			// in the in-flight queue.
+
+			// nearestDeadlineTo(now) ensures that we do not receive a time before now, and
+			// that increments the passed moment by an epsilon if all deadlines are expired,
+			// so it should be safe to reset the ticker with that timeout.
+			now := time.Now()
+			timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
+
+			ws.logger.Debug("")
+			ws.logger.Debugf("next wakeup: %v", timeout.Sub(now))
+
+			ticker.Reset(timeout.Sub(now))
+
+			// we flush everything that is ready to be sent.
+			scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
+			ws.logger.Debugf(":: GOT %d packets to send\n", len(scheduledNow))
+
+			for _, p := range scheduledNow {
+				p.ScheduleForRetransmission(now)
+				// TODO -------------------------------------------
+				// ideally, we want to append any pending ACKs here
+				select {
+				case ws.dataOrControlToMuxer <- p.packet:
+					ws.logger.Debugf("==> sent packet with ID: %v", p.packet.ID)
+				case <-ws.workersManager.ShouldShutdown():
+					return
+				}
+			}
+
+		case <-ws.workersManager.ShouldShutdown():
+			return
+		}
+	}
+}
+
+//
+// outgoingPacketHandler implementation.
+//
 
 // reliableSender keeps state about the outgoing packet queue, and implements outgoingPacketHandler.
 // Please use the constructor `newReliableSender()`
@@ -104,3 +191,26 @@ func (r *reliableSender) OnIncomingPacketSeen(ips incomingPacketSeen) {
 }
 
 var _ outgoingPacketHandler = &reliableSender{}
+
+// maybeACK sends an ACK when needed.
+func (ws *workersState) maybeACK(packet *model.Packet) error {
+	// currently we are ACKing every packet
+	// TODO: implement better ACKing strategy - this is basically moving the responsibility
+	// to the sender, and then either appending up to 4 ACKs to the ACK array of an outgoing
+	// packet, or sending a single ACK (if there's nothing pending to be sent).
+
+	// this function will fail if we don't know the remote session ID
+	ACK, err := ws.sessionManager.NewACKForPacket(packet)
+	if err != nil {
+		return err
+	}
+
+	// move the packet down. CAN BLOCK writing to the shared channel to muxer.
+	select {
+	case ws.dataOrControlToMuxer <- ACK:
+		ws.logger.Debugf("ack for remote packet id: %d", packet.ID)
+		return nil
+	case <-ws.workersManager.ShouldShutdown():
+		return workers.ErrShutdown
+	}
+}

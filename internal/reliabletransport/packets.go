@@ -38,7 +38,6 @@ func (p *inFlightPacket) ExtractACKs() []model.PacketID {
 	return p.packet.ACKs
 }
 
-// TODO leaving Fast retransmission out for now.
 // ACKForHigherPacket increments the number of acks received for a higher pid than this packet. This will influence the fast rexmit selection algorithm.
 func (p *inFlightPacket) ACKForHigherPacket() {
 	p.higherACKs += 1
