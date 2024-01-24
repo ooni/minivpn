@@ -109,11 +109,6 @@ type reliableReceiver struct {
 	lastConsumed model.PacketID
 }
 
-// NotifySeen implements incomingPacketHandler.
-func (*reliableReceiver) NotifySeen(*model.Packet) bool {
-	panic("unimplemented")
-}
-
 func newReliableReceiver(logger model.Logger, i chan incomingPacketSeen) *reliableReceiver {
 	return &reliableReceiver{
 		logger:          logger,
@@ -122,22 +117,6 @@ func newReliableReceiver(logger model.Logger, i chan incomingPacketSeen) *reliab
 		lastConsumed:    0,
 	}
 }
-
-// NotifySeen sends a incomingPacketSeen object to the shared channel where the sender will read it.
-/*
-func (r *reliableReceiver) NotifySeen(p *model.Packet) bool {
-	incoming := incomingPacketSeen{
-		id:   p.ID,
-		acks: p.ACKs,
-	}
-	if p.ID > 0 && p.ID <= r.lastConsumed {
-		r.logger.Warnf("got packet id %v, but last consumed is %v\n", p.ID, r.lastConsumed)
-	}
-	r.incomingSeen <- incoming
-	return true
-
-}
-*/
 
 func (r *reliableReceiver) MaybeInsertIncoming(p *model.Packet) bool {
 	// we drop if at capacity, by default double the size of the outgoing buffer

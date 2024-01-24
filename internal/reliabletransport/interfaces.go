@@ -37,10 +37,6 @@ type outgoingPacketHandler interface {
 
 // incomingPacketHandler knows how to deal with incoming packets (going up).
 type incomingPacketHandler interface {
-	// TODO: the interface needs to add ACKs()
-	// NotifySeen sends notifications about an incoming packet.
-	NotifySeen(*model.Packet) bool
-
 	// MaybeInsertIncoming will insert a given packet in the reliable
 	// incoming queue if it passes a series of sanity checks.
 	MaybeInsertIncoming(*model.Packet) bool
