@@ -1,14 +1,17 @@
 package tlssession
 
 import (
-	"context"
+	"fmt"
 	"net"
-	"time"
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
 	tls "github.com/refraction-networking/utls"
+)
+
+var (
+	serviceName = "tlssession"
 )
 
 // Service is the tlssession service. Make sure you initialize
@@ -71,19 +74,20 @@ type workersState struct {
 
 // worker is the main loop of the tlssession
 func (ws *workersState) worker() {
+	workerName := fmt.Sprintf("%s: worker", serviceName)
+
 	defer func() {
-		ws.workersManager.OnWorkerDone()
+		ws.workersManager.OnWorkerDone(workerName)
 		ws.workersManager.StartShutdown()
-		ws.logger.Debug("tlssession: worker: done")
 	}()
 
-	ws.logger.Debug("tlssession: worker: started")
+	ws.logger.Debugf("%s: started", workerName)
 	for {
 		select {
 		case notif := <-ws.notifyTLS:
 			if (notif.Flags & model.NotificationReset) != 0 {
 				if err := ws.tlsAuth(); err != nil {
-					ws.logger.Warnf("tlssession: tlsAuth: %s", err.Error())
+					ws.logger.Warnf("%s: %s", workerName, err.Error())
 					// TODO: is it worth checking the return value and stopping?
 				}
 			}
@@ -116,16 +120,9 @@ func (ws *workersState) tlsAuth() error {
 	errorch := make(chan error)
 	go ws.doTLSAuth(conn, tlsConf, errorch)
 
-	// make sure we timeout after 60 seconds anyway
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
 	select {
 	case err := <-errorch:
 		return err
-
-	case <-ctx.Done():
-		return ctx.Err()
 
 	case <-ws.workersManager.ShouldShutdown():
 		return workers.ErrShutdown
@@ -144,7 +141,9 @@ func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch cha
 		errorch <- err
 		return
 	}
-	//defer tlsConn.Close() // <- we don't care since the underlying conn is a tlsBio
+	// In case you're wondering why we don't need to close the conn:
+	// we don't care since the underlying conn is a tlsBio
+	// defer tlsConn.Close()
 
 	// we need the active key to create the first control message
 	activeKey, err := ws.sessionManager.ActiveKey()

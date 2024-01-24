@@ -7,6 +7,8 @@ package workers
 import (
 	"errors"
 	"sync"
+
+	"github.com/ooni/minivpn/internal/model"
 )
 
 // ErrShutdown is the error returned by a worker that is shutting down.
@@ -15,6 +17,9 @@ var ErrShutdown = errors.New("worker is shutting down")
 // Manager coordinates the lifeycles of the workers implementing the OpenVPN
 // protocol. The zero value is invalid; use [NewManager].
 type Manager struct {
+	// logger logs events
+	logger model.Logger
+
 	// shouldShutdown is closed to signal all workers to shut down.
 	shouldShutdown chan any
 
@@ -26,8 +31,9 @@ type Manager struct {
 }
 
 // NewManager creates a new [*Manager].
-func NewManager() *Manager {
+func NewManager(logger model.Logger) *Manager {
 	return &Manager{
+		logger:         logger,
 		shouldShutdown: make(chan any),
 		shutdownOnce:   sync.Once{},
 		wg:             &sync.WaitGroup{},
@@ -41,7 +47,8 @@ func (m *Manager) StartWorker(fx func()) {
 }
 
 // OnWorkerDone MUST be called when a worker goroutine terminates.
-func (m *Manager) OnWorkerDone() {
+func (m *Manager) OnWorkerDone(name string) {
+	m.logger.Debugf("%s: worker done", name)
 	m.wg.Done()
 }
 

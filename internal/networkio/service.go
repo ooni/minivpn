@@ -1,8 +1,14 @@
 package networkio
 
 import (
+	"fmt"
+
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/workers"
+)
+
+var (
+	serviceName = "networkio"
 )
 
 // Service is the network I/O service. Make sure you initialize
@@ -58,15 +64,14 @@ type workersState struct {
 
 // moveUpWorker moves packets up the stack.
 func (ws *workersState) moveUpWorker() {
+	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
+
 	defer func() {
 		// make sure the manager knows we're done
-		ws.manager.OnWorkerDone()
+		ws.manager.OnWorkerDone(workerName)
 
 		// tear down everything else because a workers exited
 		ws.manager.StartShutdown()
-
-		// emit useful debug message
-		ws.logger.Debug("networkio: moveUpWorker: done")
 	}()
 
 	ws.logger.Debug("networkio: moveUpWorker: started")
@@ -75,7 +80,7 @@ func (ws *workersState) moveUpWorker() {
 		// POSSIBLY BLOCK on the connection to read a new packet
 		pkt, err := ws.conn.ReadRawPacket()
 		if err != nil {
-			ws.logger.Debugf("networkio: moveUpWorker: ReadRawPacket: %s", err.Error())
+			ws.logger.Debugf("%s: ReadRawPacket: %s", workerName, err.Error())
 			return
 		}
 
@@ -90,13 +95,17 @@ func (ws *workersState) moveUpWorker() {
 
 // moveDownWorker moves packets down the stack
 func (ws *workersState) moveDownWorker() {
+	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
+
 	defer func() {
+		// make sure the manager knows we're done
+		ws.manager.OnWorkerDone(workerName)
+
+		// tear down everything else because a worker exited
 		ws.manager.StartShutdown()
-		ws.manager.OnWorkerDone()
-		ws.logger.Debug("networkio: moveDownWorker: done")
 	}()
 
-	ws.logger.Debug("networkio: moveDownWorker: started")
+	ws.logger.Debugf("%s: started", workerName)
 
 	for {
 		// POSSIBLY BLOCK when receiving from channel.
@@ -104,7 +113,7 @@ func (ws *workersState) moveDownWorker() {
 		case pkt := <-ws.muxerToNetwork:
 			// POSSIBLY BLOCK on the connection to write the packet
 			if err := ws.conn.WriteRawPacket(pkt); err != nil {
-				ws.logger.Infof("networkio: moveDownWorker: WriteRawPacket: %s", err.Error())
+				ws.logger.Infof("%s: WriteRawPacket: %s", workerName, err.Error())
 				return
 			}
 
