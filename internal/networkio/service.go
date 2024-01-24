@@ -101,7 +101,7 @@ func (ws *workersState) moveDownWorker() {
 		// make sure the manager knows we're done
 		ws.manager.OnWorkerDone(workerName)
 
-		// tear down everything else because a workers exited
+		// tear down everything else because a worker exited
 		ws.manager.StartShutdown()
 	}()
 
