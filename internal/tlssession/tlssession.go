@@ -141,6 +141,9 @@ func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch cha
 		errorch <- err
 		return
 	}
+	// In case you're wondering why we don't need to close the conn:
+	// we don't care since the underlying conn is a tlsBio
+	// defer tlsConn.Close()
 
 	// we need the active key to create the first control message
 	activeKey, err := ws.sessionManager.ActiveKey()
