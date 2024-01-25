@@ -55,10 +55,13 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			if packet.ID < receiver.lastConsumed {
-				ws.logger.Warnf("%s: received %d but last consumed was %d", workerName, packet.ID, receiver.lastConsumed)
-				continue
-			}
+			// I think this check is not helping -- ain
+			/*
+				if packet.ID < receiver.lastConsumed {
+					ws.logger.Warnf("%s: received %d but last consumed was %d", workerName, packet.ID, receiver.lastConsumed)
+					continue
+				}
+			*/
 
 			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
 				// this packet was not inserted in the queue: we drop it
@@ -148,6 +151,9 @@ func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 }
 
 func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) incomingPacketSeen {
+	if len(p.ACKs) != 0 {
+		fmt.Println(":: seen", p.ACKs)
+	}
 	incomingPacket := incomingPacketSeen{}
 	if p.Opcode == model.P_ACK_V1 {
 		incomingPacket.acks = optional.Some(p.ACKs)

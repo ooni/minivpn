@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/workers"
 )
 
 // moveDownWorker moves packets down the stack (sender)
@@ -195,6 +194,7 @@ func (r *reliableSender) OnIncomingPacketSeen(seen incomingPacketSeen) {
 var _ outgoingPacketHandler = &reliableSender{}
 
 // doSendACK sends an ACK when needed.
+/*
 func (ws *workersState) doSendACK(packet *model.Packet) error {
 	// this function will fail if we don't know the remote session ID
 	ACK, err := ws.sessionManager.NewACKForPacket(packet)
@@ -211,3 +211,4 @@ func (ws *workersState) doSendACK(packet *model.Packet) error {
 		return workers.ErrShutdown
 	}
 }
+*/
