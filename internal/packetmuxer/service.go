@@ -2,6 +2,7 @@
 package packetmuxer
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -232,13 +233,16 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 			return workers.ErrShutdown
 		}
 	} else {
+		if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+			return errors.New("not ready to handle data")
+		}
 		select {
 		case ws.muxerToData <- packet:
 		case <-ws.workersManager.ShouldShutdown():
 			return workers.ErrShutdown
-		// TODO ----------------- temporary: do we get spurious data packets during hadnshake from previous sessions ------------------
-		default:
-			ws.logger.Warnf("%s: moveUpWorker.handleRawPacket: dropped data packet", serviceName)
+			// TODO ----------------- temporary: do we get spurious data packets during hadnshake from previous sessions ------------------
+			//default:
+			//ws.logger.Warnf("%s: moveUpWorker.handleRawPacket: dropped data packet", serviceName)
 			// TODO ---------------------------------------------------------------------
 		}
 	}
