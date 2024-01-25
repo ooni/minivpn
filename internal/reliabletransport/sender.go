@@ -58,16 +58,19 @@ func (ws *workersState) moveDownWorker() {
 
 			for _, p := range scheduledNow {
 				p.ScheduleForRetransmission(now)
+
 				// append any pending ACKs
-				nextACKs := sender.NextPacketIDsToACK()
+				p.packet.ACKs = sender.NextPacketIDsToACK()
 
 				// HACK: we need to account for packet IDs received below (hard reset)
 				// (special case)
-				if p.packet.ID == 1 && len(nextACKs) == 0 {
-					p.packet.ACKs = []model.PacketID{0}
-				} else {
-					p.packet.ACKs = nextACKs
-				}
+				/*
+					if p.packet.ID == 1 && len(nextACKs) == 0 {
+						p.packet.ACKs = []model.PacketID{0}
+					} else {
+						p.packet.ACKs = nextACKs
+					}
+				*/
 
 				p.packet.Log(ws.logger, model.DirectionOutgoing)
 				select {
@@ -97,9 +100,6 @@ type reliableSender struct {
 	// inFlight is the array of in-flight packets.
 	inFlight []*inFlightPacket
 
-	// lastACKed is the last packet ID from the remote that we have acked
-	// lastACKed model.PacketID
-
 	// logger is the logger to use
 	logger model.Logger
 
@@ -110,9 +110,8 @@ type reliableSender struct {
 // newReliableSender returns a new instance of reliableOutgoing.
 func newReliableSender(logger model.Logger, i chan incomingPacketSeen) *reliableSender {
 	return &reliableSender{
-		incomingSeen: i,
-		inFlight:     make([]*inFlightPacket, 0, RELIABLE_SEND_BUFFER_SIZE),
-		//lastACKed:         model.PacketID(0),
+		incomingSeen:      i,
+		inFlight:          make([]*inFlightPacket, 0, RELIABLE_SEND_BUFFER_SIZE),
 		logger:            logger,
 		pendingACKsToSend: []model.PacketID{},
 	}

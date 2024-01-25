@@ -2,7 +2,6 @@ package reliabletransport
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"sort"
 
@@ -31,7 +30,10 @@ func (ws *workersState) moveUpWorker() {
 		// or POSSIBLY BLOCK waiting for notifications
 		select {
 		case packet := <-ws.muxerToReliable:
-			packet.Log(ws.logger, model.DirectionIncoming)
+			if packet.Opcode != model.P_CONTROL_HARD_RESET_SERVER_V2 {
+				// the hard reset we logged in below
+				packet.Log(ws.logger, model.DirectionIncoming)
+			}
 
 			// drop a packet that is not for our session
 			if !bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()) {
@@ -44,19 +46,23 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
-				// this packet was not inserted in the queue: we drop it
+			seen := receiver.newIncomingPacketSeen(packet)
+			ws.incomingSeen <- seen
+
+			// we only want to insert control packets going to the tls layer
+
+			if packet.Opcode != model.P_CONTROL_V1 {
 				continue
 			}
 
-			seenPacket, shouldDrop := receiver.newIncomingPacketSeen(packet)
-			switch shouldDrop {
-			case true:
-				receiver.logger.Warnf("got packet id %v, but last consumed is %v (dropping)\n", packet.ID, receiver.lastConsumed)
-				b, _ := packet.Bytes()
-				fmt.Println(hex.Dump(b))
-			case false:
-				ws.incomingSeen <- seenPacket
+			if packet.ID < receiver.lastConsumed {
+				ws.logger.Warnf("%s: received %d but last consumed was %d", workerName, packet.ID, receiver.lastConsumed)
+				continue
+			}
+
+			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
+				// this packet was not inserted in the queue: we drop it
+				continue
 			}
 
 			ready := receiver.NextIncomingSequence()
@@ -141,30 +147,16 @@ func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 	return ready
 }
 
-func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) (incomingPacketSeen, bool) {
-	shouldDrop := false
+func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) incomingPacketSeen {
 	incomingPacket := incomingPacketSeen{}
 	if p.Opcode == model.P_ACK_V1 {
 		incomingPacket.acks = optional.Some(p.ACKs)
 	} else {
 		incomingPacket.id = optional.Some(p.ID)
-		if len(p.ACKs) != 0 {
-			incomingPacket.acks = optional.Some(p.ACKs)
-		}
+		incomingPacket.acks = optional.Some(p.ACKs)
 	}
 
-	/*
-		r.logger.Debugf(
-			"notify: <ID=%d acks=%v>",
-			p.ID,
-			p.ACKs,
-		)
-	*/
-
-	if p.ID > 0 && p.ID <= r.lastConsumed {
-		shouldDrop = true
-	}
-	return incomingPacket, shouldDrop
+	return incomingPacket
 }
 
 // assert that reliableIncoming implements incomingPacketHandler

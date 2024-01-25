@@ -182,7 +182,6 @@ func (ws *workersState) moveDownWorker() {
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
-	// TODO(ainghazal): we need to retry this hard reset if not ACKd in a reasonable time.
 	packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
 	if err != nil {
 		ws.logger.Warnf("packetmuxer: NewPacket: %s", err.Error())
@@ -247,6 +246,13 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 
 	// advance the state
 	ws.sessionManager.SetNegotiationState(session.S_START)
+
+	// pass the packet up so that we can ack it properly
+	select {
+	case ws.muxerToReliable <- packet:
+	case <-ws.workersManager.ShouldShutdown():
+		return workers.ErrShutdown
+	}
 
 	// attempt to tell TLS we want to handshake.
 	// This WILL BLOCK if the notifyTLS channel
