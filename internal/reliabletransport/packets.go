@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/optional"
 )
 
 //
@@ -152,6 +153,6 @@ func (ip *incomingPacket) Packet() *model.Packet {
 
 // incomingPacketSeen is a struct that the receiver sends us when a new packet is seen.
 type incomingPacketSeen struct {
-	id   model.PacketID
-	acks []model.PacketID
+	id   optional.Value[model.PacketID]
+	acks optional.Value[[]model.PacketID]
 }

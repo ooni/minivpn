@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/optional"
 )
 
 // moveUpWorker moves packets up the stack (receiver)
@@ -142,15 +143,24 @@ func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 
 func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) (incomingPacketSeen, bool) {
 	shouldDrop := false
-	incomingPacket := incomingPacketSeen{
-		id:   p.ID,
-		acks: p.ACKs,
+	incomingPacket := incomingPacketSeen{}
+	if p.Opcode == model.P_ACK_V1 {
+		incomingPacket.acks = optional.Some(p.ACKs)
+	} else {
+		incomingPacket.id = optional.Some(p.ID)
+		if len(p.ACKs) != 0 {
+			incomingPacket.acks = optional.Some(p.ACKs)
+		}
 	}
-	r.logger.Debugf(
-		"notify: <ID=%d acks=%v>",
-		p.ID,
-		p.ACKs,
-	)
+
+	/*
+		r.logger.Debugf(
+			"notify: <ID=%d acks=%v>",
+			p.ID,
+			p.ACKs,
+		)
+	*/
+
 	if p.ID > 0 && p.ID <= r.lastConsumed {
 		shouldDrop = true
 	}

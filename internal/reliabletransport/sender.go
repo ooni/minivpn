@@ -28,7 +28,6 @@ func (ws *workersState) moveDownWorker() {
 		// POSSIBLY BLOCK reading the next packet we should move down the stack
 		select {
 		case packet := <-ws.controlToReliable:
-			packet.Log(ws.logger, model.DirectionOutgoing)
 
 			sender.TryInsertOutgoingPacket(packet)
 			// schedule for inmediate wakeup
@@ -36,37 +35,10 @@ func (ws *workersState) moveDownWorker() {
 			ticker.Reset(time.Nanosecond)
 
 		case seenPacket := <-sender.incomingSeen:
-			// possibly evict any acked packet
+			// possibly evict any acked packet (in the ack array)
+			// and add any id to the queue of packets to ack
 			sender.OnIncomingPacketSeen(seenPacket)
-
-			if seenPacket.id < sender.lastACKed {
-				continue
-			}
-
-			now := time.Now()
-
-			// this is quite arbitrary
-			tooLate := now.Add(50 * time.Millisecond)
-
-			nextTimeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
-
-			if nextTimeout.After(tooLate) {
-				// we don't want to wait so much, so we do not wait for the ticker to wake up
-				if err := ws.doSendACK(&model.Packet{ID: seenPacket.id}); err != nil {
-					sender.lastACKed += 1
-				}
-
-				// TODO: ------------------------------------------------------------
-				// discuss: how can we gauge the sending queue? should we peek what's
-				// if len(ws.controlToReliable) != 0 {
-			} else {
-				// we'll be fine by having these ACKs hitching a ride on the next outgoing packet
-				// that is scheduled to go soon anyways
-				fmt.Println("===> SHOULD SEND SOON ENOUGH, APPEND ACK!-----------------")
-				sender.pendingACKsToSend = append(sender.pendingACKsToSend, seenPacket.acks...)
-				// TODO: not needed anymore right?
-				// ticker.Reset(time.Nanosecond)
-			}
+			ticker.Reset(time.Nanosecond)
 
 		case <-ticker.C:
 			// First of all, we reset the ticker to the next timeout.
@@ -79,20 +51,25 @@ func (ws *workersState) moveDownWorker() {
 			now := time.Now()
 			timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
 
-			// ws.logger.Debug("")
-			// ws.logger.Debugf("next wakeup: %v", timeout.Sub(now))
-
 			ticker.Reset(timeout.Sub(now))
 
 			// we flush everything that is ready to be sent.
 			scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
 
-			// ws.logger.Debugf(":: GOT %d packets to send\n", len(scheduledNow))
-
 			for _, p := range scheduledNow {
 				p.ScheduleForRetransmission(now)
-				// TODO -------------------------------------------
-				// ideally, we want to append any pending ACKs here
+				// append any pending ACKs
+				nextACKs := sender.NextPacketIDsToACK()
+
+				// HACK: we need to account for packet IDs received below (hard reset)
+				// (special case)
+				if p.packet.ID == 1 && len(nextACKs) == 0 {
+					p.packet.ACKs = []model.PacketID{0}
+				} else {
+					p.packet.ACKs = nextACKs
+				}
+
+				p.packet.Log(ws.logger, model.DirectionOutgoing)
 				select {
 				case ws.dataOrControlToMuxer <- p.packet:
 				case <-ws.workersManager.ShouldShutdown():
@@ -121,7 +98,7 @@ type reliableSender struct {
 	inFlight []*inFlightPacket
 
 	// lastACKed is the last packet ID from the remote that we have acked
-	lastACKed model.PacketID
+	// lastACKed model.PacketID
 
 	// logger is the logger to use
 	logger model.Logger
@@ -133,9 +110,9 @@ type reliableSender struct {
 // newReliableSender returns a new instance of reliableOutgoing.
 func newReliableSender(logger model.Logger, i chan incomingPacketSeen) *reliableSender {
 	return &reliableSender{
-		incomingSeen:      i,
-		inFlight:          make([]*inFlightPacket, 0, RELIABLE_SEND_BUFFER_SIZE),
-		lastACKed:         model.PacketID(0),
+		incomingSeen: i,
+		inFlight:     make([]*inFlightPacket, 0, RELIABLE_SEND_BUFFER_SIZE),
+		//lastACKed:         model.PacketID(0),
 		logger:            logger,
 		pendingACKsToSend: []model.PacketID{},
 	}
@@ -200,15 +177,19 @@ func (r *reliableSender) NextPacketIDsToACK() []model.PacketID {
 	return next
 }
 
-func (r *reliableSender) OnIncomingPacketSeen(ips incomingPacketSeen) {
+func (r *reliableSender) OnIncomingPacketSeen(seen incomingPacketSeen) {
 	// we have received an incomingPacketSeen on the shared channel, we need to do two things:
 
 	// 1. add the ID to the queue of packets to be acknowledged.
-	r.pendingACKsToSend = append(r.pendingACKsToSend, ips.id)
+	if !seen.id.IsNone() {
+		r.pendingACKsToSend = append(r.pendingACKsToSend, seen.id.Unwrap())
+	}
 
 	// 2. for every ACK received, see if we need to evict or bump the in-flight packet.
-	for _, packetID := range ips.acks {
-		r.MaybeEvictOrBumpPacketAfterACK(packetID)
+	if !seen.acks.IsNone() {
+		for _, packetID := range seen.acks.Unwrap() {
+			r.MaybeEvictOrBumpPacketAfterACK(packetID)
+		}
 	}
 }
 

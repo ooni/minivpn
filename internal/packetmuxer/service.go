@@ -224,7 +224,6 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 
 	// multiplex the incoming packet POSSIBLY BLOCKING on delivering it
 	if packet.IsControl() || packet.Opcode == model.P_ACK_V1 {
-		packet.Log(ws.logger, model.DirectionIncoming)
 		select {
 		case ws.muxerToReliable <- packet:
 		case <-ws.workersManager.ShouldShutdown():
@@ -245,19 +244,6 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	// register the server's session (note: the PoV is the server's one)
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
-
-	// we need to manually ACK because the reliable layer is above us
-
-	// create the ACK packet
-	ACK, err := ws.sessionManager.NewACKForPacket(packet)
-	if err != nil {
-		return err
-	}
-
-	// emit the packet
-	if err := ws.serializeAndEmit(ACK); err != nil {
-		return err
-	}
 
 	// advance the state
 	ws.sessionManager.SetNegotiationState(session.S_START)
