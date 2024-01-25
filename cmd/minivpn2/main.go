@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/Doridian/water"
 	"github.com/apex/log"
@@ -35,18 +37,28 @@ func runRoute(args ...string) {
 	runCmd("/sbin/route", args...)
 }
 
-/*
-func logWithElapsedTime(logger log.Interface, message string, start time.Time) {
-	elapsedTime := time.Since(startTime).Round(time.Millisecond)
-	logger.WithField("elapsed_time", elapsedTime).Info(message)
+type config struct {
+	skipRoute  bool
+	configPath string
+	timeout    int
 }
-*/
 
 func main() {
 	log.SetLevel(log.DebugLevel)
 
+	cfg := &config{}
+	flag.BoolVar(&cfg.skipRoute, "skip-route", false, "if true, exists without setting routes (for testing)")
+	flag.StringVar(&cfg.configPath, "config", "", "config file to load")
+	flag.IntVar(&cfg.timeout, "timeout", 60, "timeout in seconds (default=60)")
+	flag.Parse()
+
+	if cfg.configPath == "" {
+		fmt.Println("[error] need config path")
+		os.Exit(1)
+	}
+
 	// parse the configuration file
-	options, err := model.ReadConfigFile(os.Args[1])
+	options, err := model.ReadConfigFile(cfg.configPath)
 	if err != nil {
 		log.WithError(err).Fatal("NewOptionsFromFilePath")
 	}
@@ -73,8 +85,8 @@ func main() {
 
 	// The TLS will expire in 60 seconds by default, but we can pass
 	// a shorter timeout.
-	//ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	//defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.timeout)*time.Second)
+	defer cancel()
 
 	// create a vpn tun Device
 	tunnel, err := tun.StartTUN(ctx, conn, options, log.Log)
@@ -82,8 +94,14 @@ func main() {
 		log.WithError(err).Fatal("init error")
 		return
 	}
-	fmt.Printf("Local IP: %s\n", tunnel.LocalAddr())
-	fmt.Printf("Gateway:  %s\n", tunnel.RemoteAddr())
+	log.Infof("Local IP: %s\n", tunnel.LocalAddr())
+	log.Infof("Gateway:  %s\n", tunnel.RemoteAddr())
+
+	fmt.Println("initialization-sequence-completed")
+
+	if cfg.skipRoute {
+		os.Exit(0)
+	}
 
 	// create a tun interface on the OS
 	iface, err := water.New(water.Config{
