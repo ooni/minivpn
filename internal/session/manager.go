@@ -160,8 +160,8 @@ func (m *Manager) IsRemoteSessionIDSet() bool {
 // ErrNoRemoteSessionID indicates we are missing the remote session ID.
 var ErrNoRemoteSessionID = errors.New("missing remote session ID")
 
-// NewACKForPacket creates a new ACK for the given packet.
-func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
+// NewACKForPacket creates a new ACK for the given packet IDs.
+func (m *Manager) NewACKForPacketIDs(ids []model.PacketID) (*model.Packet, error) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
 	if m.remoteSessionID.IsNone() {
@@ -172,7 +172,7 @@ func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
 		KeyID:           m.keyID,
 		PeerID:          [3]byte{},
 		LocalSessionID:  m.localSessionID,
-		ACKs:            []model.PacketID{packet.ID},
+		ACKs:            ids,
 		RemoteSessionID: m.remoteSessionID.Unwrap(),
 		ID:              0,
 		Payload:         []byte{},

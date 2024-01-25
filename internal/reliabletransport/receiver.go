@@ -40,6 +40,9 @@ func (ws *workersState) moveUpWorker() {
 				fmt.Println(">> our    session:", ws.sessionManager.RemoteSessionID())
 			*/
 
+			// ------
+			// FIXME: do we need to act upon a HARD_RESET_V2 while we're doing a handshake?
+			// ------
 			fmt.Printf("%s session check: %v\n", packet.Opcode, bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()))
 
 			// drop a packet that is not for our session

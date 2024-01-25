@@ -220,6 +220,9 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	}
 
 	// TODO: introduce other sanity checks here
+	// TODO ***
+	// TODO: make sure we're not blocking on delivering data packets up (from old sessions)
+	// TODO ***
 
 	// multiplex the incoming packet POSSIBLY BLOCKING on delivering it
 	if packet.IsControl() || packet.Opcode == model.P_ACK_V1 {
@@ -233,6 +236,10 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 		case ws.muxerToData <- packet:
 		case <-ws.workersManager.ShouldShutdown():
 			return workers.ErrShutdown
+		// TODO ----------------- temporary: do we get spurious data packets during hadnshake from previous sessions ------------------
+		default:
+			ws.logger.Warnf("%s: moveUpWorker.handleRawPacket: dropped data packet", serviceName)
+			// TODO ---------------------------------------------------------------------
 		}
 	}
 

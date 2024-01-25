@@ -28,8 +28,7 @@ func (ws *workersState) moveDownWorker() {
 		select {
 		case packet := <-ws.controlToReliable:
 
-			// try to insert, and if done schedule for inmediate wakeup
-			// so that the scheduler will wakeup
+			// try to insert and schedule for inmediate wakeup
 			if inserted := sender.TryInsertOutgoingPacket(packet); inserted {
 				ticker.Reset(time.Nanosecond)
 			}
@@ -38,7 +37,27 @@ func (ws *workersState) moveDownWorker() {
 			// possibly evict any acked packet (in the ack array)
 			// and add any id to the queue of packets to ack
 			sender.OnIncomingPacketSeen(seenPacket)
-			ticker.Reset(time.Nanosecond)
+
+			if len(sender.pendingACKsToSend) == 0 {
+				continue
+			}
+
+			// reschedule the ticker
+			if len(sender.pendingACKsToSend) >= 2 {
+				ticker.Reset(time.Nanosecond)
+				continue
+			}
+
+			// if there's no event soon, give some time for other acks to arrive
+			// TODO: review if we need this optimization.
+			// TODO: maybe only during TLS handshake??
+			now := time.Now()
+			timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
+			gracePeriod := time.Millisecond * 20
+			if timeout.Sub(now) > gracePeriod {
+				fmt.Println(">> next wakeup too late, schedule in", gracePeriod)
+				ticker.Reset(gracePeriod)
+			}
 
 		case <-ticker.C:
 			// First of all, we reset the ticker to the next timeout.
@@ -53,18 +72,43 @@ func (ws *workersState) moveDownWorker() {
 
 			ticker.Reset(timeout.Sub(now))
 
-			// we flush everything that is ready to be sent.
 			scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
 
-			for _, p := range scheduledNow {
-				p.ScheduleForRetransmission(now)
+			if len(scheduledNow) > 0 {
+				// we flush everything that is ready to be sent.
+				for _, p := range scheduledNow {
+					p.ScheduleForRetransmission(now)
 
-				// append any pending ACKs
-				p.packet.ACKs = sender.NextPacketIDsToACK()
+					// append any pending ACKs
+					p.packet.ACKs = sender.NextPacketIDsToACK()
 
-				p.packet.Log(ws.logger, model.DirectionOutgoing)
+					p.packet.Log(ws.logger, model.DirectionOutgoing)
+					select {
+					case ws.dataOrControlToMuxer <- p.packet:
+					case <-ws.workersManager.ShouldShutdown():
+						return
+					}
+				}
+			} else {
+				// there's nothing ready to be sent, so we see if we've got pending ACKs
+				if len(sender.pendingACKsToSend) == 0 {
+					continue
+				}
+				// special case, we want to send the clientHello as soon as possible
+				// (TODO: coordinate this with hardReset)
+				if len(sender.pendingACKsToSend) == 1 && sender.pendingACKsToSend[0] == model.PacketID(0) {
+					continue
+				}
+
+				fmt.Println(":: CREATING ACK", len(sender.pendingACKsToSend), "pending to ack")
+
+				ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
+				if err != nil {
+					ws.logger.Warnf("%s: cannot create ack: %v", workerName, err.Error())
+				}
+				ACK.Log(ws.logger, model.DirectionOutgoing)
 				select {
-				case ws.dataOrControlToMuxer <- p.packet:
+				case ws.dataOrControlToMuxer <- ACK:
 				case <-ws.workersManager.ShouldShutdown():
 					return
 				}
