@@ -28,10 +28,11 @@ func (ws *workersState) moveDownWorker() {
 		select {
 		case packet := <-ws.controlToReliable:
 
-			sender.TryInsertOutgoingPacket(packet)
-			// schedule for inmediate wakeup
-			// so that the ticker will wakeup and see if there's anything pending to be sent.
-			ticker.Reset(time.Nanosecond)
+			// try to insert, and if done schedule for inmediate wakeup
+			// so that the scheduler will wakeup
+			if inserted := sender.TryInsertOutgoingPacket(packet); inserted {
+				ticker.Reset(time.Nanosecond)
+			}
 
 		case seenPacket := <-sender.incomingSeen:
 			// possibly evict any acked packet (in the ack array)
@@ -60,16 +61,6 @@ func (ws *workersState) moveDownWorker() {
 
 				// append any pending ACKs
 				p.packet.ACKs = sender.NextPacketIDsToACK()
-
-				// HACK: we need to account for packet IDs received below (hard reset)
-				// (special case)
-				/*
-					if p.packet.ID == 1 && len(nextACKs) == 0 {
-						p.packet.ACKs = []model.PacketID{0}
-					} else {
-						p.packet.ACKs = nextACKs
-					}
-				*/
 
 				p.packet.Log(ws.logger, model.DirectionOutgoing)
 				select {
@@ -180,6 +171,8 @@ func (r *reliableSender) OnIncomingPacketSeen(seen incomingPacketSeen) {
 
 	// 1. add the ID to the queue of packets to be acknowledged.
 	if !seen.id.IsNone() {
+		// TODO: do it only if not already in the array
+		// FIXME --------------------------------------
 		r.pendingACKsToSend = append(r.pendingACKsToSend, seen.id.Unwrap())
 	}
 
@@ -192,23 +185,3 @@ func (r *reliableSender) OnIncomingPacketSeen(seen incomingPacketSeen) {
 }
 
 var _ outgoingPacketHandler = &reliableSender{}
-
-// doSendACK sends an ACK when needed.
-/*
-func (ws *workersState) doSendACK(packet *model.Packet) error {
-	// this function will fail if we don't know the remote session ID
-	ACK, err := ws.sessionManager.NewACKForPacket(packet)
-	if err != nil {
-		return err
-	}
-
-	// move the packet down. CAN BLOCK writing to the shared channel to muxer.
-	select {
-	case ws.dataOrControlToMuxer <- ACK:
-		ACK.Log(ws.logger, model.DirectionOutgoing)
-		return nil
-	case <-ws.workersManager.ShouldShutdown():
-		return workers.ErrShutdown
-	}
-}
-*/

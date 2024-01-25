@@ -35,8 +35,16 @@ func (ws *workersState) moveUpWorker() {
 				packet.Log(ws.logger, model.DirectionIncoming)
 			}
 
+			/*
+				fmt.Println(">> packet session:", packet.LocalSessionID)
+				fmt.Println(">> our    session:", ws.sessionManager.RemoteSessionID())
+			*/
+
+			fmt.Printf("%s session check: %v\n", packet.Opcode, bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()))
+
 			// drop a packet that is not for our session
 			if !bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()) {
+				fmt.Println(">> not our session!!!")
 				ws.logger.Warnf(
 					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
 					workerName,
