@@ -27,9 +27,6 @@ build-ndt7:
 bootstrap:
 	@./scripts/bootstrap-provider ${PROVIDER}
 
-handshake_log:
-	@sudo ./minivpn2 data/${PROVIDER}/config 2>&1 | grep --text --color=auto -E "@|P_\w+"
-
 test:
 	GOFLAGS='-count=1' go test -v ./...
 
