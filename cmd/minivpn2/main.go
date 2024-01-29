@@ -72,6 +72,8 @@ func main() {
 	log.SetHandler(NewHandler(os.Stderr))
 	log.SetLevel(log.DebugLevel)
 
+	start := time.Now()
+
 	// connect to the server
 	dialer := networkio.NewDialer(log.Log, &net.Dialer{})
 	ctx := context.Background()
@@ -98,6 +100,7 @@ func main() {
 	log.Infof("Gateway:  %s\n", tunnel.RemoteAddr())
 
 	fmt.Println("initialization-sequence-completed")
+	fmt.Printf("elapsed: %v\n", time.Since(start))
 
 	if cfg.skipRoute {
 		os.Exit(0)
