@@ -75,6 +75,9 @@ type workersState struct {
 	// hardReset is the channel posted to force a hard reset.
 	hardReset <-chan any
 
+	// how many times have we sent the initial hardReset packet
+	hardResetCount int
+
 	// hardResetTicker is a channel to retry the initial send of hard reset packet.
 	hardResetTicker *time.Ticker
 
@@ -182,8 +185,16 @@ func (ws *workersState) moveDownWorker() {
 
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
+	ws.hardResetCount += 1
+
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
-	packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
+	// packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
+	first := false
+	if ws.hardResetCount == 1 {
+		first = true
+	}
+
+	packet, err := ws.sessionManager.NewHardResetPacket(first)
 	if err != nil {
 		ws.logger.Warnf("packetmuxer: NewPacket: %s", err.Error())
 		return err
@@ -220,11 +231,6 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 		return ws.finishThreeWayHandshake(packet)
 	}
 
-	// TODO: introduce other sanity checks here
-	// TODO ***
-	// TODO: make sure we're not blocking on delivering data packets up (from old sessions)
-	// TODO ***
-
 	// multiplex the incoming packet POSSIBLY BLOCKING on delivering it
 	if packet.IsControl() || packet.Opcode == model.P_ACK_V1 {
 		select {
@@ -240,10 +246,12 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 		case ws.muxerToData <- packet:
 		case <-ws.workersManager.ShouldShutdown():
 			return workers.ErrShutdown
-			// TODO ----------------- temporary: do we get spurious data packets during hadnshake from previous sessions ------------------
-			//default:
-			//ws.logger.Warnf("%s: moveUpWorker.handleRawPacket: dropped data packet", serviceName)
-			// TODO ---------------------------------------------------------------------
+			// TODO: make sure we're not blocking on delivering data packets
+			// TODO(ainghazal): afaik, a well-behaved server will not send us data packets
+			// before we have a working session. Under normal operations, the
+			// UDP connection in the client side should pick a different port,
+			// so that data sent from previous sessions will not be delivered.
+			// However, it might not harm to be defensive here.
 		}
 	}
 
