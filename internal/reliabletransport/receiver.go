@@ -3,6 +3,7 @@ package reliabletransport
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"sort"
 
 	"github.com/ooni/minivpn/internal/model"
@@ -35,19 +36,13 @@ func (ws *workersState) moveUpWorker() {
 				packet.Log(ws.logger, model.DirectionIncoming)
 			}
 
-			/*
-				fmt.Println(">> packet session:", packet.LocalSessionID)
-				fmt.Println(">> our    session:", ws.sessionManager.RemoteSessionID())
-			*/
-
-			// ------
-			// FIXME: do we need to act upon a HARD_RESET_V2 while we're doing a handshake?
-			// ------
-			fmt.Printf("%s session check: %v\n", packet.Opcode, bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()))
+			// TODO: are we handling a HARD_RESET_V2 while we're doing a handshake?
+			// I'm not sure that's a valid behavior for a server.
+			// We should be able to deterministically test how this affects the state machine.
+			log.Printf("%s session check: %v\n", packet.Opcode, bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()))
 
 			// drop a packet that is not for our session
 			if !bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()) {
-				fmt.Println(">> not our session!!!")
 				ws.logger.Warnf(
 					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
 					workerName,
