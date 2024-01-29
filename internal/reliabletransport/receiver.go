@@ -61,14 +61,6 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			// I think this check is not helping -- ain
-			/*
-				if packet.ID < receiver.lastConsumed {
-					ws.logger.Warnf("%s: received %d but last consumed was %d", workerName, packet.ID, receiver.lastConsumed)
-					continue
-				}
-			*/
-
 			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
 				// this packet was not inserted in the queue: we drop it
 				continue
