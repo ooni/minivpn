@@ -312,6 +312,7 @@ const (
 	DirectionOutgoing
 )
 
+// Log writes an entry in the passed logger with a representation of this packet.
 func (p *Packet) Log(logger Logger, direction int) {
 	var dir string
 	switch direction {
@@ -324,7 +325,7 @@ func (p *Packet) Log(logger Logger, direction int) {
 		return
 	}
 
-	logger.Infof(
+	logger.Debugf(
 		"%s %s {id=%d, acks=%v} localID=%x remoteID=%x [%d bytes]",
 		dir,
 		p.Opcode,
