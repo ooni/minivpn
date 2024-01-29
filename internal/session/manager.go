@@ -208,6 +208,26 @@ func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) (*model.Packet,
 	return packet, nil
 }
 
+// NewHardResetPacket creates a new hard reset packet for this session.
+// This packet is a special case because, if we resend, we must not bump
+// its packet ID. Normally retransmission is handled at the reliabletransport layer,
+// but we send hard resets at the muxer.
+func (m *Manager) NewHardResetPacket(first bool) (*model.Packet, error) {
+	packet := model.NewPacket(
+		model.P_CONTROL_HARD_RESET_CLIENT_V2,
+		m.keyID,
+		[]byte{},
+	)
+	if first {
+		pid, _ := m.localControlPacketIDLocked()
+		packet.ID = pid
+	} else {
+		packet.ID = 0
+	}
+	copy(packet.LocalSessionID[:], m.localSessionID[:])
+	return packet, nil
+}
+
 var ErrExpiredKey = errors.New("expired key")
 
 // LocalDataPacketID returns an unique Packet ID for the Data Channel. It
