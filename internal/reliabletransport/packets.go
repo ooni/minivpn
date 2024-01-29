@@ -84,7 +84,7 @@ func (seq inflightSequence) nearestDeadlineTo(t time.Time) time.Time {
 	return timeout
 }
 
-// readyToSend eturns the subset of this sequence that has a expired deadline or
+// readyToSend returns the subset of this sequence that has a expired deadline or
 // is suitable for fast retransmission.
 func (seq inflightSequence) readyToSend(t time.Time) inflightSequence {
 	expired := make([]*inFlightPacket, 0)
