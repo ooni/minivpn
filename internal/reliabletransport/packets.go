@@ -8,10 +8,8 @@ import (
 	"github.com/ooni/minivpn/internal/optional"
 )
 
-//
-// A note about terminology: in the following, **receiver** is the moveUpWorker in the [reliabletransport.Service] (since it receives incoming packets), and **sender** is the moveDownWorker in the same service. The following data structures lack mutexes because they are intended to be confined to a single goroutine (one for each worker), and they only communicate via message passing.
-//
-
+// inFlighPacket is an implementation of inFlighter. It is a sequential packet
+// that can be scheduled for retransmission.
 type inFlightPacket struct {
 	// deadline is a moment in time when is this packet scheduled for the next retransmission.
 	deadline time.Time
@@ -59,6 +57,7 @@ func (p *inFlightPacket) backoff() time.Duration {
 	return backoff
 }
 
+// TODO: revisit interfaces while writing tests.
 // assert that inFlightWrappedPacket implements inFlightPacket and sequentialPacket
 // var _ inFlightPacket = &inFlightWrappedPacket{}
 // var _ sequentialPacket = &inFlightWrappedPacket{}
