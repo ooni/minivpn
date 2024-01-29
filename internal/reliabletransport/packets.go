@@ -115,8 +115,8 @@ func (seq inflightSequence) Less(i, j int) bool {
 	return seq[i].packet.ID < seq[j].packet.ID
 }
 
-// A incomingSequence is an array of sequentialPackets. It's used to store both incoming and outgoing packet queues.
-// a incomingSequence can be sorted.
+// An incomingSequence is an array of sequentialPackets. It's used to store both incoming and outgoing packet queues.
+// An incomingSequence can be sorted.
 type incomingSequence []sequentialPacket
 
 // implement sort.Interface
