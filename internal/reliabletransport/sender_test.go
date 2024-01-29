@@ -9,10 +9,10 @@ import (
 )
 
 //
-// tests for reliableOutgoing
+// tests for reliableSender
 //
 
-func Test_reliableOutgoing_TryInsertOutgoingPacket(t *testing.T) {
+func Test_reliableSender_TryInsertOutgoingPacket(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 
 	type fields struct {
@@ -68,13 +68,13 @@ func Test_reliableOutgoing_TryInsertOutgoingPacket(t *testing.T) {
 				inFlight: tt.fields.inFlight,
 			}
 			if got := r.TryInsertOutgoingPacket(tt.args.p); got != tt.want {
-				t.Errorf("reliableOutgoing.TryInsertOutgoingPacket() = %v, want %v", got, tt.want)
+				t.Errorf("reliableSender.TryInsertOutgoingPacket() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_reliableOutgoing_NextPacketIDsToACK(t *testing.T) {
+func Test_reliableSender_NextPacketIDsToACK(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 
 	type fields struct {
@@ -121,14 +121,14 @@ func Test_reliableOutgoing_NextPacketIDsToACK(t *testing.T) {
 				pendingACKsToSend: tt.fields.pendingACKsToSend,
 			}
 			if got := r.NextPacketIDsToACK(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("reliableOutgoing.NextPacketIDsToACK() = %v, want %v", got, tt.want)
+				t.Errorf("reliableSender.NextPacketIDsToACK() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
 //
-// tests for reliableIncoming
+// tests for reliableReceiver
 //
 
 // testIncomingPacket is a sequentialPacket for testing incomingPackets
