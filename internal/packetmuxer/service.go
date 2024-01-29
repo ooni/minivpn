@@ -239,18 +239,17 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 		}
 	} else {
 		if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+			// A well-behaved server should not send us data packets
+			// before we have a working session. Under normal operations, the
+			// connection in the client side should pick a different port,
+			// so that data sent from previous sessions will not be delivered.
+			// However, it does not harm to be defensive here.
 			return errors.New("not ready to handle data")
 		}
 		select {
 		case ws.muxerToData <- packet:
 		case <-ws.workersManager.ShouldShutdown():
 			return workers.ErrShutdown
-			// TODO: make sure we're not blocking on delivering data packets
-			// TODO(ainghazal): afaik, a well-behaved server will not send us data packets
-			// before we have a working session. Under normal operations, the
-			// UDP connection in the client side should pick a different port,
-			// so that data sent from previous sessions will not be delivered.
-			// However, it might not harm to be defensive here.
 		}
 	}
 
