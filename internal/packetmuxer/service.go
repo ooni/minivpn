@@ -188,10 +188,7 @@ func (ws *workersState) startHardReset() error {
 	ws.hardResetCount += 1
 
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
-	first := false
-	if ws.hardResetCount == 1 {
-		first = true
-	}
+	first := ws.hardResetCount == 1
 
 	packet, err := ws.sessionManager.NewHardResetPacket(first)
 	if err != nil {
