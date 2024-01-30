@@ -189,7 +189,49 @@ func Test_ackSet_maybeAdd(t *testing.T) {
 	}
 }
 
-// test the combined behavior of reacting to an incomin packet and checking
+func Test_ackSet_nextToACK(t *testing.T) {
+	type fields struct {
+		m map[model.PacketID]bool
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   []model.PacketID
+	}{
+		{
+			name:   "get all if you have <4",
+			fields: fields{newACKSet(1, 2, 3).m},
+			want:   []model.PacketID{1, 2, 3},
+		},
+		{
+			name:   "get all if you have 4",
+			fields: fields{newACKSet(1, 2, 3, 4).m},
+			want:   []model.PacketID{1, 2, 3, 4},
+		},
+		{
+			name:   "get 2 if you have 2, sorted",
+			fields: fields{newACKSet(4, 1).m},
+			want:   []model.PacketID{1, 4},
+		},
+		{
+			name:   "get first 4 if you have >4, sorted",
+			fields: fields{newACKSet(5, 6, 8, 3, 2, 4, 1).m},
+			want:   []model.PacketID{1, 2, 3, 4},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as := &ackSet{
+				m: tt.fields.m,
+			}
+			if got := as.nextToACK(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ackSet.nextToACK() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// test the combined behavior of reacting to an incoming packet and checking
 // what's left in the in flight queue and what's left in the queue of pending acks.
 func Test_reliableSender_OnIncomingPacketSeen(t *testing.T) {
 
