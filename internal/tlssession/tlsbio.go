@@ -2,11 +2,10 @@ package tlssession
 
 import (
 	"bytes"
+	"log"
 	"net"
 	"sync"
 	"time"
-
-	"github.com/ooni/minivpn/internal/model"
 )
 
 // tlsBio allows to use channels to read and write
@@ -15,72 +14,70 @@ type tlsBio struct {
 	directionDown chan<- []byte
 	directionUp   <-chan []byte
 	hangup        chan any
-	logger        model.Logger
 	readBuffer    *bytes.Buffer
 }
 
 // newTLSBio creates a new tlsBio
-func newTLSBio(logger model.Logger, directionUp <-chan []byte, directionDown chan<- []byte) *tlsBio {
+func newTLSBio(directionUp <-chan []byte, directionDown chan<- []byte) *tlsBio {
 	return &tlsBio{
 		closeOnce:     sync.Once{},
 		directionDown: directionDown,
 		directionUp:   directionUp,
 		hangup:        make(chan any),
-		logger:        logger,
 		readBuffer:    &bytes.Buffer{},
 	}
 }
 
-func (t *tlsBio) Close() error {
-	t.closeOnce.Do(func() {
-		close(t.hangup)
+func (c *tlsBio) Close() error {
+	c.closeOnce.Do(func() {
+		close(c.hangup)
 	})
 	return nil
 }
 
-func (t *tlsBio) Read(data []byte) (int, error) {
+func (c *tlsBio) Read(data []byte) (int, error) {
 	for {
-		count, _ := t.readBuffer.Read(data)
+		count, _ := c.readBuffer.Read(data)
 		if count > 0 {
-			t.logger.Debugf("[tlsbio] received %d bytes", len(data))
+			log.Printf("[tlsbio] received %d bytes", len(data))
 			return count, nil
 		}
 		select {
-		case extra := <-t.directionUp:
-			t.readBuffer.Write(extra)
-		case <-t.hangup:
+		case extra := <-c.directionUp:
+			c.readBuffer.Write(extra)
+		case <-c.hangup:
 			return 0, net.ErrClosed
 		}
 	}
 }
 
-func (t *tlsBio) Write(data []byte) (int, error) {
-	t.logger.Debugf("[tlsbio] requested to write %d bytes", len(data))
+func (c *tlsBio) Write(data []byte) (int, error) {
+	log.Printf("[tlsbio] requested to write %d bytes", len(data))
 	select {
-	case t.directionDown <- data:
+	case c.directionDown <- data:
 		return len(data), nil
-	case <-t.hangup:
+	case <-c.hangup:
 		return 0, net.ErrClosed
 	}
 }
 
-func (t *tlsBio) LocalAddr() net.Addr {
+func (c *tlsBio) LocalAddr() net.Addr {
 	return &tlsBioAddr{}
 }
 
-func (t *tlsBio) RemoteAddr() net.Addr {
+func (c *tlsBio) RemoteAddr() net.Addr {
 	return &tlsBioAddr{}
 }
 
-func (t *tlsBio) SetDeadline(tt time.Time) error {
+func (c *tlsBio) SetDeadline(t time.Time) error {
 	return nil
 }
 
-func (t *tlsBio) SetReadDeadline(tt time.Time) error {
+func (c *tlsBio) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func (t *tlsBio) SetWriteDeadline(tt time.Time) error {
+func (c *tlsBio) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
