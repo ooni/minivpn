@@ -19,8 +19,8 @@ type inFlighter interface {
 
 // outgoingPacketHandler has methods to deal with the outgoing packets (going down).
 type outgoingPacketHandler interface {
-	// TryInsertOutgoingPacket attempts to insert a packet into the queue. If return value is
-	// false, insertion was not successful.
+	// TryInsertOutgoingPacket attempts to insert a packet into the
+	// inflight queue. If return value is false, insertion was not successful.
 	TryInsertOutgoingPacket(*model.Packet) bool
 
 	// MaybeEvictOrBumpPacketAfterACK removes a packet (that we received an ack for) from the in-flight packet queue.
