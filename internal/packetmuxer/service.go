@@ -15,6 +15,11 @@ var (
 	serviceName = "packetmuxer"
 )
 
+const (
+	// A sufficiently long wakup period to initialize a ticker with.
+	longWakeup = time.Hour * 24 * 30
+)
+
 // Service is the packetmuxer service. Make sure you initialize
 // the channels before invoking [Service.StartWorkers].
 type Service struct {
@@ -53,7 +58,7 @@ func (s *Service) StartWorkers(
 		logger:    logger,
 		hardReset: s.HardReset,
 		// initialize to a sufficiently long time from now
-		hardResetTicker:      time.NewTicker(time.Hour * 24 * 30),
+		hardResetTicker:      time.NewTicker(longWakeup),
 		notifyTLS:            *s.NotifyTLS,
 		dataOrControlToMuxer: s.DataOrControlToMuxer,
 		muxerToReliable:      *s.MuxerToReliable,

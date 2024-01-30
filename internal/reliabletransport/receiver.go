@@ -36,6 +36,7 @@ func (ws *workersState) moveUpWorker() {
 		case packet := <-ws.muxerToReliable:
 			if packet.Opcode != model.P_CONTROL_HARD_RESET_SERVER_V2 {
 				// the hard reset has already been logged by the layer below
+				// TODO: move logging here?
 				packet.Log(ws.logger, model.DirectionIncoming)
 			}
 
@@ -57,6 +58,8 @@ func (ws *workersState) moveUpWorker() {
 
 			seen := receiver.newIncomingPacketSeen(packet)
 			ws.incomingSeen <- seen
+
+			// TODO(ainghazal): drop a packet that is a replay (id <= lastConsumed, but != ACK...?)
 
 			// we only want to insert control packets going to the tls layer
 

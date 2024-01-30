@@ -6,6 +6,7 @@ import (
 
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/optional"
 )
 
 //
@@ -47,18 +48,28 @@ func Test_reliableSender_TryInsertOutgoingPacket(t *testing.T) {
 					{packet: &model.Packet{ID: 4}},
 					{packet: &model.Packet{ID: 5}},
 					{packet: &model.Packet{ID: 6}},
-					{packet: &model.Packet{ID: 7}},
-					{packet: &model.Packet{ID: 8}},
-					{packet: &model.Packet{ID: 9}},
-					{packet: &model.Packet{ID: 10}},
-					{packet: &model.Packet{ID: 11}},
-					{packet: &model.Packet{ID: 12}},
 				}),
 			},
 			args: args{
-				p: &model.Packet{ID: 13},
+				p: &model.Packet{ID: 7},
 			},
 			want: false,
+		},
+		{
+			name: "insert on almost full array",
+			fields: fields{
+				inFlight: inflightSequence([]*inFlightPacket{
+					{packet: &model.Packet{ID: 1}},
+					{packet: &model.Packet{ID: 2}},
+					{packet: &model.Packet{ID: 3}},
+					{packet: &model.Packet{ID: 4}},
+					{packet: &model.Packet{ID: 5}},
+				}),
+			},
+			args: args{
+				p: &model.Packet{ID: 6},
+			},
+			want: true,
 		},
 	}
 	for _, tt := range tests {
@@ -102,14 +113,14 @@ func Test_reliableSender_NextPacketIDsToACK(t *testing.T) {
 		{
 			name: "tree elements",
 			fields: fields{
-				pendingACKsToSend: []model.PacketID{11, 12, 13},
+				pendingACKsToSend: []model.PacketID{12, 11, 13},
 			},
 			want: []model.PacketID{11, 12, 13},
 		},
 		{
 			name: "five elements",
 			fields: fields{
-				pendingACKsToSend: []model.PacketID{11, 12, 13, 14, 15},
+				pendingACKsToSend: []model.PacketID{15, 12, 14, 13, 11},
 			},
 			want: []model.PacketID{11, 12, 13, 14},
 		},
@@ -118,7 +129,7 @@ func Test_reliableSender_NextPacketIDsToACK(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &reliableSender{
 				logger:            log.Log,
-				pendingACKsToSend: tt.fields.pendingACKsToSend,
+				pendingACKsToSend: newACKSet(tt.fields.pendingACKsToSend...),
 			}
 			if got := r.NextPacketIDsToACK(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("reliableSender.NextPacketIDsToACK() = %v, want %v", got, tt.want)
@@ -127,219 +138,51 @@ func Test_reliableSender_NextPacketIDsToACK(t *testing.T) {
 	}
 }
 
-//
-// tests for reliableReceiver
-//
-
-// testIncomingPacket is a sequentialPacket for testing incomingPackets
-type testIncomingPacket struct {
-	id   model.PacketID
-	acks []model.PacketID
-}
-
-func (ip *testIncomingPacket) ID() model.PacketID {
-	return ip.id
-}
-
-func (ip *testIncomingPacket) ExtractACKs() []model.PacketID {
-	return ip.acks
-}
-
-func (ip *testIncomingPacket) Packet() *model.Packet {
-	return &model.Packet{ID: ip.id}
-}
-
-var _ sequentialPacket = &testIncomingPacket{}
-
-func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
-
+func Test_ackSet_maybeAdd(t *testing.T) {
 	type fields struct {
-		incomingPackets incomingSequence
+		m map[model.PacketID]bool
 	}
 	type args struct {
-		p *testIncomingPacket
+		id optional.Value[model.PacketID]
 	}
 	tests := []struct {
 		name   string
 		fields fields
 		args   args
-		want   bool
+		want   *ackSet
 	}{
 		{
-			name: "empty incoming, insert one",
-			fields: fields{
-				incomingPackets: []sequentialPacket{},
-			},
-			args: args{
-				&testIncomingPacket{id: 1},
-			},
-			want: true,
+			name:   "can add on empty set",
+			fields: fields{newACKSet().m},
+			args:   args{optional.Some(model.PacketID(1))},
+			want:   newACKSet(1),
 		},
 		{
-			name: "almost full incoming, insert one",
-			fields: fields{
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 4},
-					&testIncomingPacket{id: 5},
-					&testIncomingPacket{id: 6},
-					&testIncomingPacket{id: 7},
-					&testIncomingPacket{id: 8},
-					&testIncomingPacket{id: 9},
-					&testIncomingPacket{id: 10},
-					&testIncomingPacket{id: 11},
-				},
-			},
-			args: args{
-				&testIncomingPacket{id: 12},
-			},
-			want: true,
+			name:   "add duplicate on empty set",
+			fields: fields{newACKSet(1).m},
+			args:   args{optional.Some(model.PacketID(1))},
+			want:   newACKSet(1),
 		},
 		{
-			name: "full incoming, cannot insert",
-			fields: fields{
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 4},
-					&testIncomingPacket{id: 5},
-					&testIncomingPacket{id: 6},
-					&testIncomingPacket{id: 7},
-					&testIncomingPacket{id: 8},
-					&testIncomingPacket{id: 9},
-					&testIncomingPacket{id: 10},
-					&testIncomingPacket{id: 11},
-					&testIncomingPacket{id: 12},
-				},
-			},
-			args: args{
-				&testIncomingPacket{id: 13},
-			},
-			want: false,
+			name:   "cannot add beyond capacity",
+			fields: fields{newACKSet(1, 2, 3, 4, 5, 6, 7, 8).m},
+			args:   args{optional.Some(model.PacketID(10))},
+			want:   newACKSet(1, 2, 3, 4, 5, 6, 7, 8),
+		},
+		{
+			name:   "order does not matter",
+			fields: fields{newACKSet(3, 2, 1).m},
+			args:   args{optional.Some(model.PacketID(4))},
+			want:   newACKSet(1, 2, 3, 4),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &reliableReceiver{
-				logger:          log.Log,
-				incomingPackets: tt.fields.incomingPackets,
+			as := &ackSet{
+				m: tt.fields.m,
 			}
-			if got := r.MaybeInsertIncoming(tt.args.p.Packet()); got != tt.want {
-				t.Errorf("reliableQueue.MaybeInsertIncoming() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_reliableQueue_NextIncomingSequence(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
-
-	type fields struct {
-		lastConsumed    model.PacketID
-		incomingPackets incomingSequence
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		want   incomingSequence
-	}{
-		{
-			name: "empty sequence",
-			fields: fields{
-				incomingPackets: []sequentialPacket{},
-				lastConsumed:    model.PacketID(0),
-			},
-			want: []sequentialPacket{},
-		},
-		{
-			name: "single packet",
-			fields: fields{
-				lastConsumed: model.PacketID(0),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-				},
-			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 1},
-			},
-		},
-		{
-			name: "series of sequential packets",
-			fields: fields{
-				lastConsumed: model.PacketID(0),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-				},
-			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 1},
-				&testIncomingPacket{id: 2},
-				&testIncomingPacket{id: 3},
-			},
-		},
-		{
-			name: "series of sequential packets with hole",
-			fields: fields{
-				lastConsumed: model.PacketID(0),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 5},
-				},
-			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 1},
-				&testIncomingPacket{id: 2},
-				&testIncomingPacket{id: 3},
-			},
-		},
-		{
-			name: "series of sequential packets with hole, lastConsumed higher",
-			fields: fields{
-				lastConsumed: model.PacketID(10),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 5},
-				},
-			},
-			want: []sequentialPacket{},
-		},
-		{
-			name: "series of sequential packets with hole, lastConsumed higher, some above",
-			fields: fields{
-				lastConsumed: model.PacketID(10),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 10},
-					&testIncomingPacket{id: 11},
-					&testIncomingPacket{id: 12},
-					&testIncomingPacket{id: 20},
-				},
-			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 11},
-				&testIncomingPacket{id: 12},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &reliableReceiver{
-				lastConsumed:    tt.fields.lastConsumed,
-				incomingPackets: tt.fields.incomingPackets,
-			}
-			if got := r.NextIncomingSequence(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("reliableQueue.NextIncomingSequence() = %v, want %v", got, tt.want)
+			if got := as.maybeAdd(tt.args.id); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ackSet.maybeAdd() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -2,13 +2,18 @@ package reliabletransport
 
 const (
 	// Capacity for the array of packets that we're tracking at any given moment (outgoing).
-	RELIABLE_SEND_BUFFER_SIZE = 12
+	// This is defined by OpenVPN in ssl_pkt.h
+	RELIABLE_SEND_BUFFER_SIZE = 6
 
 	// Capacity for the array of packets that we're tracking at any given moment (incoming).
-	RELIABLE_RECV_BUFFER_SIZE = RELIABLE_SEND_BUFFER_SIZE
+	// This is defined by OpenVPN in ssl_pkt.h
+	RELIABLE_RECV_BUFFER_SIZE = 12
 
 	// The maximum numbers of ACKs that we put in an array for an outgoing packet.
 	MAX_ACKS_PER_OUTGOING_PACKET = 4
+
+	// How many IDs pending to be acked can we store.
+	ACK_SET_CAPACITY = 8
 
 	// Initial timeout for TLS retransmission, in seconds.
 	INITIAL_TLS_TIMEOUT_SECONDS = 2

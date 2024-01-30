@@ -63,7 +63,8 @@ func (p *inFlightPacket) backoff() time.Duration {
 // var _ sequentialPacket = &inFlightWrappedPacket{}
 
 // inflightSequence is a sequence of inFlightPackets.
-// A inflightSequence can be sorted.
+// A inflightSequence MUST be sorted (since the controlchannel has assigned sequential packet IDs when creating the
+// packet)
 type inflightSequence []*inFlightPacket
 
 // nearestDeadlineTo returns the lower deadline to a passed reference time for all the packets in the inFlight queue. Used to re-arm the Ticker. We need to be careful and not pass a
@@ -101,21 +102,6 @@ func (seq inflightSequence) readyToSend(t time.Time) inflightSequence {
 	return expired
 }
 
-// implement sort.Interface
-func (seq inflightSequence) Len() int {
-	return len(seq)
-}
-
-// implement sort.Interface
-func (seq inflightSequence) Swap(i, j int) {
-	seq[i], seq[j] = seq[j], seq[i]
-}
-
-// implement sort.Interface
-func (seq inflightSequence) Less(i, j int) bool {
-	return seq[i].packet.ID < seq[j].packet.ID
-}
-
 // An incomingSequence is an array of sequentialPackets. It's used to store both incoming and outgoing packet queues.
 // An incomingSequence can be sorted.
 type incomingSequence []sequentialPacket
@@ -135,6 +121,7 @@ func (ps incomingSequence) Less(i, j int) bool {
 	return ps[i].ID() < ps[j].ID()
 }
 
+// TODO: this is just a packet
 type incomingPacket struct {
 	packet *model.Packet
 }
