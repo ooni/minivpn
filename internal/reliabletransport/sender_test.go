@@ -231,6 +231,24 @@ func Test_ackSet_nextToACK(t *testing.T) {
 	}
 }
 
+func Test_ackSet_nextToACK_empties_set(t *testing.T) {
+	acks := newACKSet(1, 2, 3, 5, 4, 6, 7, 10, 9, 8)
+
+	want1 := []model.PacketID{1, 2, 3, 4}
+	want2 := []model.PacketID{5, 6, 7, 8}
+	want3 := []model.PacketID{9, 10}
+
+	if got := acks.nextToACK(); !reflect.DeepEqual(got, want1) {
+		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want1)
+	}
+	if got := acks.nextToACK(); !reflect.DeepEqual(got, want2) {
+		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want1)
+	}
+	if got := acks.nextToACK(); !reflect.DeepEqual(got, want3) {
+		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want3)
+	}
+}
+
 // test the combined behavior of reacting to an incoming packet and checking
 // what's left in the in flight queue and what's left in the queue of pending acks.
 func Test_reliableSender_OnIncomingPacketSeen(t *testing.T) {
