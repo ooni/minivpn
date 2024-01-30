@@ -306,7 +306,7 @@ func Test_reliableSender_OnIncomingPacketSeen(t *testing.T) {
 			want: want{inflight: []model.PacketID{2}},
 		},
 		{
-			name: "ack for 1,2 evicts in-flight packets 1,2",
+			name: "ack for 2,1 evicts in-flight packets 1,2",
 			fields: fields{
 				pendingacks: newACKSet(),
 				inflight: []*inFlightPacket{
@@ -406,3 +406,5 @@ func Test_reliableSender_OnIncomingPacketSeen(t *testing.T) {
 		})
 	}
 }
+
+// TODO: exercise maybeEvict + withHigherACKs
