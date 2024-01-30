@@ -1,4 +1,3 @@
-// Package reliabletransport implements the reliable transport.
 package reliabletransport
 
 import (
@@ -37,7 +36,9 @@ func (s *Service) StartWorkers(
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:               logger,
+		logger: logger,
+		// incomingSeen is a buffered channel to avoid losing packets if we're busy
+		// processing in the sender goroutine.
 		incomingSeen:         make(chan incomingPacketSeen, 20),
 		dataOrControlToMuxer: *s.DataOrControlToMuxer,
 		controlToReliable:    s.ControlToReliable,

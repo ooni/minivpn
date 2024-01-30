@@ -10,7 +10,10 @@ import (
 	"github.com/ooni/minivpn/internal/optional"
 )
 
-// moveUpWorker moves packets up the stack (receiver)
+// moveUpWorker moves packets up the stack (receiver).
+// The sender and receiver data structures lack mutexs because they are
+// intended to be confined to a single goroutine (one for each worker), and
+// they SHOULD ONLY communicate via message passing.
 func (ws *workersState) moveUpWorker() {
 	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
 

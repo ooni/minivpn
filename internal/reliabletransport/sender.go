@@ -9,7 +9,9 @@ import (
 )
 
 // moveDownWorker moves packets down the stack (sender)
-// TODO move the worker to sender.go
+// The sender and receiver data structures lack mutexes because they are
+// intended to be confined to a single goroutine (one for each worker), and
+// they SHOULD ONLY communicate via message passing.
 func (ws *workersState) moveDownWorker() {
 	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
 
