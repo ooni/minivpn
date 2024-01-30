@@ -2,6 +2,7 @@ package reliabletransport
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/apex/log"
@@ -183,6 +184,164 @@ func Test_ackSet_maybeAdd(t *testing.T) {
 			}
 			if got := as.maybeAdd(tt.args.id); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ackSet.maybeAdd() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// test the combined behavior of reacting to an incomin packet and checking
+// what's left in the in flight queue and what's left in the queue of pending acks.
+func Test_reliableSender_OnIncomingPacketSeen(t *testing.T) {
+
+	idSequence := func(ifp []*inFlightPacket) []model.PacketID {
+		ids := make([]model.PacketID, 0)
+		for _, p := range ifp {
+			ids = append(ids, p.packet.ID)
+		}
+		return ids
+	}
+
+	type fields struct {
+		pendingacks *ackSet
+		inflight    []*inFlightPacket
+	}
+	type args struct {
+		seen []incomingPacketSeen
+	}
+	type want struct {
+		acks     []model.PacketID
+		inflight []model.PacketID
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   want
+	}{
+		{
+			name: "empty seen does not change anything",
+			fields: fields{
+				pendingacks: newACKSet(),
+				inflight: []*inFlightPacket{
+					{packet: &model.Packet{ID: 1}},
+					{packet: &model.Packet{ID: 2}}},
+			},
+			args: args{},
+			want: want{inflight: []model.PacketID{1, 2}},
+		},
+		{
+			name: "ack for 1 evicts in-flight packet 1",
+			fields: fields{
+				pendingacks: newACKSet(),
+				inflight: []*inFlightPacket{
+					{packet: &model.Packet{ID: 1}},
+					{packet: &model.Packet{ID: 2}}},
+			},
+			args: args{[]incomingPacketSeen{
+				{
+					acks: optional.Some([]model.PacketID{model.PacketID(1)}),
+				},
+			},
+			},
+			want: want{inflight: []model.PacketID{2}},
+		},
+		{
+			name: "ack for 1,2 evicts in-flight packets 1,2",
+			fields: fields{
+				pendingacks: newACKSet(),
+				inflight: []*inFlightPacket{
+					{packet: &model.Packet{ID: 1}},
+					{packet: &model.Packet{ID: 2}}},
+			},
+			args: args{[]incomingPacketSeen{
+				{
+					acks: optional.Some([]model.PacketID{
+						model.PacketID(2),
+						model.PacketID(1),
+					}),
+				},
+			},
+			},
+			want: want{inflight: []model.PacketID{}},
+		},
+		{
+			name: "ack for non-existent packet does not evict anything",
+			fields: fields{
+				pendingacks: newACKSet(),
+				inflight: []*inFlightPacket{
+					{packet: &model.Packet{ID: 1}},
+					{packet: &model.Packet{ID: 2}},
+					{packet: &model.Packet{ID: 3}}},
+			},
+			args: args{[]incomingPacketSeen{
+				{
+					acks: optional.Some([]model.PacketID{
+						model.PacketID(10),
+					}),
+				},
+			},
+			},
+			want: want{inflight: []model.PacketID{1, 2, 3}},
+		},
+		{
+			name: "duplicated ack can only evict once",
+			fields: fields{
+				pendingacks: newACKSet(),
+				inflight: []*inFlightPacket{
+					{packet: &model.Packet{ID: 1}},
+					{packet: &model.Packet{ID: 2}},
+					{packet: &model.Packet{ID: 3}},
+					{packet: &model.Packet{ID: 4}}},
+			},
+			args: args{[]incomingPacketSeen{
+				{
+					acks: optional.Some([]model.PacketID{
+						model.PacketID(3),
+						model.PacketID(3),
+					}),
+				},
+			},
+			},
+			want: want{inflight: []model.PacketID{1, 2, 4}},
+		},
+		{
+			name: "seen id adds to pending ids to ack, plus ack evicts",
+			fields: fields{
+				pendingacks: newACKSet(4, 6),
+				inflight: []*inFlightPacket{
+					{packet: &model.Packet{ID: 1}},
+					{packet: &model.Packet{ID: 3}}},
+			},
+			args: args{[]incomingPacketSeen{
+				// a packet seen with ID + acks
+				{
+					id: optional.Some(model.PacketID(2)),
+					acks: optional.Some([]model.PacketID{
+						model.PacketID(1),
+					}),
+				},
+			},
+			},
+			want: want{
+				acks:     []model.PacketID{2, 4, 6},
+				inflight: []model.PacketID{3}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &reliableSender{
+				logger:            log.Log,
+				inFlight:          tt.fields.inflight,
+				pendingACKsToSend: tt.fields.pendingacks,
+			}
+			for _, seen := range tt.args.seen {
+				r.OnIncomingPacketSeen(seen)
+			}
+			if gotACKs := r.NextPacketIDsToACK(); !slices.Equal(gotACKs, tt.want.acks) {
+				t.Errorf("reliableSender.NextPacketIDsToACK() = %v, want %v", gotACKs, tt.want.acks)
+			}
+			if seq := idSequence(r.inFlight); !slices.Equal(seq, tt.want.inflight) {
+				t.Errorf("reliableSender.NextPacketIDsToACK() = %v, want %v", seq, tt.want.inflight)
 			}
 		})
 	}

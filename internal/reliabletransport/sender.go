@@ -157,8 +157,7 @@ func (r *reliableSender) TryInsertOutgoingPacket(p *model.Packet) bool {
 		r.logger.Warn("outgoing array full, dropping packet")
 		return false
 	}
-	new := newInFlightPacket(p)
-	r.inFlight = append(r.inFlight, new)
+	r.inFlight = append(r.inFlight, newInFlightPacket(p))
 	return true
 }
 
@@ -184,10 +183,12 @@ func (r *reliableSender) OnIncomingPacketSeen(seen incomingPacketSeen) {
 func (r *reliableSender) maybeEvictOrMarkWithHigherACK(acked model.PacketID) bool {
 	packets := r.inFlight
 	for i, p := range packets {
+		if p.packet == nil {
+			panic("malformed packet")
+		}
 		if acked > p.packet.ID {
 			// we have received an ACK for a packet with a higher pid, so let's bump it
 			p.ACKForHigherPacket()
-
 		} else if acked == p.packet.ID {
 			// we have a match for the ack we just received: eviction it is!
 			r.logger.Debugf("evicting packet %v", p.packet.ID)
@@ -269,6 +270,9 @@ func (as *ackSet) first() *model.PacketID {
 // sorted returns a []model.PacketID array with the stored ids, in ascending order.
 func (as *ackSet) sorted() []model.PacketID {
 	ids := make([]model.PacketID, 0)
+	if len(as.m) == 0 {
+		return ids
+	}
 	for id := range as.m {
 		ids = append(ids, id)
 	}
