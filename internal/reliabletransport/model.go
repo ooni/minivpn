@@ -28,7 +28,7 @@ type outgoingPacketHandler interface {
 	MaybeEvictOrBumpPacketAfterACK(id model.PacketID) bool
 
 	// NextPacketIDsToACK returns an array of pending IDs to ACK to
-	// our remote. The length of this array SHOULD not be larger than CONTROL_SEND_ACK_MAX.
+	// our remote. The length of this array MUST NOT be larger than CONTROL_SEND_ACK_MAX.
 	// This is used to append it to the ACK array of the outgoing packet.
 	NextPacketIDsToACK() []model.PacketID
 
