@@ -20,14 +20,15 @@ type inFlighter interface {
 // outgoingPacketHandler has methods to deal with the outgoing packets (going down).
 type outgoingPacketHandler interface {
 	// TryInsertOutgoingPacket attempts to insert a packet into the
-	// inflight queue. If return value is false, insertion was not successful.
+	// inflight queue. If return value is false, insertion was not successful (e.g., too many
+	// packets in flight).
 	TryInsertOutgoingPacket(*model.Packet) bool
 
 	// MaybeEvictOrBumpPacketAfterACK removes a packet (that we received an ack for) from the in-flight packet queue.
 	MaybeEvictOrBumpPacketAfterACK(id model.PacketID) bool
 
 	// NextPacketIDsToACK returns an array of pending IDs to ACK to
-	// our remote. The lenght of this array SHOULD not be larger than CONTROL_SEND_ACK_MAX.
+	// our remote. The length of this array SHOULD not be larger than CONTROL_SEND_ACK_MAX.
 	// This is used to append it to the ACK array of the outgoing packet.
 	NextPacketIDsToACK() []model.PacketID
 

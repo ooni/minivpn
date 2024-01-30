@@ -28,7 +28,7 @@ func (ws *workersState) moveDownWorker() {
 		select {
 		case packet := <-ws.controlToReliable:
 
-			// try to insert and schedule for inmediate wakeup
+			// try to insert and schedule for immediate wakeup
 			if inserted := sender.TryInsertOutgoingPacket(packet); inserted {
 				ticker.Reset(time.Nanosecond)
 			}

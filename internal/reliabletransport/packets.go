@@ -93,7 +93,8 @@ func (seq inflightSequence) readyToSend(t time.Time) inflightSequence {
 			fmt.Println("DEBUG: fast retransmit for", p.packet.ID)
 			expired = append(expired, p)
 			continue
-		} else if p.deadline.Before(t) {
+		}
+		if p.deadline.Before(t) {
 			expired = append(expired, p)
 		}
 	}

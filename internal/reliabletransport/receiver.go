@@ -32,7 +32,7 @@ func (ws *workersState) moveUpWorker() {
 		select {
 		case packet := <-ws.muxerToReliable:
 			if packet.Opcode != model.P_CONTROL_HARD_RESET_SERVER_V2 {
-				// the hard reset we logged in below
+				// the hard reset has already been logged by the layer below
 				packet.Log(ws.logger, model.DirectionIncoming)
 			}
 
@@ -130,7 +130,7 @@ func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 
 	// sort them so that we begin with lower model.PacketID
 	sort.Sort(r.incomingPackets)
-	keep := r.incomingPackets[:0]
+	var keep incomingSequence
 
 	for i, p := range r.incomingPackets {
 		if p.ID()-last == 1 {

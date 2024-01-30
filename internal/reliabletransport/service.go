@@ -36,7 +36,6 @@ func (s *Service) StartWorkers(
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
-
 	ws := &workersState{
 		logger:               logger,
 		incomingSeen:         make(chan incomingPacketSeen, 20),
