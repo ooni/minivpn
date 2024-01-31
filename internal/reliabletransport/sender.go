@@ -9,6 +9,11 @@ import (
 	"github.com/ooni/minivpn/internal/optional"
 )
 
+var (
+	// how long to wait for possible outgoing packets before sending a pending ACK as its own packet.
+	gracePeriodForOutgoingACKs = time.Millisecond * 20
+)
+
 // moveDownWorker moves packets down the stack (sender)
 // The sender and receiver data structures lack mutexes because they are
 // intended to be confined to a single goroutine (one for each worker), and
@@ -40,25 +45,8 @@ func (ws *workersState) moveDownWorker() {
 			// possibly evict any acked packet (in the ack array)
 			// and add any id to the queue of packets to ack
 			sender.OnIncomingPacketSeen(seenPacket)
-
-			if sender.pendingACKsToSend.Len() == 0 {
-				continue
-			}
-
-			if sender.pendingACKsToSend.Len() >= 2 {
-				ticker.Reset(time.Nanosecond)
-				continue
-			}
-
-			// if there's no event soon, give some time for other acks to arrive
-			// TODO: review if we need this optimization.
-			// TODO: maybe only during TLS handshake??
-			now := time.Now()
-			timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
-			gracePeriod := time.Millisecond * 20
-			if timeout.Sub(now) > gracePeriod {
-				fmt.Println(">> next wakeup too late, schedule in", gracePeriod)
-				ticker.Reset(gracePeriod)
+			if shouldWakeup, when := sender.shouldWakeupAfterACK(time.Now()); shouldWakeup {
+				ticker.Reset(when)
 			}
 
 		case <-ticker.C:
@@ -73,7 +61,6 @@ func (ws *workersState) moveDownWorker() {
 			timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
 
 			ticker.Reset(timeout.Sub(now))
-
 			scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
 
 			if len(scheduledNow) > 0 {
@@ -84,7 +71,9 @@ func (ws *workersState) moveDownWorker() {
 					// append any pending ACKs
 					p.packet.ACKs = sender.NextPacketIDsToACK()
 
+					// log the packet
 					p.packet.Log(ws.logger, model.DirectionOutgoing)
+
 					select {
 					case ws.dataOrControlToMuxer <- p.packet:
 					case <-ws.workersManager.ShouldShutdown():
@@ -92,18 +81,19 @@ func (ws *workersState) moveDownWorker() {
 					}
 				}
 			} else {
-				// TODO --- move this to function -------------------------------------------
-
-				// TODO: somethingToACK(state) ---------------------------------------------
-				// there's nothing ready to be sent, so we see if we've got pending ACKs
-				if sender.pendingACKsToSend.Len() == 0 {
+				if !sender.hasPendingACKs() {
 					continue
 				}
+
 				// special case, we want to send the clientHello as soon as possible -----------------------------
 				// (TODO: coordinate this with hardReset)
-				if sender.pendingACKsToSend.Len() == 1 && *sender.pendingACKsToSend.first() == model.PacketID(0) {
-					continue
-				}
+
+				/*
+					// TODO is this doing the right thing?
+						if sender.pendingACKsToSend.Len() == 1 && *sender.pendingACKsToSend.first() == model.PacketID(0) {
+							continue
+						}
+				*/
 
 				ws.logger.Debugf("Creating ACK: %d pending to ack", sender.pendingACKsToSend.Len())
 
@@ -203,6 +193,32 @@ func (r *reliableSender) maybeEvictOrMarkWithHigherACK(acked model.PacketID) {
 	sort.Sort(inflightSequence(r.inFlight))
 }
 
+// shouldRescheduleAfterACK checks whether we need to wakeup after receiving an ACK.
+// TODO: change this depending on the handshake state --------------------------
+func (r *reliableSender) shouldWakeupAfterACK(t time.Time) (bool, time.Duration) {
+	if r.pendingACKsToSend.Len() == 0 {
+		return false, time.Minute
+	}
+	// for two or more ACKs pending, we want to send right now.
+	if r.pendingACKsToSend.Len() >= 2 {
+		return true, time.Nanosecond
+	}
+	// if we've got a single ACK to send, we give it a grace period in case no other packets are
+	// scheduled to go out in this time.
+	timeout := inflightSequence(r.inFlight).nearestDeadlineTo(t)
+
+	if timeout.Sub(t) > gracePeriodForOutgoingACKs {
+		r.logger.Debugf("next wakeup too late, schedule in %v", gracePeriodForOutgoingACKs)
+		return true, gracePeriodForOutgoingACKs
+	}
+	return true, timeout.Sub(t)
+}
+
+// hasPendingACKs return true if there's any ack in the pending queue
+func (r *reliableSender) hasPendingACKs() bool {
+	return r.pendingACKsToSend.Len() != 0
+}
+
 // NextPacketIDsToACK implement outgoingPacketHandler
 func (r *reliableSender) NextPacketIDsToACK() []model.PacketID {
 	return r.pendingACKsToSend.nextToACK()
@@ -257,6 +273,8 @@ func (as *ackSet) nextToACK() []model.PacketID {
 }
 
 // first returns the first packetID in the set, in ascending order.
+// TODO -- unused, possibly delete ---- was for a special case ---
+/*
 func (as *ackSet) first() *model.PacketID {
 	ids := as.sorted()
 	if len(ids) == 0 {
@@ -264,6 +282,7 @@ func (as *ackSet) first() *model.PacketID {
 	}
 	return &ids[0]
 }
+*/
 
 // sorted returns a []model.PacketID array with the stored ids, in ascending order.
 func (as *ackSet) sorted() []model.PacketID {

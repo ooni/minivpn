@@ -412,6 +412,124 @@ func Test_reliableSender_maybeEvictOrMarkWithHigherACK(t *testing.T) {
 	}
 }
 
+func Test_reliableSender_hasPendingACKs(t *testing.T) {
+	type fields struct {
+		pendingACKsToSend *ackSet
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   bool
+	}{
+		{
+			name: "empty acksset returns false",
+			fields: fields{
+				newACKSet(),
+			},
+			want: false,
+		},
+		{
+			name: "not empty ackset returns true",
+			fields: fields{
+				newACKSet(1),
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &reliableSender{
+				logger:            log.Log,
+				pendingACKsToSend: tt.fields.pendingACKsToSend,
+			}
+			if got := r.hasPendingACKs(); got != tt.want {
+				t.Errorf("reliableSender.hasPendingACKs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_reliableSender_shouldWakeupAfterACK(t *testing.T) {
+	t0 := time.Date(1984, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	type fields struct {
+		inflight          []*inFlightPacket
+		pendingACKsToSend *ackSet
+	}
+	type args struct {
+		t time.Time
+	}
+	tests := []struct {
+		name         string
+		fields       fields
+		args         args
+		want         bool
+		wantDuration time.Duration
+	}{
+		{
+			name: "empty ackset returns false",
+			fields: fields{
+				pendingACKsToSend: newACKSet(),
+			},
+			args:         args{t0},
+			want:         false,
+			wantDuration: time.Minute,
+		},
+		{
+			name: "len(ackset)=2 returns true",
+			fields: fields{
+				pendingACKsToSend: newACKSet(1, 2),
+			},
+			args:         args{t0},
+			want:         true,
+			wantDuration: time.Nanosecond,
+		},
+		{
+			name: "len(ackset)=1 returns grace period",
+			fields: fields{
+				pendingACKsToSend: newACKSet(1),
+			},
+			args:         args{t0},
+			want:         true,
+			wantDuration: gracePeriodForOutgoingACKs,
+		},
+		{
+			name: "len(ackset)=1 returns lower deadline if below grace period",
+			fields: fields{
+				inflight: []*inFlightPacket{
+					{
+						packet:   &model.Packet{ID: 1},
+						deadline: t0.Add(5 * time.Millisecond),
+					},
+					{
+						packet:   &model.Packet{ID: 2},
+						deadline: t0.Add(10 * time.Millisecond),
+					}},
+				pendingACKsToSend: newACKSet(1),
+			},
+			args:         args{t0},
+			want:         true,
+			wantDuration: time.Millisecond * 5,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &reliableSender{
+				logger:            log.Log,
+				inFlight:          tt.fields.inflight,
+				pendingACKsToSend: tt.fields.pendingACKsToSend,
+			}
+			got, gotDuration := r.shouldWakeupAfterACK(tt.args.t)
+			if got != tt.want {
+				t.Errorf("reliableSender.shouldWakeupAfterACK() got = %v, want %v", got, tt.want)
+			}
+			if gotDuration != tt.wantDuration {
+				t.Errorf("reliableSender.shouldWakeupAfterACK() gotDuration = %v, want %v", gotDuration, tt.wantDuration)
+			}
+		})
+	}
+}
+
 //
 // tests for ackSet
 //
