@@ -12,6 +12,19 @@ import (
 // tests for reliableReceiver
 //
 
+func Test_newReliableReceiver(t *testing.T) {
+	rr := newReliableReceiver(log.Log, make(chan incomingPacketSeen))
+	if rr.logger == nil {
+		t.Errorf("newReliableReceiver() should not have nil logger")
+	}
+	if rr.incomingPackets == nil {
+		t.Errorf("newReliableReceiver() should not have nil incomingPackets ch")
+	}
+	if rr.lastConsumed != 0 {
+		t.Errorf("newReliableReceiver() should have lastConsumed == 0")
+	}
+}
+
 func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 

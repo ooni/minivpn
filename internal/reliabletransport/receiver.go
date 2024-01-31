@@ -108,11 +108,11 @@ type reliableReceiver struct {
 	lastConsumed model.PacketID
 }
 
-func newReliableReceiver(logger model.Logger, i chan incomingPacketSeen) *reliableReceiver {
+func newReliableReceiver(logger model.Logger, ch chan incomingPacketSeen) *reliableReceiver {
 	return &reliableReceiver{
 		logger:          logger,
 		incomingPackets: make([]*model.Packet, 0),
-		incomingSeen:    i,
+		incomingSeen:    ch,
 		lastConsumed:    0,
 	}
 }
