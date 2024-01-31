@@ -101,7 +101,7 @@ func (ws *workersState) worker() {
 // tlsAuth runs the TLS auth algorithm
 func (ws *workersState) tlsAuth() error {
 	// create the BIO to use channels as a socket
-	conn := newTLSBio(ws.tlsRecordUp, ws.tlsRecordDown)
+	conn := newTLSBio(ws.logger, ws.tlsRecordUp, ws.tlsRecordDown)
 	defer conn.Close()
 
 	// we construct the certCfg from options, that has access to the certificate material
