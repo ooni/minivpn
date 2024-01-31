@@ -1,7 +1,6 @@
 package reliabletransport
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/ooni/minivpn/internal/model"
@@ -87,7 +86,6 @@ func (seq inflightSequence) readyToSend(t time.Time) inflightSequence {
 	expired := make([]*inFlightPacket, 0)
 	for _, p := range seq {
 		if p.higherACKs >= 3 {
-			fmt.Println("DEBUG: fast retransmit for", p.packet.ID)
 			expired = append(expired, p)
 			continue
 		}
@@ -98,40 +96,23 @@ func (seq inflightSequence) readyToSend(t time.Time) inflightSequence {
 	return expired
 }
 
-// An incomingSequence is an array of sequentialPackets. It's used to store both incoming and outgoing packet queues.
+// An incomingSequence is an array of [model.Packet].
 // An incomingSequence can be sorted.
-type incomingSequence []sequentialPacket
+type incomingSequence []*model.Packet
 
 // implement sort.Interface
-func (ps incomingSequence) Len() int {
-	return len(ps)
-}
-
-// implement sort.Interface
-func (ps incomingSequence) Swap(i, j int) {
-	ps[i], ps[j] = ps[j], ps[i]
+func (seq incomingSequence) Len() int {
+	return len(seq)
 }
 
 // implement sort.Interface
-func (ps incomingSequence) Less(i, j int) bool {
-	return ps[i].ID() < ps[j].ID()
+func (seq incomingSequence) Swap(i, j int) {
+	seq[i], seq[j] = seq[j], seq[i]
 }
 
-// TODO: this is just a packet -----------------------------
-type incomingPacket struct {
-	packet *model.Packet
-}
-
-func (ip *incomingPacket) ID() model.PacketID {
-	return ip.packet.ID
-}
-
-func (ip *incomingPacket) ExtractACKs() []model.PacketID {
-	return ip.packet.ACKs
-}
-
-func (ip *incomingPacket) Packet() *model.Packet {
-	return ip.packet
+// implement sort.Interface
+func (seq incomingSequence) Less(i, j int) bool {
+	return seq[i].ID < seq[j].ID
 }
 
 // incomingPacketSeen is a struct that the receiver sends us when a new packet is seen.

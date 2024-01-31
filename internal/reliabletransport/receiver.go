@@ -76,7 +76,7 @@ func (ws *workersState) moveUpWorker() {
 			for _, nextPacket := range ready {
 				// POSSIBLY BLOCK delivering to the upper layer
 				select {
-				case ws.reliableToControl <- nextPacket.Packet():
+				case ws.reliableToControl <- nextPacket:
 				case <-ws.workersManager.ShouldShutdown():
 					return
 				}
@@ -111,7 +111,7 @@ type reliableReceiver struct {
 func newReliableReceiver(logger model.Logger, i chan incomingPacketSeen) *reliableReceiver {
 	return &reliableReceiver{
 		logger:          logger,
-		incomingPackets: []sequentialPacket{},
+		incomingPackets: make([]*model.Packet, 0),
 		incomingSeen:    i,
 		lastConsumed:    0,
 	}
@@ -124,25 +124,24 @@ func (r *reliableReceiver) MaybeInsertIncoming(p *model.Packet) bool {
 		return false
 	}
 
-	inc := &incomingPacket{p}
 	// insert this one in the queue to pass to TLS.
-	r.incomingPackets = append(r.incomingPackets, inc)
+	r.incomingPackets = append(r.incomingPackets, p)
 	return true
 }
 
 func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 	last := r.lastConsumed
-	ready := make([]sequentialPacket, 0, RELIABLE_RECV_BUFFER_SIZE)
+	ready := make([]*model.Packet, 0, RELIABLE_RECV_BUFFER_SIZE)
 
 	// sort them so that we begin with lower model.PacketID
 	sort.Sort(r.incomingPackets)
 	var keep incomingSequence
 
 	for i, p := range r.incomingPackets {
-		if p.ID()-last == 1 {
+		if p.ID-last == 1 {
 			ready = append(ready, p)
 			last += 1
-		} else if p.ID() > last {
+		} else if p.ID > last {
 			// here we broke sequentiality, but we want
 			// to drop anything that is below lastConsumed
 			keep = append(keep, r.incomingPackets[i:]...)
@@ -155,9 +154,6 @@ func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 }
 
 func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) incomingPacketSeen {
-	if len(p.ACKs) != 0 {
-		fmt.Println(":: seen", p.ACKs)
-	}
 	incomingPacket := incomingPacketSeen{}
 	if p.Opcode == model.P_ACK_V1 {
 		incomingPacket.acks = optional.Some(p.ACKs)
@@ -169,10 +165,10 @@ func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) incomingPacket
 	return incomingPacket
 }
 
-// assert that reliableIncoming implements incomingPacketHandler
+// assert that reliableReceiver implements incomingPacketHandler
 var _ incomingPacketHandler = &reliableReceiver{
 	logger:          nil,
-	incomingPackets: []sequentialPacket{},
+	incomingPackets: make([]*model.Packet, 0),
 	incomingSeen:    make(chan<- incomingPacketSeen),
 	lastConsumed:    0,
 }

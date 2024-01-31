@@ -12,26 +12,6 @@ import (
 // tests for reliableReceiver
 //
 
-// testIncomingPacket is a sequentialPacket for testing incomingPackets
-type testIncomingPacket struct {
-	id   model.PacketID
-	acks []model.PacketID
-}
-
-func (ip *testIncomingPacket) ID() model.PacketID {
-	return ip.id
-}
-
-func (ip *testIncomingPacket) ExtractACKs() []model.PacketID {
-	return ip.acks
-}
-
-func (ip *testIncomingPacket) Packet() *model.Packet {
-	return &model.Packet{ID: ip.id}
-}
-
-var _ sequentialPacket = &testIncomingPacket{}
-
 func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 
@@ -39,7 +19,7 @@ func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
 		incomingPackets incomingSequence
 	}
 	type args struct {
-		p *testIncomingPacket
+		p *model.Packet
 	}
 	tests := []struct {
 		name   string
@@ -50,55 +30,36 @@ func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
 		{
 			name: "empty incoming, insert one",
 			fields: fields{
-				incomingPackets: []sequentialPacket{},
+				incomingPackets: make([]*model.Packet, 0),
 			},
 			args: args{
-				&testIncomingPacket{id: 1},
+				&model.Packet{ID: 1},
 			},
 			want: true,
 		},
 		{
 			name: "almost full incoming, insert one",
 			fields: fields{
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 4},
-					&testIncomingPacket{id: 5},
-					&testIncomingPacket{id: 6},
-					&testIncomingPacket{id: 7},
-					&testIncomingPacket{id: 8},
-					&testIncomingPacket{id: 9},
-					&testIncomingPacket{id: 10},
-					&testIncomingPacket{id: 11},
+				incomingPackets: []*model.Packet{
+					{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4},
+					{ID: 5}, {ID: 6}, {ID: 7}, {ID: 8},
+					{ID: 9}, {ID: 10}, {ID: 11},
 				},
 			},
-			args: args{
-				&testIncomingPacket{id: 12},
-			},
+			args: args{&model.Packet{ID: 12}},
 			want: true,
 		},
 		{
 			name: "full incoming, cannot insert",
 			fields: fields{
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 4},
-					&testIncomingPacket{id: 5},
-					&testIncomingPacket{id: 6},
-					&testIncomingPacket{id: 7},
-					&testIncomingPacket{id: 8},
-					&testIncomingPacket{id: 9},
-					&testIncomingPacket{id: 10},
-					&testIncomingPacket{id: 11},
-					&testIncomingPacket{id: 12},
+				incomingPackets: []*model.Packet{
+					{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4},
+					{ID: 5}, {ID: 6}, {ID: 7}, {ID: 8},
+					{ID: 9}, {ID: 10}, {ID: 11}, {ID: 12},
 				},
 			},
 			args: args{
-				&testIncomingPacket{id: 13},
+				&model.Packet{ID: 13},
 			},
 			want: false,
 		},
@@ -109,7 +70,7 @@ func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
 				logger:          log.Log,
 				incomingPackets: tt.fields.incomingPackets,
 			}
-			if got := r.MaybeInsertIncoming(tt.args.p.Packet()); got != tt.want {
+			if got := r.MaybeInsertIncoming(tt.args.p); got != tt.want {
 				t.Errorf("reliableQueue.MaybeInsertIncoming() = %v, want %v", got, tt.want)
 			}
 		})
@@ -131,86 +92,54 @@ func Test_reliableQueue_NextIncomingSequence(t *testing.T) {
 		{
 			name: "empty sequence",
 			fields: fields{
-				incomingPackets: []sequentialPacket{},
+				incomingPackets: []*model.Packet{},
 				lastConsumed:    model.PacketID(0),
 			},
-			want: []sequentialPacket{},
+			want: []*model.Packet{},
 		},
 		{
 			name: "single packet",
 			fields: fields{
 				lastConsumed: model.PacketID(0),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
+				incomingPackets: []*model.Packet{
+					{ID: 1},
 				},
 			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 1},
+			want: []*model.Packet{
+				{ID: 1},
 			},
 		},
 		{
 			name: "series of sequential packets",
 			fields: fields{
-				lastConsumed: model.PacketID(0),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-				},
+				lastConsumed:    model.PacketID(0),
+				incomingPackets: []*model.Packet{{ID: 1}, {ID: 2}, {ID: 3}},
 			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 1},
-				&testIncomingPacket{id: 2},
-				&testIncomingPacket{id: 3},
-			},
+			want: []*model.Packet{{ID: 1}, {ID: 2}, {ID: 3}},
 		},
 		{
 			name: "series of sequential packets with hole",
 			fields: fields{
-				lastConsumed: model.PacketID(0),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 5},
-				},
+				lastConsumed:    model.PacketID(0),
+				incomingPackets: []*model.Packet{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 5}},
 			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 1},
-				&testIncomingPacket{id: 2},
-				&testIncomingPacket{id: 3},
-			},
+			want: []*model.Packet{{ID: 1}, {ID: 2}, {ID: 3}},
 		},
 		{
 			name: "series of sequential packets with hole, lastConsumed higher",
 			fields: fields{
-				lastConsumed: model.PacketID(10),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 3},
-					&testIncomingPacket{id: 5},
-				},
+				lastConsumed:    model.PacketID(10),
+				incomingPackets: []*model.Packet{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 5}},
 			},
-			want: []sequentialPacket{},
+			want: []*model.Packet{},
 		},
 		{
 			name: "series of sequential packets with hole, lastConsumed higher, some above",
 			fields: fields{
-				lastConsumed: model.PacketID(10),
-				incomingPackets: []sequentialPacket{
-					&testIncomingPacket{id: 1},
-					&testIncomingPacket{id: 2},
-					&testIncomingPacket{id: 10},
-					&testIncomingPacket{id: 11},
-					&testIncomingPacket{id: 12},
-					&testIncomingPacket{id: 20},
-				},
+				lastConsumed:    model.PacketID(10),
+				incomingPackets: []*model.Packet{{ID: 1}, {ID: 2}, {ID: 10}, {ID: 11}, {ID: 12}, {ID: 20}},
 			},
-			want: []sequentialPacket{
-				&testIncomingPacket{id: 11},
-				&testIncomingPacket{id: 12},
-			},
+			want: []*model.Packet{{ID: 11}, {ID: 12}},
 		},
 	}
 	for _, tt := range tests {
