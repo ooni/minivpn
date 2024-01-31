@@ -33,12 +33,6 @@ func newInFlightPacket(p *model.Packet) *inFlightPacket {
 	}
 }
 
-/*
-func (p *inFlightPacket) ExtractACKs() []model.PacketID {
-	return p.packet.ACKs
-}
-*/
-
 // ACKForHigherPacket increments the number of acks received for a higher pid than this packet. This will influence the fast rexmit selection algorithm.
 func (p *inFlightPacket) ACKForHigherPacket() {
 	p.higherACKs += 1
@@ -123,7 +117,7 @@ func (ps incomingSequence) Less(i, j int) bool {
 	return ps[i].ID() < ps[j].ID()
 }
 
-// TODO: this is just a packet
+// TODO: this is just a packet -----------------------------
 type incomingPacket struct {
 	packet *model.Packet
 }
