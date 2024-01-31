@@ -166,9 +166,4 @@ func (r *reliableReceiver) newIncomingPacketSeen(p *model.Packet) incomingPacket
 }
 
 // assert that reliableReceiver implements incomingPacketHandler
-var _ incomingPacketHandler = &reliableReceiver{
-	logger:          nil,
-	incomingPackets: make([]*model.Packet, 0),
-	incomingSeen:    make(chan<- incomingPacketSeen),
-	lastConsumed:    0,
-}
+var _ incomingPacketHandler = &reliableReceiver{}

@@ -92,7 +92,8 @@ func (ws *workersState) moveDownWorker() {
 					}
 				}
 			} else {
-				// TODO --- mve this to function -------------------------------------------
+				// TODO --- move this to function -------------------------------------------
+
 				// TODO: somethingToACK(state) ---------------------------------------------
 				// there's nothing ready to be sent, so we see if we've got pending ACKs
 				if sender.pendingACKsToSend.Len() == 0 {
@@ -127,7 +128,6 @@ func (ws *workersState) moveDownWorker() {
 // reliableSender keeps state about the in flight packet queue, and implements outgoingPacketHandler.
 // Please use the constructor `newReliableSender()`
 type reliableSender struct {
-
 	// incomingSeen is a channel where we receive notifications for incoming packets seen by the receiver.
 	incomingSeen <-chan incomingPacketSeen
 
@@ -142,9 +142,9 @@ type reliableSender struct {
 }
 
 // newReliableSender returns a new instance of reliableOutgoing.
-func newReliableSender(logger model.Logger, i chan incomingPacketSeen) *reliableSender {
+func newReliableSender(logger model.Logger, ch chan incomingPacketSeen) *reliableSender {
 	return &reliableSender{
-		incomingSeen:      i,
+		incomingSeen:      ch,
 		inFlight:          make([]*inFlightPacket, 0, RELIABLE_SEND_BUFFER_SIZE),
 		logger:            logger,
 		pendingACKsToSend: newACKSet(),
@@ -180,9 +180,9 @@ func (r *reliableSender) OnIncomingPacketSeen(seen incomingPacketSeen) {
 // maybeEvictOrMarkWithHigherACK iterates over all the in-flight packets. For each one,
 // either evicts it (if the PacketID matches), or bumps the internal withHigherACK count in the
 // packet (if the PacketID from the ACK is higher than the packet in the queue).
-func (r *reliableSender) maybeEvictOrMarkWithHigherACK(acked model.PacketID) bool {
-	packets := r.inFlight
-	for i, p := range packets {
+func (r *reliableSender) maybeEvictOrMarkWithHigherACK(acked model.PacketID) {
+	pkts := r.inFlight
+	for i, p := range pkts {
 		if p.packet == nil {
 			panic("malformed packet")
 		}
@@ -194,18 +194,13 @@ func (r *reliableSender) maybeEvictOrMarkWithHigherACK(acked model.PacketID) boo
 			r.logger.Debugf("evicting packet %v", p.packet.ID)
 
 			// first we swap this element with the last one:
-			packets[i], packets[len(packets)-1] = packets[len(packets)-1], packets[i]
+			pkts[i], pkts[len(pkts)-1] = pkts[len(pkts)-1], pkts[i]
 
 			// and now exclude the last element:
-			r.inFlight = packets[:len(packets)-1]
-
-			// since the in-flight array is always sorted by ascending packet-id
-			// (because of sequentiality assumption in the control channel),
-			// we're done here.
-			return true
+			r.inFlight = pkts[:len(pkts)-1]
 		}
 	}
-	return false
+	sort.Sort(inflightSequence(r.inFlight))
 }
 
 // NextPacketIDsToACK implement outgoingPacketHandler
@@ -213,7 +208,11 @@ func (r *reliableSender) NextPacketIDsToACK() []model.PacketID {
 	return r.pendingACKsToSend.nextToACK()
 }
 
+// assert reliableSender implements the needed interfaces
+
 var _ outgoingPacketHandler = &reliableSender{}
+var _ seenPacketHandler = &reliableSender{}
+var _ outgoingPacketWriter = &reliableSender{}
 
 // ackSet is a set of acks. The zero value struct
 // is invalid, please use newACKSet.

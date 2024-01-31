@@ -52,11 +52,6 @@ func (p *inFlightPacket) backoff() time.Duration {
 	return backoff
 }
 
-// TODO: revisit interfaces while writing tests.
-// assert that inFlightWrappedPacket implements inFlightPacket and sequentialPacket
-// var _ inFlightPacket = &inFlightWrappedPacket{}
-// var _ sequentialPacket = &inFlightWrappedPacket{}
-
 // inflightSequence is a sequence of inFlightPackets.
 // A inflightSequence MUST be sorted (since the controlchannel has assigned sequential packet IDs when creating the
 // packet)
@@ -94,6 +89,21 @@ func (seq inflightSequence) readyToSend(t time.Time) inflightSequence {
 		}
 	}
 	return expired
+}
+
+// implement sort.Interface
+func (seq inflightSequence) Len() int {
+	return len(seq)
+}
+
+// implement sort.Interface
+func (seq inflightSequence) Swap(i, j int) {
+	seq[i], seq[j] = seq[j], seq[i]
+}
+
+// implement sort.Interface
+func (seq inflightSequence) Less(i, j int) bool {
+	return seq[i].packet.ID < seq[j].packet.ID
 }
 
 // An incomingSequence is an array of [model.Packet].

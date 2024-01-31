@@ -4,15 +4,34 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/optional"
 )
 
+func idSequence(s inflightSequence) []model.PacketID {
+	ids := make([]model.PacketID, 0)
+	for _, p := range s {
+		ids = append(ids, p.packet.ID)
+	}
+	return ids
+}
+
 //
 // tests for reliableSender
 //
+
+func Test_newReliableSender(t *testing.T) {
+	s := newReliableSender(log.Log, make(chan incomingPacketSeen))
+	if s.logger == nil {
+		t.Errorf("newReliableSender(): expected non nil logger")
+	}
+	if s.incomingSeen == nil {
+		t.Errorf("newReliableSender(): expected non nil incomingSeen")
+	}
+}
 
 func Test_reliableSender_TryInsertOutgoingPacket(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
@@ -136,116 +155,6 @@ func Test_reliableSender_NextPacketIDsToACK(t *testing.T) {
 				t.Errorf("reliableSender.NextPacketIDsToACK() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func Test_ackSet_maybeAdd(t *testing.T) {
-	type fields struct {
-		m map[model.PacketID]bool
-	}
-	type args struct {
-		id optional.Value[model.PacketID]
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *ackSet
-	}{
-		{
-			name:   "can add on empty set",
-			fields: fields{newACKSet().m},
-			args:   args{optional.Some(model.PacketID(1))},
-			want:   newACKSet(1),
-		},
-		{
-			name:   "add duplicate on empty set",
-			fields: fields{newACKSet(1).m},
-			args:   args{optional.Some(model.PacketID(1))},
-			want:   newACKSet(1),
-		},
-		{
-			name:   "cannot add beyond capacity",
-			fields: fields{newACKSet(1, 2, 3, 4, 5, 6, 7, 8).m},
-			args:   args{optional.Some(model.PacketID(10))},
-			want:   newACKSet(1, 2, 3, 4, 5, 6, 7, 8),
-		},
-		{
-			name:   "order does not matter",
-			fields: fields{newACKSet(3, 2, 1).m},
-			args:   args{optional.Some(model.PacketID(4))},
-			want:   newACKSet(1, 2, 3, 4),
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			as := &ackSet{
-				m: tt.fields.m,
-			}
-			if got := as.maybeAdd(tt.args.id); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ackSet.maybeAdd() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_ackSet_nextToACK(t *testing.T) {
-	type fields struct {
-		m map[model.PacketID]bool
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		want   []model.PacketID
-	}{
-		{
-			name:   "get all if you have <4",
-			fields: fields{newACKSet(1, 2, 3).m},
-			want:   []model.PacketID{1, 2, 3},
-		},
-		{
-			name:   "get all if you have 4",
-			fields: fields{newACKSet(1, 2, 3, 4).m},
-			want:   []model.PacketID{1, 2, 3, 4},
-		},
-		{
-			name:   "get 2 if you have 2, sorted",
-			fields: fields{newACKSet(4, 1).m},
-			want:   []model.PacketID{1, 4},
-		},
-		{
-			name:   "get first 4 if you have >4, sorted",
-			fields: fields{newACKSet(5, 6, 8, 3, 2, 4, 1).m},
-			want:   []model.PacketID{1, 2, 3, 4},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			as := &ackSet{
-				m: tt.fields.m,
-			}
-			if got := as.nextToACK(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ackSet.nextToACK() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_ackSet_nextToACK_empties_set(t *testing.T) {
-	acks := newACKSet(1, 2, 3, 5, 4, 6, 7, 10, 9, 8)
-
-	want1 := []model.PacketID{1, 2, 3, 4}
-	want2 := []model.PacketID{5, 6, 7, 8}
-	want3 := []model.PacketID{9, 10}
-
-	if got := acks.nextToACK(); !reflect.DeepEqual(got, want1) {
-		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want1)
-	}
-	if got := acks.nextToACK(); !reflect.DeepEqual(got, want2) {
-		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want1)
-	}
-	if got := acks.nextToACK(); !reflect.DeepEqual(got, want3) {
-		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want3)
 	}
 }
 
@@ -407,4 +316,212 @@ func Test_reliableSender_OnIncomingPacketSeen(t *testing.T) {
 	}
 }
 
-// TODO: exercise maybeEvict + withHigherACKs
+// Here we test injecting different ACKs for a given in flight queue (with expired deadlines or not),
+// and we check what do we get ready to send.
+func Test_reliableSender_maybeEvictOrMarkWithHigherACK(t *testing.T) {
+	t0 := time.Date(1984, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	type fields struct {
+		inFlight []*inFlightPacket
+	}
+	type args struct {
+		acked model.PacketID
+	}
+	tests := []struct {
+		name         string
+		fields       fields
+		args         args
+		wantSequence []model.PacketID
+	}{
+		{
+			name: "empty ack does not evict anything",
+			fields: fields{[]*inFlightPacket{
+				{packet: &model.Packet{ID: 1}},
+			}},
+			args:         args{},
+			wantSequence: []model.PacketID{1},
+		},
+		{
+			name: "one ack evicts the matching inflight packet",
+			fields: fields{[]*inFlightPacket{
+				{packet: &model.Packet{ID: 1}},
+				{packet: &model.Packet{ID: 2}},
+				{packet: &model.Packet{ID: 3}},
+				{packet: &model.Packet{ID: 4}},
+			}},
+			args:         args{model.PacketID(1)},
+			wantSequence: []model.PacketID{2, 3, 4},
+		},
+		{
+			name: "high ack evicts only that packet",
+			fields: fields{[]*inFlightPacket{
+				{packet: &model.Packet{ID: 1}},
+				{packet: &model.Packet{ID: 2}},
+				{packet: &model.Packet{ID: 3}},
+				{packet: &model.Packet{ID: 4}},
+			}},
+			args: args{
+				model.PacketID(4),
+			},
+			wantSequence: []model.PacketID{1, 2, 3},
+		},
+		{
+			name: "high ack evicts that packet, and gets a fast rxmit if >=3",
+			fields: fields{[]*inFlightPacket{
+				{
+					// expired, should be returned
+					packet:   &model.Packet{ID: 1},
+					deadline: t0.Add(-1 * time.Millisecond),
+				},
+				{
+					// this one should get returned too, will get the ack counter == 3
+					packet:     &model.Packet{ID: 2},
+					deadline:   t0.Add(20 * time.Millisecond),
+					higherACKs: 2,
+				},
+				{
+					// this one has counter to zero and not expired, should not be returned
+					packet:     &model.Packet{ID: 3},
+					deadline:   t0.Add(20 * time.Millisecond),
+					higherACKs: 0,
+				},
+				{
+					// this one is the one we're evicting so who cares
+					packet: &model.Packet{ID: 4},
+				},
+			}},
+			args: args{
+				// let's evict this poor packet!
+				model.PacketID(4),
+			},
+			wantSequence: []model.PacketID{1, 2},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &reliableSender{
+				logger:   log.Log,
+				inFlight: tt.fields.inFlight,
+			}
+			r.maybeEvictOrMarkWithHigherACK(tt.args.acked)
+			gotToSend := idSequence(inflightSequence(r.inFlight).readyToSend(t0))
+			if !slices.Equal(gotToSend, tt.wantSequence) {
+				t.Errorf("reliableSender.maybeEvictOrMarkWithHigherACK() = %v, want %v", gotToSend, tt.wantSequence)
+			}
+		})
+	}
+}
+
+//
+// tests for ackSet
+//
+
+func Test_ackSet_maybeAdd(t *testing.T) {
+	type fields struct {
+		m map[model.PacketID]bool
+	}
+	type args struct {
+		id optional.Value[model.PacketID]
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   *ackSet
+	}{
+		{
+			name:   "can add on empty set",
+			fields: fields{newACKSet().m},
+			args:   args{optional.Some(model.PacketID(1))},
+			want:   newACKSet(1),
+		},
+		{
+			name:   "add duplicate on empty set",
+			fields: fields{newACKSet(1).m},
+			args:   args{optional.Some(model.PacketID(1))},
+			want:   newACKSet(1),
+		},
+		{
+			name:   "cannot add beyond capacity",
+			fields: fields{newACKSet(1, 2, 3, 4, 5, 6, 7, 8).m},
+			args:   args{optional.Some(model.PacketID(10))},
+			want:   newACKSet(1, 2, 3, 4, 5, 6, 7, 8),
+		},
+		{
+			name:   "order does not matter",
+			fields: fields{newACKSet(3, 2, 1).m},
+			args:   args{optional.Some(model.PacketID(4))},
+			want:   newACKSet(1, 2, 3, 4),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as := &ackSet{
+				m: tt.fields.m,
+			}
+			if got := as.maybeAdd(tt.args.id); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ackSet.maybeAdd() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_ackSet_nextToACK(t *testing.T) {
+	type fields struct {
+		m map[model.PacketID]bool
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   []model.PacketID
+	}{
+		{
+			name:   "get all if you have <4",
+			fields: fields{newACKSet(1, 2, 3).m},
+			want:   []model.PacketID{1, 2, 3},
+		},
+		{
+			name:   "get all if you have 4",
+			fields: fields{newACKSet(1, 2, 3, 4).m},
+			want:   []model.PacketID{1, 2, 3, 4},
+		},
+		{
+			name:   "get 2 if you have 2, sorted",
+			fields: fields{newACKSet(4, 1).m},
+			want:   []model.PacketID{1, 4},
+		},
+		{
+			name:   "get first 4 if you have >4, sorted",
+			fields: fields{newACKSet(5, 6, 8, 3, 2, 4, 1).m},
+			want:   []model.PacketID{1, 2, 3, 4},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as := &ackSet{
+				m: tt.fields.m,
+			}
+			if got := as.nextToACK(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ackSet.nextToACK() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_ackSet_nextToACK_empties_set(t *testing.T) {
+	acks := newACKSet(1, 2, 3, 5, 4, 6, 7, 10, 9, 8)
+
+	want1 := []model.PacketID{1, 2, 3, 4}
+	want2 := []model.PacketID{5, 6, 7, 8}
+	want3 := []model.PacketID{9, 10}
+
+	if got := acks.nextToACK(); !reflect.DeepEqual(got, want1) {
+		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want1)
+	}
+	if got := acks.nextToACK(); !reflect.DeepEqual(got, want2) {
+		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want1)
+	}
+	if got := acks.nextToACK(); !reflect.DeepEqual(got, want3) {
+		t.Errorf("ackSet.nextToACK() = %v, want %v", got, want3)
+	}
+}
