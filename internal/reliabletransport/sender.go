@@ -214,8 +214,7 @@ var _ outgoingPacketHandler = &reliableSender{}
 var _ seenPacketHandler = &reliableSender{}
 var _ outgoingPacketWriter = &reliableSender{}
 
-// ackSet is a set of acks. The zero value struct
-// is invalid, please use newACKSet.
+// ackSet is a set of acks. The zero value struct is invalid, please use newACKSet.
 type ackSet struct {
 	// m is the map we use to represent the set.
 	m map[model.PacketID]bool
