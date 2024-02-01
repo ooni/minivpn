@@ -2,7 +2,6 @@ package reliabletransport
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"sort"
 
@@ -46,11 +45,8 @@ func (ws *workersState) moveUpWorker() {
 			// log.Printf("%s session check: %v\n", packet.Opcode, bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()))
 
 			// drop a packet that is not for our session
-			fmt.Println(hex.Dump((packet.RemoteSessionID[:])))
-			fmt.Println(hex.Dump((ws.sessionManager.LocalSessionID())))
 
 			if !bytes.Equal([]byte(packet.RemoteSessionID[:]), []byte(ws.sessionManager.LocalSessionID())) {
-				ws.logger.Debugf("%T: %T", packet.RemoteSessionID[:], ws.sessionManager.LocalSessionID())
 				ws.logger.Warnf(
 					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
 					workerName,
@@ -73,6 +69,7 @@ func (ws *workersState) moveUpWorker() {
 
 			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
 				// this packet was not inserted in the queue: we drop it
+				ws.logger.Debugf("Dropping packet: %v", packet.ID)
 				continue
 			}
 
