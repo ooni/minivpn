@@ -39,7 +39,7 @@ func (s *Service) StartWorkers(
 		logger: logger,
 		// incomingSeen is a buffered channel to avoid losing packets if we're busy
 		// processing in the sender goroutine.
-		incomingSeen:         make(chan incomingPacketSeen, 20),
+		incomingSeen:         make(chan incomingPacketSeen, 100),
 		dataOrControlToMuxer: *s.DataOrControlToMuxer,
 		controlToReliable:    s.ControlToReliable,
 		muxerToReliable:      s.MuxerToReliable,
