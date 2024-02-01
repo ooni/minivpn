@@ -80,14 +80,16 @@ func (ws *workersState) moveUpWorker() {
 			}
 
 			ready := receiver.NextIncomingSequence()
-			fmt.Println("< got next", ready)
+			fmt.Println("< got next packets", len(ready))
 
 			for _, nextPacket := range ready {
+				fmt.Println(">> WRITE UP", nextPacket.ID)
 				// POSSIBLY BLOCK delivering to the upper layer
 				select {
 				case ws.reliableToControl <- nextPacket:
 					fmt.Println("< wrote to control")
 				case <-ws.workersManager.ShouldShutdown():
+					fmt.Println(">> GOT SHUTDOWN SIGNAL")
 					return
 				}
 			}

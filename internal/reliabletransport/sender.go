@@ -100,7 +100,7 @@ func (ws *workersState) moveDownWorker() {
 				ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
 				if err != nil {
 					ws.logger.Warnf("%s: cannot create ack: %v", workerName, err.Error())
-					return
+					continue
 				}
 				ACK.Log(ws.logger, model.DirectionOutgoing)
 				select {
