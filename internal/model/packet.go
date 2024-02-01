@@ -325,6 +325,11 @@ func (p *Packet) Log(logger Logger, direction int) {
 		return
 	}
 
+	payloadLen := 0
+	if p.Payload != nil {
+		payloadLen = len(p.Payload)
+	}
+
 	logger.Debugf(
 		"%s %s {id=%d, acks=%v} localID=%x remoteID=%x [%d bytes]",
 		dir,
@@ -333,6 +338,6 @@ func (p *Packet) Log(logger Logger, direction int) {
 		p.ACKs,
 		p.LocalSessionID,
 		p.RemoteSessionID,
-		len(p.Payload),
+		payloadLen,
 	)
 }

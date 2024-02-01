@@ -100,6 +100,7 @@ func (ws *workersState) moveDownWorker() {
 				ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
 				if err != nil {
 					ws.logger.Warnf("%s: cannot create ack: %v", workerName, err.Error())
+					return
 				}
 				ACK.Log(ws.logger, model.DirectionOutgoing)
 				select {
@@ -196,7 +197,7 @@ func (r *reliableSender) maybeEvictOrMarkWithHigherACK(acked model.PacketID) {
 // shouldRescheduleAfterACK checks whether we need to wakeup after receiving an ACK.
 // TODO: change this depending on the handshake state --------------------------
 func (r *reliableSender) shouldWakeupAfterACK(t time.Time) (bool, time.Duration) {
-	if r.pendingACKsToSend.Len() == 0 {
+	if r.pendingACKsToSend.Len() <= 0 {
 		return false, time.Minute
 	}
 	// for two or more ACKs pending, we want to send right now.
