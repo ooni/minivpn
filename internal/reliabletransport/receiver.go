@@ -39,8 +39,6 @@ func (ws *workersState) moveUpWorker() {
 				packet.Log(ws.logger, model.DirectionIncoming)
 			}
 
-			fmt.Println("< from muxer", packet.ID)
-
 			// TODO: are we handling a HARD_RESET_V2 while we're doing a handshake?
 			// I'm not sure that's a valid behavior for a server.
 			// We should be able to deterministically test how this affects the state machine.
@@ -58,46 +56,33 @@ func (ws *workersState) moveUpWorker() {
 				continue
 			}
 
-			fmt.Println("< create seen")
 			seen := receiver.newIncomingPacketSeen(packet)
 			ws.incomingSeen <- seen
-			fmt.Println("< wrote to seen ch")
 
 			// TODO(ainghazal): drop a packet that is a replay (id <= lastConsumed, but != ACK...?)
 
 			// we only want to insert control packets going to the tls layer
 
 			if packet.Opcode != model.P_CONTROL_V1 {
-				fmt.Println("< not a control!!")
 				continue
 			}
 
 			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
 				// this packet was not inserted in the queue: we drop it
-				fmt.Println("< droppin!!")
 				ws.logger.Debugf("Dropping packet: %v", packet.ID)
 				continue
 			}
 
 			ready := receiver.NextIncomingSequence()
-			fmt.Println("< got next packets", len(ready))
 
 			for _, nextPacket := range ready {
-				fmt.Println(">> WRITE UP", nextPacket.ID)
 				// POSSIBLY BLOCK delivering to the upper layer
 				select {
 				case ws.reliableToControl <- nextPacket:
-					fmt.Println("< wrote to control")
 				case <-ws.workersManager.ShouldShutdown():
-					fmt.Println(">> GOT SHUTDOWN SIGNAL")
 					return
 				}
 			}
-
-			fmt.Println("< DONE, END LOOP")
-			fmt.Println("< incomingSeen:", len(ws.incomingSeen))
-			fmt.Println("< muxerToReliable:", len(ws.muxerToReliable))
-			fmt.Println("")
 
 		case <-ws.workersManager.ShouldShutdown():
 			return

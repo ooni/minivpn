@@ -1,7 +1,6 @@
 package reliabletransport
 
 import (
-	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -133,7 +132,6 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 				for {
 					// have we read enough packets to call it a day?
 					if len(got) >= len(tt.args.outputSequence) {
-						fmt.Println("we got enough packets!", got)
 						break
 					}
 					// no, so let's keep reading until the test runner kills us
