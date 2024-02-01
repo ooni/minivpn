@@ -13,6 +13,15 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+func initManagers() (*workers.Manager, *session.Manager) {
+	w := workers.NewManager(log.Log)
+	s, err := session.NewManager(log.Log)
+	if err != nil {
+		panic(err)
+	}
+	return w, s
+}
+
 // test that we're able to reorder (towards TLS) whatever is received (from the muxer).
 func TestReliable_Reordering_withWorkers(t *testing.T) {
 
@@ -31,10 +40,10 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 			name: "test proper ordering for input sequence",
 			args: args{
 				inputSequence: []string{
-					"[1] CONTROL_V1 +5ms",
-					"[2] CONTROL_V1 +5ms",
-					"[3] CONTROL_V1 +5ms",
-					"[4] CONTROL_V1 +5ms",
+					"[1] CONTROL_V1 +1ms",
+					"[2] CONTROL_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
 				},
 				outputSequence: []int{1, 2, 3, 4},
 			},
@@ -43,10 +52,10 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 			name: "test reordering for input sequence",
 			args: args{
 				inputSequence: []string{
-					"[2] CONTROL_V1 +5ms",
-					"[4] CONTROL_V1 +5ms",
-					"[3] CONTROL_V1 +5ms",
-					"[1] CONTROL_V1 +5ms",
+					"[2] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +1ms",
 				},
 				outputSequence: []int{1, 2, 3, 4},
 			},
@@ -56,9 +65,9 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 			args: args{
 				inputSequence: []string{
 					"[2] CONTROL_V1 +5ms",
-					"[4] CONTROL_V1 +50ms",
-					"[3] CONTROL_V1 +100ms",
-					"[1] CONTROL_V1 +100ms",
+					"[4] CONTROL_V1 +10ms",
+					"[3] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +50ms",
 				},
 				outputSequence: []int{1, 2, 3, 4},
 			},
@@ -67,14 +76,14 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 			name: "test reordering for input sequence, with duplicates",
 			args: args{
 				inputSequence: []string{
-					"[2] CONTROL_V1 +5ms",
-					"[2] CONTROL_V1 +5ms",
-					"[4] CONTROL_V1 +5ms",
-					"[4] CONTROL_V1 +5ms",
-					"[4] CONTROL_V1 +5ms",
-					"[1] CONTROL_V1 +5ms",
-					"[3] CONTROL_V1 +5ms",
-					"[1] CONTROL_V1 +5ms",
+					"[2] CONTROL_V1 +1ms",
+					"[2] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +1ms",
 				},
 				outputSequence: []int{1, 2, 3, 4},
 			},
@@ -82,30 +91,26 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
+			s := &Service{}
+
+			// just to properly initialize it, we don't care about these
+			s.ControlToReliable = make(chan *model.Packet)
 			dataToMuxer := make(chan *model.Packet)
+			s.DataOrControlToMuxer = &dataToMuxer
 
 			// the only two channels we're going to be testing on this test
 			dataIn := make(chan *model.Packet, 1024)
 			dataOut := make(chan *model.Packet, 1024)
 
-			workersManager := workers.NewManager(log.Log)
-			sessionManager, err := session.NewManager(log.Log)
-			if err != nil {
-				t.Errorf("Reordering: cannot create session.Manager: %v", err.Error())
-			}
-
-			s := &Service{
-				DataOrControlToMuxer: nil,
-				ControlToReliable:    make(chan *model.Packet),
-				MuxerToReliable:      dataIn,
-				ReliableToControl:    nil,
-			}
-			s.DataOrControlToMuxer = &dataToMuxer
+			s.MuxerToReliable = dataIn
 			s.ReliableToControl = &dataOut
-			sessionID := sessionManager.LocalSessionID()
+
+			workers, session := initManagers()
+			sessionID := session.LocalSessionID()
 
 			// let the workers pump up the jam!
-			s.StartWorkers(log.Log, workersManager, sessionManager)
+			s.StartWorkers(log.Log, workers, session)
 
 			for _, testStr := range tt.args.inputSequence {
 				testPkt, err := vpntest.NewTestPacketFromString(testStr)
@@ -127,7 +132,6 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 			wg.Add(1)
 			go func(ch <-chan *model.Packet) {
 				defer wg.Done()
-
 				got := make([]int, 0)
 				for {
 					// have we read enough packets to call it a day?
@@ -145,7 +149,6 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 					t.Errorf("Reordering: got = %v, want %v", got, tt.args.outputSequence)
 				}
 			}(dataOut)
-
 			wg.Wait()
 		})
 	}
