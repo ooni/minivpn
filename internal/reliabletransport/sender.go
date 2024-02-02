@@ -237,7 +237,7 @@ type ackSet struct {
 	m map[model.PacketID]bool
 }
 
-// NewACKSet creates a new empty ACK set.
+// newACKSet creates a new empty ACK set.
 func newACKSet(ids ...model.PacketID) *ackSet {
 	m := make(map[model.PacketID]bool)
 	for _, id := range ids {

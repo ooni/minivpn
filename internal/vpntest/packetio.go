@@ -1,6 +1,7 @@
 package vpntest
 
 import (
+	"fmt"
 	"slices"
 	"time"
 
@@ -41,6 +42,7 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 			ID:              model.PacketID(testPkt.ID),
 		}
 		pw.ch <- p
+		fmt.Println("<< wrote", p.ID)
 		time.Sleep(testPkt.IAT)
 	}
 }
@@ -75,9 +77,9 @@ func (l PacketLog) IDSequence() []int {
 	return ids
 }
 
-// acks filters the log and returns an array of ids that have been acked
+// ACKs filters the log and returns an array of ids that have been acked
 // either as ack packets or as part of the ack array of an outgoing packet.
-func (l PacketLog) acks() []int {
+func (l PacketLog) ACKs() []int {
 	acks := []int{}
 	for _, p := range l {
 		for _, ack := range p.ACKs {
@@ -120,7 +122,7 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 func (pr *PacketReader) WaitForNumberOfACKs(total int, start time.Time) {
 	for {
 		// have we read enough acks to call it a day?
-		if len(PacketLog(pr.log).acks()) >= total {
+		if len(PacketLog(pr.log).ACKs()) >= total {
 			break
 		}
 		// no, so let's keep reading until the test runner kills us
@@ -149,14 +151,14 @@ func (w *Witness) Log() PacketLog {
 }
 
 // VerifyACKs tells the underlying reader to wait for a given number of acks,
-// and then checks that we have an ack sequence without holes.
-func (w *Witness) VerifyACKs(total int, t time.Time) bool {
+// returns true if we have the same number of acks.
+func (w *Witness) VerifyNumberOfACKs(start, total int, t time.Time) bool {
 	w.reader.WaitForNumberOfACKs(total, t)
-	// TODO: compare the range here, no holes
-	// TODO: probl. need start idx
-	return true
+	return len(w.Log().ACKs()) == total
 }
 
+/*
 func (w *Witness) NumberOfACKs() int {
-	return len(w.reader.Log().acks())
+	return len(w.Log().ACKs())
 }
+*/

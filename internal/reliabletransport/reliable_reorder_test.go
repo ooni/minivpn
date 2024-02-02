@@ -109,10 +109,6 @@ func TestReliable_Reordering_UP(t *testing.T) {
 
 			workers, session := initManagers()
 
-			// this is our session (local to us)
-			localSessionID := session.LocalSessionID()
-			remoteSessionID := session.RemoteSessionID()
-
 			t0 := time.Now()
 
 			// let the workers pump up the jam!
@@ -120,9 +116,8 @@ func TestReliable_Reordering_UP(t *testing.T) {
 
 			writer := vpntest.NewPacketWriter(dataIn)
 
-			// TODO -- need to create a session
-			writer.LocalSessionID = model.SessionID(remoteSessionID)
-			writer.RemoteSessionID = model.SessionID(localSessionID)
+			writer.RemoteSessionID = model.SessionID(session.LocalSessionID())
+			writer.LocalSessionID = newRandomSessionID()
 
 			go writer.WriteSequence(tt.args.inputSequence)
 

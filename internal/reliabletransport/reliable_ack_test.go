@@ -1,6 +1,7 @@
 package reliabletransport
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ func TestReliable_ACK(t *testing.T) {
 
 	type args struct {
 		inputSequence []string
+		start         int
 		wantacks      int
 	}
 
@@ -38,7 +40,36 @@ func TestReliable_ACK(t *testing.T) {
 					"[9] CONTROL_V1 +1ms",
 					"[10] CONTROL_V1 +1ms",
 				},
+				start:    1,
 				wantacks: 10,
+			},
+		},
+		{
+			name: "five ordered packets with offset",
+			args: args{
+				inputSequence: []string{
+					"[100] CONTROL_V1 +1ms",
+					"[101] CONTROL_V1 +1ms",
+					"[102] CONTROL_V1 +1ms",
+					"[103] CONTROL_V1 +1ms",
+					"[104] CONTROL_V1 +1ms",
+				},
+				start:    100,
+				wantacks: 5,
+			},
+		},
+		{
+			name: "five reversed packets",
+			args: args{
+				inputSequence: []string{
+					"[5] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[2] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+				},
+				start:    1,
+				wantacks: 5,
 			},
 		},
 	}
@@ -48,7 +79,9 @@ func TestReliable_ACK(t *testing.T) {
 
 			// just to properly initialize it, we don't care about these
 			s.ControlToReliable = make(chan *model.Packet)
-			reliableToControl := make(chan *model.Packet)
+			// this one up to control/tls also needs to be buffered because otherwise
+			// we'll block on the receiver when delivering up.
+			reliableToControl := make(chan *model.Packet, 1024)
 			s.ReliableToControl = &reliableToControl
 
 			// the only two channels we're going to be testing on this test
@@ -61,10 +94,6 @@ func TestReliable_ACK(t *testing.T) {
 
 			workers, session := initManagers()
 
-			// this is our session (local to us)
-			localSessionID := session.LocalSessionID()
-			remoteSessionID := session.RemoteSessionID()
-
 			t0 := time.Now()
 
 			// let the workers pump up the jam!
@@ -72,19 +101,28 @@ func TestReliable_ACK(t *testing.T) {
 
 			writer := vpntest.NewPacketWriter(dataIn)
 
-			// TODO -- need to create a session
-			writer.LocalSessionID = model.SessionID(remoteSessionID)
-			writer.RemoteSessionID = model.SessionID(localSessionID)
+			// initialize a mock session ID for our peer
+			peerSessionID := newRandomSessionID()
+
+			writer.RemoteSessionID = model.SessionID(session.LocalSessionID())
+			writer.LocalSessionID = peerSessionID
+			session.SetRemoteSessionID(peerSessionID)
 
 			go writer.WriteSequence(tt.args.inputSequence)
 
 			reader := vpntest.NewPacketReader(dataOut)
 			witness := vpntest.NewWitness(reader)
 
-			if ok := witness.VerifyACKs(tt.args.wantacks, t0); !ok {
-				//log.Debug(witness.Log())
-				got := witness.NumberOfACKs()
-				t.Errorf("Reordering: got = %v, want %v", got, tt.args.wantacks)
+			if ok := witness.VerifyNumberOfACKs(tt.args.start, tt.args.wantacks, t0); !ok {
+				got := len(witness.Log().ACKs())
+				t.Errorf("TestACK: got = %v, want %v", got, tt.args.wantacks)
+			}
+			gotAckSet := ackSetFromInts(witness.Log().ACKs()).sorted()
+			wantAckSet := ackSetFromRange(tt.args.start, tt.args.wantacks).sorted()
+
+			if !slices.Equal(gotAckSet, wantAckSet) {
+				t.Errorf("TestACK: got = %v, want %v", gotAckSet, wantAckSet)
+
 			}
 		})
 	}
