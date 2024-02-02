@@ -60,6 +60,8 @@ func TestService_StartWorkers(t *testing.T) {
 				ReliableToControl:    tt.fields.ReliableToControl,
 			}
 			s.StartWorkers(tt.args.logger, tt.args.workersManager, tt.args.sessionManager)
+			tt.args.workersManager.StartShutdown()
+			tt.args.workersManager.WaitWorkersShutdown()
 		})
 	}
 }
