@@ -16,10 +16,10 @@ var (
 	gracePeriodForOutgoingACKs = time.Millisecond * 20
 )
 
-// moveDownWorker moves packets down the stack (sender)
+// moveDownWorker moves packets down the stack (sender).
 // The sender and receiver data structures lack mutexes because they are
 // intended to be confined to a single goroutine (one for each worker), and
-// they SHOULD ONLY communicate via message passing.
+// the workers SHOULD ONLY communicate via message passing.
 func (ws *workersState) moveDownWorker() {
 	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
 
@@ -37,7 +37,6 @@ func (ws *workersState) moveDownWorker() {
 		// POSSIBLY BLOCK reading the next packet we should move down the stack
 		select {
 		case packet := <-ws.controlToReliable:
-
 			// try to insert and schedule for immediate wakeup
 			if inserted := sender.TryInsertOutgoingPacket(packet); inserted {
 				ticker.Reset(time.Nanosecond)
@@ -55,7 +54,7 @@ func (ws *workersState) moveDownWorker() {
 			// First of all, we reset the ticker to the next timeout.
 			// By default, that's going to return one minute if there are no packets
 			// in the in-flight queue.
-
+			//
 			// nearestDeadlineTo(now) ensures that we do not receive a time before now, and
 			// that increments the passed moment by an epsilon if all deadlines are expired,
 			// so it should be safe to reset the ticker with that timeout.
