@@ -306,3 +306,33 @@ func (p *Packet) IsControl() bool {
 func (p *Packet) IsData() bool {
 	return p.Opcode.IsData()
 }
+
+const (
+	DirectionIncoming = iota
+	DirectionOutgoing
+)
+
+// Log writes an entry in the passed logger with a representation of this packet.
+func (p *Packet) Log(logger Logger, direction int) {
+	var dir string
+	switch direction {
+	case DirectionIncoming:
+		dir = "<"
+	case DirectionOutgoing:
+		dir = ">"
+	default:
+		logger.Warnf("wrong direction: %d", direction)
+		return
+	}
+
+	logger.Debugf(
+		"%s %s {id=%d, acks=%v} localID=%x remoteID=%x [%d bytes]",
+		dir,
+		p.Opcode,
+		p.ID,
+		p.ACKs,
+		p.LocalSessionID,
+		p.RemoteSessionID,
+		len(p.Payload),
+	)
+}

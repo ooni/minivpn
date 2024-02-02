@@ -87,7 +87,6 @@ type Manager struct {
 
 	// Ready is a channel where we signal that we can start accepting data, because we've
 	// successfully generated key material for the data channel.
-	// TODO(ainghazal): find a better way?
 	Ready chan any
 }
 
@@ -95,14 +94,16 @@ type Manager struct {
 func NewManager(logger model.Logger) (*Manager, error) {
 	key0 := &DataChannelKey{}
 	sessionManager := &Manager{
-		keyID:           0,
-		keys:            []*DataChannelKey{key0},
-		localSessionID:  [8]byte{},
-		logger:          logger,
-		mu:              sync.Mutex{},
-		negState:        0,
-		remoteSessionID: optional.None[model.SessionID](),
-		tunnelInfo:      model.TunnelInfo{},
+		keyID: 0,
+		keys:  []*DataChannelKey{key0},
+		// localControlPacketID should be initialized to 1 because we handle hard-reset as special cases
+		localControlPacketID: 1,
+		localSessionID:       [8]byte{},
+		logger:               logger,
+		mu:                   sync.Mutex{},
+		negState:             0,
+		remoteSessionID:      optional.None[model.SessionID](),
+		tunnelInfo:           model.TunnelInfo{},
 
 		// empirically, it seems that the reference OpenVPN server misbehaves if we initialize
 		// the data packet ID counter to zero.
@@ -160,8 +161,8 @@ func (m *Manager) IsRemoteSessionIDSet() bool {
 // ErrNoRemoteSessionID indicates we are missing the remote session ID.
 var ErrNoRemoteSessionID = errors.New("missing remote session ID")
 
-// NewACKForPacket creates a new ACK for the given packet.
-func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
+// NewACKForPacket creates a new ACK for the given packet IDs.
+func (m *Manager) NewACKForPacketIDs(ids []model.PacketID) (*model.Packet, error) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
 	if m.remoteSessionID.IsNone() {
@@ -172,7 +173,7 @@ func (m *Manager) NewACKForPacket(packet *model.Packet) (*model.Packet, error) {
 		KeyID:           m.keyID,
 		PeerID:          [3]byte{},
 		LocalSessionID:  m.localSessionID,
-		ACKs:            []model.PacketID{packet.ID},
+		ACKs:            ids,
 		RemoteSessionID: m.remoteSessionID.Unwrap(),
 		ID:              0,
 		Payload:         []byte{},
@@ -206,6 +207,23 @@ func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) (*model.Packet,
 		packet.RemoteSessionID = m.remoteSessionID.Unwrap()
 	}
 	return packet, nil
+}
+
+// NewHardResetPacket creates a new hard reset packet for this session.
+// This packet is a special case because, if we resend, we must not bump
+// its packet ID. Normally retransmission is handled at the reliabletransport layer,
+// but we send hard resets at the muxer.
+func (m *Manager) NewHardResetPacket() *model.Packet {
+	packet := model.NewPacket(
+		model.P_CONTROL_HARD_RESET_CLIENT_V2,
+		m.keyID,
+		[]byte{},
+	)
+
+	// a hard reset will always have packet ID zero
+	packet.ID = 0
+	copy(packet.LocalSessionID[:], m.localSessionID[:])
+	return packet
 }
 
 var ErrExpiredKey = errors.New("expired key")

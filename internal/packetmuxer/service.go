@@ -2,7 +2,9 @@
 package packetmuxer
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
@@ -11,6 +13,11 @@ import (
 
 var (
 	serviceName = "packetmuxer"
+)
+
+const (
+	// A sufficiently long wakup period to initialize a ticker with.
+	longWakeup = time.Hour * 24 * 30
 )
 
 // Service is the packetmuxer service. Make sure you initialize
@@ -48,12 +55,14 @@ func (s *Service) StartWorkers(
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:               logger,
-		hardReset:            s.HardReset,
+		logger:    logger,
+		hardReset: s.HardReset,
+		// initialize to a sufficiently long time from now
+		hardResetTicker:      time.NewTicker(longWakeup),
 		notifyTLS:            *s.NotifyTLS,
+		dataOrControlToMuxer: s.DataOrControlToMuxer,
 		muxerToReliable:      *s.MuxerToReliable,
 		muxerToData:          *s.MuxerToData,
-		dataOrControlToMuxer: s.DataOrControlToMuxer,
 		muxerToNetwork:       *s.MuxerToNetwork,
 		networkToMuxer:       s.NetworkToMuxer,
 		sessionManager:       sessionManager,
@@ -70,6 +79,12 @@ type workersState struct {
 
 	// hardReset is the channel posted to force a hard reset.
 	hardReset <-chan any
+
+	// how many times have we sent the initial hardReset packet
+	hardResetCount int
+
+	// hardResetTicker is a channel to retry the initial send of hard reset packet.
+	hardResetTicker *time.Ticker
 
 	// notifyTLS is used to send notifications to the TLS service.
 	notifyTLS chan<- *model.Notification
@@ -113,6 +128,13 @@ func (ws *workersState) moveUpWorker() {
 		case rawPacket := <-ws.networkToMuxer:
 			if err := ws.handleRawPacket(rawPacket); err != nil {
 				// error already printed
+				return
+			}
+
+		case <-ws.hardResetTicker.C:
+			// retry the hard reset, it probably was lost
+			if err := ws.startHardReset(); err != nil {
+				// error already logged
 				return
 			}
 
@@ -168,17 +190,18 @@ func (ws *workersState) moveDownWorker() {
 
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
+	ws.hardResetCount += 1
+
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
-	packet, err := ws.sessionManager.NewPacket(model.P_CONTROL_HARD_RESET_CLIENT_V2, nil)
-	if err != nil {
-		ws.logger.Warnf("packetmuxer: NewPacket: %s", err.Error())
-		return err
-	}
+	packet := ws.sessionManager.NewHardResetPacket()
 	if err := ws.serializeAndEmit(packet); err != nil {
 		return err
 	}
 
-	// reset the state to become initial again
+	// resend if not received the server's reply in 2 seconds.
+	ws.hardResetTicker.Reset(time.Second * 2)
+
+	// reset the state to become initial again.
 	ws.sessionManager.SetNegotiationState(session.S_PRE_START)
 
 	// TODO: any other change to apply in this case?
@@ -198,10 +221,10 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	// handle the case where we're performing a HARD_RESET
 	if ws.sessionManager.NegotiationState() == session.S_PRE_START &&
 		packet.Opcode == model.P_CONTROL_HARD_RESET_SERVER_V2 {
+		packet.Log(ws.logger, model.DirectionIncoming)
+		ws.hardResetTicker.Stop()
 		return ws.finishThreeWayHandshake(packet)
 	}
-
-	// TODO: introduce other sanity checks here
 
 	// multiplex the incoming packet POSSIBLY BLOCKING on delivering it
 	if packet.IsControl() || packet.Opcode == model.P_ACK_V1 {
@@ -211,6 +234,14 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 			return workers.ErrShutdown
 		}
 	} else {
+		if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+			// A well-behaved server should not send us data packets
+			// before we have a working session. Under normal operations, the
+			// connection in the client side should pick a different port,
+			// so that data sent from previous sessions will not be delivered.
+			// However, it does not harm to be defensive here.
+			return errors.New("not ready to handle data")
+		}
 		select {
 		case ws.muxerToData <- packet:
 		case <-ws.workersManager.ShouldShutdown():
@@ -226,28 +257,15 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	// register the server's session (note: the PoV is the server's one)
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
 
-	// we need to manually ACK because the reliable layer is above us
-	ws.logger.Debugf(
-		"< %s localID=%x remoteID=%x [%d bytes]",
-		packet.Opcode,
-		packet.LocalSessionID,
-		packet.RemoteSessionID,
-		len(packet.Payload),
-	)
-
-	// create the ACK packet
-	ACK, err := ws.sessionManager.NewACKForPacket(packet)
-	if err != nil {
-		return err
-	}
-
-	// emit the packet
-	if err := ws.serializeAndEmit(ACK); err != nil {
-		return err
-	}
-
 	// advance the state
 	ws.sessionManager.SetNegotiationState(session.S_START)
+
+	// pass the packet up so that we can ack it properly
+	select {
+	case ws.muxerToReliable <- packet:
+	case <-ws.workersManager.ShouldShutdown():
+		return workers.ErrShutdown
+	}
 
 	// attempt to tell TLS we want to handshake.
 	// This WILL BLOCK if the notifyTLS channel
@@ -280,13 +298,6 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 		return workers.ErrShutdown
 	}
 
-	ws.logger.Debugf(
-		"> %s localID=%x remoteID=%x [%d bytes]",
-		packet.Opcode,
-		packet.LocalSessionID,
-		packet.RemoteSessionID,
-		len(packet.Payload),
-	)
-
+	packet.Log(ws.logger, model.DirectionOutgoing)
 	return nil
 }
