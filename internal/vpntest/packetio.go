@@ -68,23 +68,23 @@ type PacketReader struct {
 
 // NewPacketReader creates a new PacketReader.
 func NewPacketReader(ch <-chan *model.Packet) *PacketReader {
-	return &PacketReader{ch: ch}
+	logged := make([]*LoggedPacket, 0)
+	return &PacketReader{ch: ch, log: logged}
 }
 
 // WaitForSequence loops reading from the internal channel until the logged
 // sequence matches the len of the expected sequence; it returns
 // true if the obtained packet ID sequence matches the expected one.
 func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
-	logged := make([]*LoggedPacket, 0)
 	for {
 		// have we read enough packets to call it a day?
-		if len(logged) >= len(seq) {
+		if len(pr.log) >= len(seq) {
 			break
 		}
 		// no, so let's keep reading until the test runner kills us
 		pkt := <-pr.ch
-		logged = append(
-			logged,
+		pr.log = append(
+			pr.log,
 			&LoggedPacket{
 				ID:     int(pkt.ID),
 				Opcode: pkt.Opcode,
@@ -92,8 +92,7 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 			})
 		log.Debugf("got packet: %v", pkt.ID)
 	}
-	pr.log = logged
-	return slices.Equal(seq, PacketLog(logged).IDSequence())
+	return slices.Equal(seq, PacketLog(pr.log).IDSequence())
 }
 
 // Log returns the log of the received packets.

@@ -36,7 +36,7 @@ func TestReliable_Reordering_UP(t *testing.T) {
 		args args
 	}{
 		{
-			name: "test wil well-ordered input sequence",
+			name: "test with a well-ordered input sequence",
 			args: args{
 				inputSequence: []string{
 					"[1] CONTROL_V1 +1ms",
