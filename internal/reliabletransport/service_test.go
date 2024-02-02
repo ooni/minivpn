@@ -9,7 +9,7 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
-// test that we can start the workers
+// test that we can start and stop the workers
 func TestService_StartWorkers(t *testing.T) {
 	type fields struct {
 		DataOrControlToMuxer *chan *model.Packet
