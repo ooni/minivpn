@@ -10,9 +10,9 @@ import (
 )
 
 // moveUpWorker moves packets up the stack (receiver).
-// The sender and receiver data structures lack mutexs because they are
+// The sender and receiver data structures lack mutexes because they are
 // intended to be confined to a single goroutine (one for each worker), and
-// they SHOULD ONLY communicate via message passing.
+// the workers SHOULD ONLY communicate via message passing.
 func (ws *workersState) moveUpWorker() {
 	workerName := fmt.Sprintf("%s: moveUpWorker", serviceName)
 
@@ -24,9 +24,6 @@ func (ws *workersState) moveUpWorker() {
 	ws.logger.Debugf("%s: started", workerName)
 
 	receiver := newReliableReceiver(ws.logger, ws.incomingSeen)
-
-	// TODO: do we need to have notifications from the control channel
-	// to reset state or can we do this implicitly?
 
 	for {
 		// POSSIBLY BLOCK reading a packet to move up the stack
@@ -45,7 +42,6 @@ func (ws *workersState) moveUpWorker() {
 			// log.Printf("%s session check: %v\n", packet.Opcode, bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()))
 
 			// drop a packet that is not for our session
-
 			if !bytes.Equal([]byte(packet.RemoteSessionID[:]), []byte(ws.sessionManager.LocalSessionID())) {
 				ws.logger.Warnf(
 					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
@@ -62,7 +58,6 @@ func (ws *workersState) moveUpWorker() {
 			// TODO(ainghazal): drop a packet that is a replay (id <= lastConsumed, but != ACK...?)
 
 			// we only want to insert control packets going to the tls layer
-
 			if packet.Opcode != model.P_CONTROL_V1 {
 				continue
 			}
@@ -74,7 +69,6 @@ func (ws *workersState) moveUpWorker() {
 			}
 
 			ready := receiver.NextIncomingSequence()
-
 			for _, nextPacket := range ready {
 				// POSSIBLY BLOCK delivering to the upper layer
 				select {

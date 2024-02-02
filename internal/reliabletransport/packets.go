@@ -7,8 +7,7 @@ import (
 	"github.com/ooni/minivpn/internal/optional"
 )
 
-// inFlighPacket is an implementation of inFlighter. It is a sequential packet
-// that can be scheduled for retransmission.
+// inFlightPacket wraps a [model.Packet] with metadata for retransmission.
 type inFlightPacket struct {
 	// deadline is a moment in time when is this packet scheduled for the next retransmission.
 	deadline time.Time

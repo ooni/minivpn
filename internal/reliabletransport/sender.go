@@ -11,13 +11,15 @@ import (
 
 var (
 	// how long to wait for possible outgoing packets before sending a pending ACK as its own packet.
+	//
+	// We experimentally determined that this seems what OpenVPN does.
 	gracePeriodForOutgoingACKs = time.Millisecond * 20
 )
 
-// moveDownWorker moves packets down the stack (sender)
+// moveDownWorker moves packets down the stack (sender).
 // The sender and receiver data structures lack mutexes because they are
 // intended to be confined to a single goroutine (one for each worker), and
-// they SHOULD ONLY communicate via message passing.
+// the workers SHOULD ONLY communicate via message passing.
 func (ws *workersState) moveDownWorker() {
 	workerName := fmt.Sprintf("%s: moveDownWorker", serviceName)
 
@@ -35,7 +37,6 @@ func (ws *workersState) moveDownWorker() {
 		// POSSIBLY BLOCK reading the next packet we should move down the stack
 		select {
 		case packet := <-ws.controlToReliable:
-
 			// try to insert and schedule for immediate wakeup
 			if inserted := sender.TryInsertOutgoingPacket(packet); inserted {
 				ticker.Reset(time.Nanosecond)
@@ -50,69 +51,66 @@ func (ws *workersState) moveDownWorker() {
 			}
 
 		case <-ticker.C:
-			// First of all, we reset the ticker to the next timeout.
-			// By default, that's going to return one minute if there are no packets
-			// in the in-flight queue.
-
-			// nearestDeadlineTo(now) ensures that we do not receive a time before now, and
-			// that increments the passed moment by an epsilon if all deadlines are expired,
-			// so it should be safe to reset the ticker with that timeout.
-			now := time.Now()
-			timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
-
-			ticker.Reset(timeout.Sub(now))
-			scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
-
-			if len(scheduledNow) > 0 {
-				// we flush everything that is ready to be sent.
-				for _, p := range scheduledNow {
-					p.ScheduleForRetransmission(now)
-
-					// append any pending ACKs
-					p.packet.ACKs = sender.NextPacketIDsToACK()
-
-					// log the packet
-					p.packet.Log(ws.logger, model.DirectionOutgoing)
-
-					select {
-					case ws.dataOrControlToMuxer <- p.packet:
-					case <-ws.workersManager.ShouldShutdown():
-						return
-					}
-				}
-			} else {
-				if !sender.hasPendingACKs() {
-					continue
-				}
-
-				// special case, we want to send the clientHello as soon as possible -----------------------------
-				// (TODO: coordinate this with hardReset)
-
-				/*
-					// TODO is this doing the right thing?
-						if sender.pendingACKsToSend.Len() == 1 && *sender.pendingACKsToSend.first() == model.PacketID(0) {
-							continue
-						}
-				*/
-
-				ws.logger.Debugf("Creating ACK: %d pending to ack", sender.pendingACKsToSend.Len())
-
-				ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
-				if err != nil {
-					ws.logger.Warnf("%s: cannot create ack: %v", workerName, err.Error())
-					continue
-				}
-				ACK.Log(ws.logger, model.DirectionOutgoing)
-				select {
-				case ws.dataOrControlToMuxer <- ACK:
-				case <-ws.workersManager.ShouldShutdown():
-					return
-				}
-			}
+			ws.blockOnTryingToSend(sender, ticker)
 
 		case <-ws.workersManager.ShouldShutdown():
 			return
 		}
+	}
+}
+
+func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time.Ticker) {
+	// First of all, we reset the ticker to the next timeout.
+	// By default, that's going to return one minute if there are no packets
+	// in the in-flight queue.
+	//
+	// nearestDeadlineTo(now) ensures that we do not receive a time before now, and
+	// that increments the passed moment by an epsilon if all deadlines are expired,
+	// so it should be safe to reset the ticker with that timeout.
+	now := time.Now()
+	timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
+	ticker.Reset(timeout.Sub(now))
+	// figure out whether we need to send any packet here
+	scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
+
+	// if we have packets to send piggyback the ACKs
+	if len(scheduledNow) > 0 {
+		// we flush everything that is ready to be sent.
+		for _, p := range scheduledNow {
+			p.ScheduleForRetransmission(now)
+
+			// append any pending ACKs
+			p.packet.ACKs = sender.NextPacketIDsToACK()
+
+			// log the packet
+			p.packet.Log(ws.logger, model.DirectionOutgoing)
+
+			select {
+			case ws.dataOrControlToMuxer <- p.packet:
+			case <-ws.workersManager.ShouldShutdown():
+				return
+			}
+		}
+		return
+	}
+
+	// if there are no ACKs to send, our job here is done
+	if !sender.hasPendingACKs() {
+		return
+	}
+
+	// All packets are inflight but we still owe ACKs to the peer.
+	ws.logger.Debugf("Creating ACK: %d pending to ack", sender.pendingACKsToSend.Len())
+
+	ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
+	if err != nil {
+		ws.logger.Warnf("moveDownWorker: tryToSend: cannot create ack: %v", err.Error())
+	}
+	ACK.Log(ws.logger, model.DirectionOutgoing)
+	select {
+	case ws.dataOrControlToMuxer <- ACK:
+	case <-ws.workersManager.ShouldShutdown():
+		return
 	}
 }
 
@@ -272,18 +270,6 @@ func (as *ackSet) nextToACK() []model.PacketID {
 	}
 	return next
 }
-
-// first returns the first packetID in the set, in ascending order.
-// TODO -- unused, possibly delete ---- was for a special case ---
-/*
-func (as *ackSet) first() *model.PacketID {
-	ids := as.sorted()
-	if len(ids) == 0 {
-		return nil
-	}
-	return &ids[0]
-}
-*/
 
 // sorted returns a []model.PacketID array with the stored ids, in ascending order.
 func (as *ackSet) sorted() []model.PacketID {
