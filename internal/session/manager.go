@@ -211,7 +211,7 @@ func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) (*model.Packet,
 // This packet is a special case because, if we resend, we must not bump
 // its packet ID. Normally retransmission is handled at the reliabletransport layer,
 // but we send hard resets at the muxer.
-func (m *Manager) NewHardResetPacket(first bool) (*model.Packet, error) {
+func (m *Manager) NewHardResetPacket(first bool) *model.Packet {
 	packet := model.NewPacket(
 		model.P_CONTROL_HARD_RESET_CLIENT_V2,
 		m.keyID,
@@ -224,7 +224,7 @@ func (m *Manager) NewHardResetPacket(first bool) (*model.Packet, error) {
 		packet.ID = 0
 	}
 	copy(packet.LocalSessionID[:], m.localSessionID[:])
-	return packet, nil
+	return packet
 }
 
 var ErrExpiredKey = errors.New("expired key")

@@ -195,11 +195,7 @@ func (ws *workersState) startHardReset() error {
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
 	first := ws.hardResetCount == 1
 
-	packet, err := ws.sessionManager.NewHardResetPacket(first)
-	if err != nil {
-		ws.logger.Warnf("packetmuxer: NewPacket: %s", err.Error())
-		return err
-	}
+	packet := ws.sessionManager.NewHardResetPacket(first)
 	if err := ws.serializeAndEmit(packet); err != nil {
 		return err
 	}
