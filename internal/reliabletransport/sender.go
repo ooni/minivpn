@@ -51,13 +51,6 @@ func (ws *workersState) moveDownWorker() {
 			}
 
 		case <-ticker.C:
-			// First of all, we reset the ticker to the next timeout.
-			// By default, that's going to return one minute if there are no packets
-			// in the in-flight queue.
-			//
-			// nearestDeadlineTo(now) ensures that we do not receive a time before now, and
-			// that increments the passed moment by an epsilon if all deadlines are expired,
-			// so it should be safe to reset the ticker with that timeout.
 			ws.blockOnTryingToSend(sender, ticker)
 
 		case <-ws.workersManager.ShouldShutdown():
@@ -67,6 +60,13 @@ func (ws *workersState) moveDownWorker() {
 }
 
 func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time.Ticker) {
+	// First of all, we reset the ticker to the next timeout.
+	// By default, that's going to return one minute if there are no packets
+	// in the in-flight queue.
+	//
+	// nearestDeadlineTo(now) ensures that we do not receive a time before now, and
+	// that increments the passed moment by an epsilon if all deadlines are expired,
+	// so it should be safe to reset the ticker with that timeout.
 	now := time.Now()
 	timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
 
