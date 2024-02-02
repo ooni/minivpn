@@ -1,7 +1,6 @@
 package vpntest
 
 import (
-	"fmt"
 	"slices"
 	"time"
 
@@ -42,7 +41,6 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 			ID:              model.PacketID(testPkt.ID),
 		}
 		pw.ch <- p
-		fmt.Println("<< wrote", p.ID)
 		time.Sleep(testPkt.IAT)
 	}
 }
@@ -77,13 +75,16 @@ func (l PacketLog) IDSequence() []int {
 	return ids
 }
 
-// ACKs filters the log and returns an array of ids that have been acked
+// ACKs filters the log and returns an array of unique ids that have been acked
 // either as ack packets or as part of the ack array of an outgoing packet.
 func (l PacketLog) ACKs() []int {
 	acks := []int{}
 	for _, p := range l {
 		for _, ack := range p.ACKs {
-			acks = append(acks, int(ack))
+			a := int(ack)
+			if !contains(acks, a) {
+				acks = append(acks, a)
+			}
 		}
 	}
 	return acks
@@ -157,8 +158,13 @@ func (w *Witness) VerifyNumberOfACKs(start, total int, t time.Time) bool {
 	return len(w.Log().ACKs()) == total
 }
 
-/*
-func (w *Witness) NumberOfACKs() int {
-	return len(w.Log().ACKs())
+// contains check if the element is in the slice. this is expensive, but it's only
+// for tests and the alternative is to make ackSet public.
+func contains(slice []int, target int) bool {
+	for _, item := range slice {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
-*/
