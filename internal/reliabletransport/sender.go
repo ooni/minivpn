@@ -70,6 +70,7 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 	now := time.Now()
 	timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
 	ticker.Reset(timeout.Sub(now))
+	// figure out whether we need to send any packet here
 	scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
 
 	// if we have packets to send piggyback the ACKs
@@ -98,16 +99,7 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 		return
 	}
 
-	// special case, we want to send the clientHello as soon as possible -----------------------------
-	// (TODO: coordinate this with hardReset)
-
-	/*
-		// TODO is this doing the right thing?
-			if sender.pendingACKsToSend.Len() == 1 && *sender.pendingACKsToSend.first() == model.PacketID(0) {
-				continue
-			}
-	*/
-
+	// All packets are inflight but we still owe ACKs to the peer.
 	ws.logger.Debugf("Creating ACK: %d pending to ack", sender.pendingACKsToSend.Len())
 
 	ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
