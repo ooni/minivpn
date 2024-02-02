@@ -72,6 +72,7 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 	ticker.Reset(timeout.Sub(now))
 	scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
 
+	// if we have packets to send piggyback the ACKs
 	if len(scheduledNow) > 0 {
 		// we flush everything that is ready to be sent.
 		for _, p := range scheduledNow {
@@ -91,6 +92,8 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 		}
 		return
 	}
+
+	// if there are no ACKs to send, our job here is done
 	if !sender.hasPendingACKs() {
 		return
 	}
