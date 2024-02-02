@@ -8,7 +8,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 )
 
-// PacketWriter is a service that writes packets into a channel.
+// PacketWriter writes packets into a channel.
 type PacketWriter struct {
 	// A channel where to write packets to.
 	ch chan<- *model.Packet
@@ -45,8 +45,7 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 type LoggedPacket struct {
 	ID     int
 	Opcode model.Opcode
-
-	At time.Duration
+	At     time.Duration
 }
 
 // PacketLog is a sequence of LoggedPacket.
@@ -64,7 +63,7 @@ func (l PacketLog) IDSequence() []int {
 // PacketReader reads packets from a channel.
 type PacketReader struct {
 	ch  <-chan *model.Packet
-	got []*LoggedPacket
+	log []*LoggedPacket
 }
 
 // NewPacketReader creates a new PacketReader.
@@ -72,20 +71,20 @@ func NewPacketReader(ch <-chan *model.Packet) *PacketReader {
 	return &PacketReader{ch: ch}
 }
 
-// WaitForSequence blocks forever reading from the internal channel until the obtained
-// sequence matches the len of the expected; it stores the received sequence and then returns
+// WaitForSequence loops reading from the internal channel until the logged
+// sequence matches the len of the expected sequence; it returns
 // true if the obtained packet ID sequence matches the expected one.
 func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
-	got := make([]*LoggedPacket, 0)
+	logged := make([]*LoggedPacket, 0)
 	for {
 		// have we read enough packets to call it a day?
-		if len(got) >= len(seq) {
+		if len(logged) >= len(seq) {
 			break
 		}
 		// no, so let's keep reading until the test runner kills us
 		pkt := <-pr.ch
-		got = append(
-			got,
+		logged = append(
+			logged,
 			&LoggedPacket{
 				ID:     int(pkt.ID),
 				Opcode: pkt.Opcode,
@@ -93,11 +92,11 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 			})
 		log.Debugf("got packet: %v", pkt.ID)
 	}
-	pr.got = got
-	return slices.Equal(seq, PacketLog(got).IDSequence())
+	pr.log = logged
+	return slices.Equal(seq, PacketLog(logged).IDSequence())
 }
 
-// ReceivedSequence returns the log of the received sequence.
-func (pr *PacketReader) ReceivedSequence() []*LoggedPacket {
-	return pr.got
+// Log returns the log of the received packets.
+func (pr *PacketReader) Log() PacketLog {
+	return PacketLog(pr.log)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/ooni/minivpn/internal/workers"
 )
 
+// initManagers initializes a workers manager and a session manager
 func initManagers() (*workers.Manager, *session.Manager) {
 	w := workers.NewManager(log.Log)
 	s, err := session.NewManager(log.Log)
@@ -21,7 +22,7 @@ func initManagers() (*workers.Manager, *session.Manager) {
 }
 
 // test that we're able to reorder (towards TLS) whatever is received (from the muxer).
-func TestReliable_Reordering_withWorkers(t *testing.T) {
+func TestReliable_Reordering_UP(t *testing.T) {
 
 	log.SetLevel(log.DebugLevel)
 
@@ -35,7 +36,7 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 		args args
 	}{
 		{
-			name: "test proper ordering for input sequence",
+			name: "test wil well-ordered input sequence",
 			args: args{
 				inputSequence: []string{
 					"[1] CONTROL_V1 +1ms",
@@ -132,7 +133,7 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 
 			reader := vpntest.NewPacketReader(dataOut)
 			if ok := reader.WaitForSequence(tt.args.outputSequence, t0); !ok {
-				got := vpntest.PacketLog(reader.ReceivedSequence()).IDSequence()
+				got := reader.Log().IDSequence()
 				t.Errorf("Reordering: got = %v, want %v", got, tt.args.outputSequence)
 			}
 		})
