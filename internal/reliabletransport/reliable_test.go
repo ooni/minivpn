@@ -1,8 +1,6 @@
 package reliabletransport
 
 import (
-	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -88,10 +86,23 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 				outputSequence: []int{1, 2, 3, 4},
 			},
 		},
+		{
+			name: "reordering with acks interspersed",
+			args: args{
+				inputSequence: []string{
+					"[2] CONTROL_V1 +5ms",
+					"[4] CONTROL_V1 +2ms",
+					"[0] ACK_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[0] ACK_V1 +1ms",
+					"[1] CONTROL_V1 +2ms",
+				},
+				outputSequence: []int{1, 2, 3, 4},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			s := &Service{}
 
 			// just to properly initialize it, we don't care about these
@@ -100,6 +111,7 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 			s.DataOrControlToMuxer = &dataToMuxer
 
 			// the only two channels we're going to be testing on this test
+			// we want to buffer enough to be safe writing to them.
 			dataIn := make(chan *model.Packet, 1024)
 			dataOut := make(chan *model.Packet, 1024)
 
@@ -109,47 +121,20 @@ func TestReliable_Reordering_withWorkers(t *testing.T) {
 			workers, session := initManagers()
 			sessionID := session.LocalSessionID()
 
+			t0 := time.Now()
+
 			// let the workers pump up the jam!
 			s.StartWorkers(log.Log, workers, session)
 
-			for _, testStr := range tt.args.inputSequence {
-				testPkt, err := vpntest.NewTestPacketFromString(testStr)
-				if err != nil {
-					t.Errorf("Reordering: error reading test sequence: %v", err.Error())
-				}
+			writer := vpntest.NewPacketWriter(dataIn)
+			writer.LocalSessionID = model.SessionID(sessionID)
+			go writer.WriteSequence(tt.args.inputSequence)
 
-				p := &model.Packet{
-					Opcode:          testPkt.Opcode,
-					RemoteSessionID: model.SessionID(sessionID),
-					ID:              model.PacketID(testPkt.ID),
-				}
-				dataIn <- p
-				time.Sleep(testPkt.IAT)
+			reader := vpntest.NewPacketReader(dataOut)
+			if ok := reader.WaitForSequence(tt.args.outputSequence, t0); !ok {
+				got := vpntest.PacketLog(reader.ReceivedSequence()).IDSequence()
+				t.Errorf("Reordering: got = %v, want %v", got, tt.args.outputSequence)
 			}
-
-			// start the result collector in a different goroutine
-			var wg sync.WaitGroup
-			wg.Add(1)
-			go func(ch <-chan *model.Packet) {
-				defer wg.Done()
-				got := make([]int, 0)
-				for {
-					// have we read enough packets to call it a day?
-					if len(got) >= len(tt.args.outputSequence) {
-						break
-					}
-					// no, so let's keep reading until the test runner kills us
-					pkt := <-ch
-					got = append(got, int(pkt.ID))
-					log.Debugf("got packet: %v", pkt.ID)
-				}
-
-				// let's check if what we got is correct
-				if !slices.Equal(got, tt.args.outputSequence) {
-					t.Errorf("Reordering: got = %v, want %v", got, tt.args.outputSequence)
-				}
-			}(dataOut)
-			wg.Wait()
 		})
 	}
 }
