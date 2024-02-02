@@ -63,6 +63,39 @@ func TestReliable_ACK(t *testing.T) {
 			args: args{
 				inputSequence: []string{
 					"[5] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[2] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +1ms",
+				},
+				start:    1,
+				wantacks: 5,
+			},
+		},
+		{
+			name: "ten unordered packets with duplicates",
+			args: args{
+				inputSequence: []string{
+					"[5] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +1ms",
+					"[5] CONTROL_V1 +1ms",
+					"[2] CONTROL_V1 +1ms",
+					"[1] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+					"[2] CONTROL_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[3] CONTROL_V1 +1ms",
+					"[4] CONTROL_V1 +1ms",
+				},
+				start:    1,
+				wantacks: 5,
+			},
+		},
+		{
+			name: "ten packets",
+			args: args{
+				inputSequence: []string{
+					"[5] CONTROL_V1 +1ms",
 					"[1] CONTROL_V1 +1ms",
 					"[3] CONTROL_V1 +1ms",
 					"[2] CONTROL_V1 +1ms",
