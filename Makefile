@@ -31,10 +31,17 @@ test:
 	GOFLAGS='-count=1' go test -v ./...
 
 test-coverage:
-	go test -coverprofile=coverage.out ./vpn ./internal/...
+	go test -coverprofile=coverage.out ./vpn
+
+test-coverage-refactor:
+	go test -coverprofile=coverage.out ./internal/...
 
 test-coverage-threshold:
-	go test --short -coverprofile=cov-threshold.out ./vpn ./internal/...
+	go test --short -coverprofile=cov-threshold.out ./vpn
+	./scripts/go-coverage-check.sh cov-threshold.out ${COVERAGE_THRESHOLD}
+
+test-coverage-threshold-refactor:
+	go test --short -coverprofile=cov-threshold.out ./internal/...
 	./scripts/go-coverage-check.sh cov-threshold.out ${COVERAGE_THRESHOLD}
 
 test-short:
