@@ -41,8 +41,8 @@ test-coverage-threshold:
 	./scripts/go-coverage-check.sh cov-threshold.out ${COVERAGE_THRESHOLD}
 
 test-coverage-threshold-refactor:
-	go test --short -coverprofile=cov-threshold.out ./internal/...
-	./scripts/go-coverage-check.sh cov-threshold.out ${COVERAGE_THRESHOLD}
+	go test --short -coverprofile=cov-threshold-refactor.out ./internal/...
+	./scripts/go-coverage-check.sh cov-threshold-refactor.out ${COVERAGE_THRESHOLD}
 
 test-short:
 	go test -race -short -v ./...
