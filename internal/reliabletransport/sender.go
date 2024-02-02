@@ -105,6 +105,7 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 	ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
 	if err != nil {
 		ws.logger.Warnf("moveDownWorker: tryToSend: cannot create ack: %v", err.Error())
+		return
 	}
 	ACK.Log(ws.logger, model.DirectionOutgoing)
 	select {
