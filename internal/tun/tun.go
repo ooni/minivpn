@@ -23,10 +23,6 @@ var (
 // StartTUN initializes and starts the TUN device over the vpn.
 // If the passed context expires before the TUN device is ready,
 func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Options, logger model.Logger) (*TUN, error) {
-	if logger == nil {
-		return nil, errors.New("logger cannot be nil")
-	}
-
 	// create a session
 	sessionManager, err := session.NewManager(logger)
 	if err != nil {
