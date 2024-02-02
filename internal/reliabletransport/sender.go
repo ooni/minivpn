@@ -11,6 +11,8 @@ import (
 
 var (
 	// how long to wait for possible outgoing packets before sending a pending ACK as its own packet.
+	//
+	// We experimentally determined that this seems what OpenVPN does.
 	gracePeriodForOutgoingACKs = time.Millisecond * 20
 )
 
