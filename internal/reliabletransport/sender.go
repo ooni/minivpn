@@ -69,7 +69,6 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 	// so it should be safe to reset the ticker with that timeout.
 	now := time.Now()
 	timeout := inflightSequence(sender.inFlight).nearestDeadlineTo(now)
-
 	ticker.Reset(timeout.Sub(now))
 	scheduledNow := inflightSequence(sender.inFlight).readyToSend(now)
 
