@@ -6,20 +6,8 @@ import (
 
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/vpntest"
-	"github.com/ooni/minivpn/internal/workers"
 )
-
-// initManagers initializes a workers manager and a session manager
-func initManagers() (*workers.Manager, *session.Manager) {
-	w := workers.NewManager(log.Log)
-	s, err := session.NewManager(log.Log)
-	if err != nil {
-		panic(err)
-	}
-	return w, s
-}
 
 // test that we're able to reorder (towards TLS) whatever is received (from the muxer).
 func TestReliable_Reordering_UP(t *testing.T) {
@@ -120,7 +108,10 @@ func TestReliable_Reordering_UP(t *testing.T) {
 			s.ReliableToControl = &dataOut
 
 			workers, session := initManagers()
-			sessionID := session.LocalSessionID()
+
+			// this is our session (local to us)
+			localSessionID := session.LocalSessionID()
+			remoteSessionID := session.RemoteSessionID()
 
 			t0 := time.Now()
 
@@ -128,7 +119,11 @@ func TestReliable_Reordering_UP(t *testing.T) {
 			s.StartWorkers(log.Log, workers, session)
 
 			writer := vpntest.NewPacketWriter(dataIn)
-			writer.LocalSessionID = model.SessionID(sessionID)
+
+			// TODO -- need to create a session
+			writer.LocalSessionID = model.SessionID(remoteSessionID)
+			writer.RemoteSessionID = model.SessionID(localSessionID)
+
 			go writer.WriteSequence(tt.args.inputSequence)
 
 			reader := vpntest.NewPacketReader(dataOut)

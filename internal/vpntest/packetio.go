@@ -13,8 +13,11 @@ type PacketWriter struct {
 	// A channel where to write packets to.
 	ch chan<- *model.Packet
 
-	// LocalSessionID is needed to produce packets that pass sanity checks.
+	// LocalSessionID is needed to produce incoming packets that pass sanity checks.
 	LocalSessionID model.SessionID
+
+	// RemoteSessionID is needed to produce ACKs.
+	RemoteSessionID model.SessionID
 }
 
 // NewPacketWriter creates a new PacketWriter.
@@ -33,7 +36,8 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 
 		p := &model.Packet{
 			Opcode:          testPkt.Opcode,
-			RemoteSessionID: pw.LocalSessionID,
+			RemoteSessionID: pw.RemoteSessionID,
+			LocalSessionID:  pw.LocalSessionID,
 			ID:              model.PacketID(testPkt.ID),
 		}
 		pw.ch <- p
@@ -45,7 +49,18 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 type LoggedPacket struct {
 	ID     int
 	Opcode model.Opcode
+	ACKs   []model.PacketID
 	At     time.Duration
+}
+
+// newLoggedPacket returns a pointer to LoggedPacket from a real packet and a origin of time.
+func newLoggedPacket(p *model.Packet, origin time.Time) *LoggedPacket {
+	return &LoggedPacket{
+		ID:     int(p.ID),
+		Opcode: p.Opcode,
+		ACKs:   p.ACKs,
+		At:     time.Since(origin),
+	}
 }
 
 // PacketLog is a sequence of LoggedPacket.
@@ -58,6 +73,18 @@ func (l PacketLog) IDSequence() []int {
 		ids = append(ids, int(p.ID))
 	}
 	return ids
+}
+
+// acks filters the log and returns an array of ids that have been acked
+// either as ack packets or as part of the ack array of an outgoing packet.
+func (l PacketLog) acks() []int {
+	acks := []int{}
+	for _, p := range l {
+		for _, ack := range p.ACKs {
+			acks = append(acks, int(ack))
+		}
+	}
+	return acks
 }
 
 // PacketReader reads packets from a channel.
@@ -83,19 +110,53 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 		}
 		// no, so let's keep reading until the test runner kills us
 		pkt := <-pr.ch
-		pr.log = append(
-			pr.log,
-			&LoggedPacket{
-				ID:     int(pkt.ID),
-				Opcode: pkt.Opcode,
-				At:     time.Since(start),
-			})
+		pr.log = append(pr.log, newLoggedPacket(pkt, start))
 		log.Debugf("got packet: %v", pkt.ID)
 	}
+	// TODO move the comparison to witness, leave only wait here
 	return slices.Equal(seq, PacketLog(pr.log).IDSequence())
+}
+
+func (pr *PacketReader) WaitForNumberOfACKs(total int, start time.Time) {
+	for {
+		// have we read enough acks to call it a day?
+		if len(PacketLog(pr.log).acks()) >= total {
+			break
+		}
+		// no, so let's keep reading until the test runner kills us
+		pkt := <-pr.ch
+		pr.log = append(pr.log, newLoggedPacket(pkt, start))
+		log.Debugf("got packet: %v", pkt.ID)
+	}
 }
 
 // Log returns the log of the received packets.
 func (pr *PacketReader) Log() PacketLog {
 	return PacketLog(pr.log)
+}
+
+// A Witness checks for different conditions over a reader
+type Witness struct {
+	reader *PacketReader
+}
+
+func NewWitness(r *PacketReader) *Witness {
+	return &Witness{r}
+}
+
+func (w *Witness) Log() PacketLog {
+	return w.reader.Log()
+}
+
+// VerifyACKs tells the underlying reader to wait for a given number of acks,
+// and then checks that we have an ack sequence without holes.
+func (w *Witness) VerifyACKs(total int, t time.Time) bool {
+	w.reader.WaitForNumberOfACKs(total, t)
+	// TODO: compare the range here, no holes
+	// TODO: probl. need start idx
+	return true
+}
+
+func (w *Witness) NumberOfACKs() int {
+	return len(w.reader.Log().acks())
 }
