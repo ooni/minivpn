@@ -272,18 +272,6 @@ func (as *ackSet) nextToACK() []model.PacketID {
 	return next
 }
 
-// first returns the first packetID in the set, in ascending order.
-// TODO -- unused, possibly delete ---- was for a special case ---
-/*
-func (as *ackSet) first() *model.PacketID {
-	ids := as.sorted()
-	if len(ids) == 0 {
-		return nil
-	}
-	return &ids[0]
-}
-*/
-
 // sorted returns a []model.PacketID array with the stored ids, in ascending order.
 func (as *ackSet) sorted() []model.PacketID {
 	ids := make([]model.PacketID, 0)
