@@ -2,9 +2,11 @@ package vpntest
 
 import (
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/apex/log"
+	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
 )
 
@@ -43,6 +45,16 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 		pw.ch <- p
 		time.Sleep(testPkt.IAT)
 	}
+}
+
+func (pw *PacketWriter) WritePacketWithID(i int) {
+	p := &model.Packet{
+		Opcode:          model.P_CONTROL_V1,
+		RemoteSessionID: pw.RemoteSessionID,
+		LocalSessionID:  pw.LocalSessionID,
+		ID:              model.PacketID(i),
+	}
+	pw.ch <- p
 }
 
 // LoggedPacket is a trace of a received packet.
@@ -167,4 +179,125 @@ func contains(slice []int, target int) bool {
 		}
 	}
 	return false
+}
+
+// PacketRelay receives and sends packets.
+type PacketRelay struct {
+	dataIn  <-chan *model.Packet
+	dataOut chan<- *model.Packet
+
+	reader *PacketReader
+
+	// local counter for packet id
+	outPacketID int
+
+	// localSessionID is needed to produce incoming packets that pass sanity checks.
+	localSessionID model.SessionID
+
+	// RemoteSessionID is needed to produce ACKs.
+	RemoteSessionID model.SessionID
+
+	closeOnce sync.Once
+	mu        sync.Mutex // Guards cancel
+	cancel    chan struct{}
+}
+
+func NewPacketRelay(dataIn <-chan *model.Packet, dataOut chan<- *model.Packet) *PacketRelay {
+	b, err := bytesx.GenRandomBytes(8)
+	if err != nil {
+		panic(err)
+	}
+	return &PacketRelay{
+		dataIn:         dataIn,
+		dataOut:        dataOut,
+		reader:         &PacketReader{},
+		outPacketID:    0,
+		localSessionID: model.SessionID(b),
+
+		mu:     sync.Mutex{},
+		cancel: make(chan struct{}),
+	}
+}
+
+// Log returns the packet log this relay received.
+func (pr *PacketRelay) Log() PacketLog {
+	if pr.reader == nil {
+		return PacketLog{}
+	}
+	return pr.reader.Log()
+}
+
+// RelayWithLossess will relay incoming packets according to a vector of packetID that must be dropped.
+// To specify repeated losses for a packet ID, the vector of losses must repeat the id several times.
+func (pr *PacketRelay) RelayWithLosses(losses []int) {
+	ctr := makeLossMap(losses)
+	for {
+		select {
+		case <-pr.cancel:
+			return
+		case pkt := <-pr.dataIn:
+			id := int(pkt.ID)
+			cnt, ok := ctr[id]
+			if !ok || cnt <= 0 {
+				log.Debugf("relay packet: %v", id)
+				pr.WritePacketWithID(id)
+			} else {
+				log.Debugf("drop packet: %v", id)
+			}
+			ctr[id] -= 1
+		}
+	}
+}
+
+func (pr *PacketRelay) WritePacketWithID(i int) {
+	p := &model.Packet{
+		Opcode:          model.P_CONTROL_V1,
+		RemoteSessionID: pr.RemoteSessionID,
+		LocalSessionID:  pr.localSessionID,
+		ID:              model.PacketID(i),
+	}
+	pr.dataOut <- p
+}
+
+func (pr *PacketRelay) WritePacketWithPayload(payload []byte) {
+	p := &model.Packet{
+		Opcode:          model.P_CONTROL_V1,
+		RemoteSessionID: pr.RemoteSessionID,
+		LocalSessionID:  pr.localSessionID,
+		ID:              pr.packetID(),
+		Payload:         payload,
+	}
+	pr.dataOut <- p
+}
+
+func (pr *PacketRelay) Stop() {
+	pr.closeOnce.Do(func() {
+		close(pr.cancel)
+	})
+
+}
+
+func (pr *PacketRelay) packetID() model.PacketID {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
+	id := model.PacketID(pr.outPacketID)
+	pr.outPacketID += 1
+	return id
+}
+
+// makeLossMap returns a map from packet IDs to int. The value
+// of the map represent how many times we have to observe a given packet ID
+// before relaying it.
+func makeLossMap(l []int) map[int]int {
+	lc := make(map[int]int)
+	for _, i := range l {
+		_, ok := lc[i]
+		if !ok {
+			lc[i] = 1
+		} else {
+			lc[i] += 1
+		}
+	}
+	return lc
 }
