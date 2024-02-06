@@ -3,7 +3,6 @@ package reliabletransport
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"sort"
 
 	"github.com/ooni/minivpn/internal/model"
