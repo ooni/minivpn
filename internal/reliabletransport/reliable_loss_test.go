@@ -39,6 +39,9 @@ func TestReliable_WithLoss(t *testing.T) {
 		name string
 		args args
 	}{
+		// do note that all of the test cases below are using
+		// unrealistic timing and fast-retransmit (since we're very quickly
+		// acking a bunch of packets above them)
 		{
 			name: "ten ordered packets with no loss",
 			args: args{
@@ -179,6 +182,9 @@ func TestReliable_WithLoss(t *testing.T) {
 				losses:       []int{1, 5},
 			},
 		},
+
+		// we could exclude the following tests if not --short
+
 		{
 			name: "ten ordered packets, first lost 4 times",
 			args: args{
@@ -202,7 +208,7 @@ func TestReliable_WithLoss(t *testing.T) {
 		{
 			name: "arbitrary text",
 			args: args{
-				inputSequence: []string{"[1..150] CONTROL_V1 +10ms"},
+				inputSequence: []string{"[1..142] CONTROL_V1 +10ms"},
 				inputPayload:  "I think that the next two generations of Americans will be grappling with the very real specter of finding themselves living in a new and bizarre kind of digital totalitarian state - one that looks and feels democratic on the surface, but has a fierce undercurrent of fear and technologically enforced fascism any time you step out of line. I really hope this isn't the case, but it looks really bad right now, doesn't it?",
 				want:          "I think that the next two generations of Americans will be grappling with the very real specter of finding themselves living in a new and bizarre kind of digital totalitarian state - one that looks and feels democratic on the surface, but has a fierce undercurrent of fear and technologically enforced fascism any time you step out of line. I really hope this isn't the case, but it looks really bad right now, doesn't it?",
 				losses:        []int{1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89},
@@ -213,7 +219,7 @@ func TestReliable_WithLoss(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &Service{}
 
-			// where we write stuff
+			// where we write stuff (simulates control channel output)
 			dataIn := make(chan *model.Packet, 1024)
 
 			// where we want to read reordered stuff
@@ -225,18 +231,22 @@ func TestReliable_WithLoss(t *testing.T) {
 			reliableToControl := dataOut
 			s.ReliableToControl = &reliableToControl
 
-			// data out from reliable
+			// data out from reliable (downwards to network)
 			toMuxer := make(chan *model.Packet, 1024)
 			s.DataOrControlToMuxer = &toMuxer // down
 
-			// this will be the data out after losses
+			// this will be the data out after losses (simulates upwards to tls)
 			toNetwork := make(chan *model.Packet, 1024)
 
-			// data in from network
+			// data in from network (up from muxer)
 			fromMuxer := make(chan *model.Packet, 1024)
 			s.MuxerToReliable = fromMuxer // up
 
 			workers, session := initManagers()
+
+			echoServer := vpntest.NewEchoServer(toNetwork, fromMuxer)
+			echoServer.RemoteSessionID = model.SessionID(session.LocalSessionID())
+			session.SetRemoteSessionID(echoServer.LocalSessionID)
 
 			t0 := time.Now()
 
@@ -244,28 +254,18 @@ func TestReliable_WithLoss(t *testing.T) {
 			s.StartWorkers(log.Log, workers, session)
 
 			writer := vpntest.NewPacketWriter(dataIn)
-
-			// initialize a mock session ID for our peer
-			peerSessionID := newRandomSessionID()
-
-			session.SetRemoteSessionID(peerSessionID)
-
 			go writer.WriteSequenceWithFixedPayload(tt.args.inputSequence, tt.args.inputPayload, 3)
-
-			reader := vpntest.NewPacketReader(dataOut)
-			witness := vpntest.NewWitness(reader)
 
 			// start a relay to simulate losses
 			relay := vpntest.NewPacketRelay(toMuxer, toNetwork)
 			go relay.RelayWithLosses(tt.args.losses)
 			defer relay.Stop()
 
-			// start a mock server that echoes payloads with sequenced packets and acks
-			echoServer := vpntest.NewEchoServer(toNetwork, fromMuxer)
-			echoServer.RemoteSessionID = model.SessionID(session.LocalSessionID())
+			// start the mock server that echoes payloads with sequenced packets and acks
 			go echoServer.Start()
 			defer echoServer.Stop()
 
+			witness := vpntest.NewWitnessFromChannel(dataOut)
 			if ok := witness.VerifyOrderedPayload(tt.args.want, t0); !ok {
 				t.Errorf("TestLoss: payload does not match. got=%s, want=%s", witness.Payload(), tt.args.want)
 			}

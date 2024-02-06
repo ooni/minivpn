@@ -35,6 +35,7 @@ func NewPacketWriter(ch chan<- *model.Packet) *PacketWriter {
 
 // WriteSequence writes the passed packet sequence (in their string representation)
 // to the configured channel. It will wait the specified interval between one packet and the next.
+// The input sequence strings will be expanded for range notation.
 func (pw *PacketWriter) WriteSequence(seq []string) {
 	for _, expr := range seq {
 		for _, item := range maybeExpand(expr) {
@@ -43,22 +44,24 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 	}
 }
 
+// possibly expand a input sequence in range notation for the packet ids [1..10]
 func maybeExpand(input string) []string {
 	items := []string{}
 	pattern := `^\[(\d+)\.\.(\d+)\] (.+)`
 	regexpPattern := regexp.MustCompile(pattern)
 	matches := regexpPattern.FindStringSubmatch(input)
 	if len(matches) != 4 {
-		// not a range, return a single element
+		// not a range, return the single element
 		items = append(items, input)
 		return items
 	}
 
+	// extract beginning and end of the range
 	fromStr := matches[1]
 	toStr := matches[2]
 	body := matches[3]
 
-	// Convert from/to into integers
+	// convert to int (from/to )
 	from, err := strconv.Atoi(fromStr)
 	if err != nil {
 		panic(err)
@@ -69,6 +72,7 @@ func maybeExpand(input string) []string {
 		panic(err)
 	}
 
+	// return the expanded id range
 	for i := from; i <= to; i++ {
 		items = append(items, fmt.Sprintf("[%d] %s", i, body))
 	}
@@ -241,6 +245,11 @@ func NewWitness(r *PacketReader) *Witness {
 	return &Witness{r}
 }
 
+func NewWitnessFromChannel(ch <-chan *model.Packet) *Witness {
+	return NewWitness(NewPacketReader(ch))
+
+}
+
 func (w *Witness) Log() PacketLog {
 	return w.reader.Log()
 }
@@ -351,8 +360,8 @@ type EchoServer struct {
 	// local counter for packet id
 	outPacketID int
 
-	// localSessionID is needed to produce incoming packets that pass sanity checks.
-	localSessionID model.SessionID
+	// LocalSessionID is needed to produce incoming packets that pass sanity checks.
+	LocalSessionID model.SessionID
 
 	// RemoteSessionID is needed to produce ACKs.
 	RemoteSessionID model.SessionID
@@ -363,7 +372,7 @@ type EchoServer struct {
 }
 
 func NewEchoServer(dataIn, dataOut chan *model.Packet) *EchoServer {
-	sessionID, err := bytesx.GenRandomBytes(8)
+	randomSessionID, err := bytesx.GenRandomBytes(8)
 	if err != nil {
 		panic(err)
 	}
@@ -371,7 +380,7 @@ func NewEchoServer(dataIn, dataOut chan *model.Packet) *EchoServer {
 		dataIn:          dataIn,
 		dataOut:         dataOut,
 		outPacketID:     1,
-		localSessionID:  model.SessionID(sessionID),
+		LocalSessionID:  model.SessionID(randomSessionID),
 		RemoteSessionID: [8]byte{},
 		closeOnce:       sync.Once{},
 		mu:              sync.Mutex{},
@@ -400,7 +409,7 @@ func (e *EchoServer) replyToPacketWithPayload(payload []byte, toACK model.Packet
 	p := &model.Packet{
 		Opcode:          model.P_CONTROL_V1,
 		RemoteSessionID: e.RemoteSessionID,
-		LocalSessionID:  e.localSessionID,
+		LocalSessionID:  e.LocalSessionID,
 		ID:              toACK,
 		Payload:         payload,
 		ACKs:            []model.PacketID{toACK},
