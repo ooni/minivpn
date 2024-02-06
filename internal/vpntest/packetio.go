@@ -1,7 +1,10 @@
 package vpntest
 
 import (
+	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -20,6 +23,9 @@ type PacketWriter struct {
 
 	// RemoteSessionID is needed to produce ACKs.
 	RemoteSessionID model.SessionID
+
+	payload           string
+	packetPayloadSize int
 }
 
 // NewPacketWriter creates a new PacketWriter.
@@ -30,21 +36,76 @@ func NewPacketWriter(ch chan<- *model.Packet) *PacketWriter {
 // WriteSequence writes the passed packet sequence (in their string representation)
 // to the configured channel. It will wait the specified interval between one packet and the next.
 func (pw *PacketWriter) WriteSequence(seq []string) {
-	for _, testStr := range seq {
-		testPkt, err := NewTestPacketFromString(testStr)
-		if err != nil {
-			panic("PacketWriter: error reading test sequence:" + err.Error())
+	for _, expr := range seq {
+		for _, item := range maybeExpand(expr) {
+			pw.writeSequenceItem(item)
 		}
-
-		p := &model.Packet{
-			Opcode:          testPkt.Opcode,
-			RemoteSessionID: pw.RemoteSessionID,
-			LocalSessionID:  pw.LocalSessionID,
-			ID:              model.PacketID(testPkt.ID),
-		}
-		pw.ch <- p
-		time.Sleep(testPkt.IAT)
 	}
+}
+
+func maybeExpand(input string) []string {
+	items := []string{}
+	pattern := `^\[(\d+)\.\.(\d+)\] (.+)`
+	regexpPattern := regexp.MustCompile(pattern)
+	matches := regexpPattern.FindStringSubmatch(input)
+	if len(matches) != 4 {
+		// not a range, return a single element
+		items = append(items, input)
+		return items
+	}
+
+	fromStr := matches[1]
+	toStr := matches[2]
+	body := matches[3]
+
+	// Convert from/to into integers
+	from, err := strconv.Atoi(fromStr)
+	if err != nil {
+		panic(err)
+	}
+
+	to, err := strconv.Atoi(toStr)
+	if err != nil {
+		panic(err)
+	}
+
+	for i := from; i <= to; i++ {
+		items = append(items, fmt.Sprintf("[%d] %s", i, body))
+	}
+	return items
+}
+
+func (pw *PacketWriter) writeSequenceItem(item string) {
+	testPkt, err := NewTestPacketFromString(item)
+	if err != nil {
+		panic("PacketWriter: error reading test sequence:" + err.Error())
+	}
+	p := &model.Packet{
+		Opcode:          testPkt.Opcode,
+		RemoteSessionID: pw.RemoteSessionID,
+		LocalSessionID:  pw.LocalSessionID,
+		ID:              model.PacketID(testPkt.ID),
+	}
+	if len(pw.payload) > 0 {
+		var payload, rest string
+		size := pw.packetPayloadSize
+		if len(pw.payload) < size {
+			payload = pw.payload
+			pw.payload = ""
+		} else {
+			payload, rest = pw.payload[:size], pw.payload[size:]
+			pw.payload = rest
+		}
+		p.Payload = []byte(payload)
+	}
+	pw.ch <- p
+	time.Sleep(testPkt.IAT)
+}
+
+func (pw *PacketWriter) WriteSequenceWithFixedPayload(seq []string, payload string, size int) {
+	pw.payload = payload
+	pw.packetPayloadSize = 3
+	pw.WriteSequence(seq)
 }
 
 func (pw *PacketWriter) WritePacketWithID(i int) {
@@ -104,14 +165,19 @@ func (l PacketLog) ACKs() []int {
 
 // PacketReader reads packets from a channel.
 type PacketReader struct {
-	ch  <-chan *model.Packet
-	log []*LoggedPacket
+	ch      <-chan *model.Packet
+	log     []*LoggedPacket
+	payload []byte
 }
 
 // NewPacketReader creates a new PacketReader.
 func NewPacketReader(ch <-chan *model.Packet) *PacketReader {
 	logged := make([]*LoggedPacket, 0)
 	return &PacketReader{ch: ch, log: logged}
+}
+
+func (pr *PacketReader) Payload() string {
+	return string(pr.payload)
 }
 
 // WaitForSequence loops reading from the internal channel until the logged
@@ -124,9 +190,7 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 			break
 		}
 		// no, so let's keep reading until the test runner kills us
-		pkt := <-pr.ch
-		pr.log = append(pr.log, newLoggedPacket(pkt, start))
-		log.Debugf("got packet: %v", pkt.ID)
+		pr.appendOneIncomingPacket(start)
 	}
 	// TODO move the comparison to witness, leave only wait here
 	return slices.Equal(seq, PacketLog(pr.log).IDSequence())
@@ -139,10 +203,28 @@ func (pr *PacketReader) WaitForNumberOfACKs(total int, start time.Time) {
 			break
 		}
 		// no, so let's keep reading until the test runner kills us
-		pkt := <-pr.ch
-		pr.log = append(pr.log, newLoggedPacket(pkt, start))
-		log.Debugf("got packet: %v", pkt.ID)
+		pr.appendOneIncomingPacket(start)
 	}
+}
+
+func (pr *PacketReader) WaitForOrderedPayloadLen(total int, start time.Time) {
+	for {
+		// have we read enough packets to call it a day?
+		if len(pr.payload) >= total {
+			break
+		}
+		// no, so let's keep reading until the test runner kills us
+		pr.appendOneIncomingPacket(start)
+	}
+}
+
+func (pr *PacketReader) appendOneIncomingPacket(t0 time.Time) {
+	pkt := <-pr.ch
+	pr.log = append(pr.log, newLoggedPacket(pkt, t0))
+	if pkt.Payload != nil {
+		pr.payload = append(pr.payload, pkt.Payload...)
+	}
+	log.Debugf("got packet: %v (%d bytes)", pkt.ID, len(pkt.Payload))
 }
 
 // Log returns the log of the received packets.
@@ -170,7 +252,16 @@ func (w *Witness) VerifyNumberOfACKs(start, total int, t time.Time) bool {
 	return len(w.Log().ACKs()) == total
 }
 
-// contains check if the element is in the slice. this is expensive, but it's only
+func (w *Witness) VerifyOrderedPayload(payload string, t time.Time) bool {
+	w.reader.WaitForOrderedPayloadLen(len(payload), t)
+	return w.reader.Payload() == payload
+}
+
+func (w *Witness) Payload() string {
+	return w.reader.Payload()
+}
+
+// contains checks if the element is in the slice. this is expensive, but it's only
 // for tests and the alternative is to make ackSet public.
 func contains(slice []int, target int) bool {
 	for _, item := range slice {
@@ -181,21 +272,10 @@ func contains(slice []int, target int) bool {
 	return false
 }
 
-// PacketRelay receives and sends packets.
+// PacketRelay sends any received packet, without modifications.
 type PacketRelay struct {
 	dataIn  <-chan *model.Packet
 	dataOut chan<- *model.Packet
-
-	reader *PacketReader
-
-	// local counter for packet id
-	outPacketID int
-
-	// localSessionID is needed to produce incoming packets that pass sanity checks.
-	localSessionID model.SessionID
-
-	// RemoteSessionID is needed to produce ACKs.
-	RemoteSessionID model.SessionID
 
 	closeOnce sync.Once
 	mu        sync.Mutex // Guards cancel
@@ -203,28 +283,13 @@ type PacketRelay struct {
 }
 
 func NewPacketRelay(dataIn <-chan *model.Packet, dataOut chan<- *model.Packet) *PacketRelay {
-	b, err := bytesx.GenRandomBytes(8)
-	if err != nil {
-		panic(err)
-	}
 	return &PacketRelay{
-		dataIn:         dataIn,
-		dataOut:        dataOut,
-		reader:         &PacketReader{},
-		outPacketID:    0,
-		localSessionID: model.SessionID(b),
+		dataIn:  dataIn,
+		dataOut: dataOut,
 
 		mu:     sync.Mutex{},
 		cancel: make(chan struct{}),
 	}
-}
-
-// Log returns the packet log this relay received.
-func (pr *PacketRelay) Log() PacketLog {
-	if pr.reader == nil {
-		return PacketLog{}
-	}
-	return pr.reader.Log()
 }
 
 // RelayWithLossess will relay incoming packets according to a vector of packetID that must be dropped.
@@ -235,55 +300,28 @@ func (pr *PacketRelay) RelayWithLosses(losses []int) {
 		select {
 		case <-pr.cancel:
 			return
-		case pkt := <-pr.dataIn:
-			id := int(pkt.ID)
+		case p := <-pr.dataIn:
+			id := int(p.ID)
 			cnt, ok := ctr[id]
 			if !ok || cnt <= 0 {
-				log.Debugf("relay packet: %v", id)
-				pr.WritePacketWithID(id)
+				// not on the loss map, or we already saw the packet enough times
+				log.Debugf("relay packet: %v (%s)", id, string(p.Payload))
+				pr.dataOut <- p
 			} else {
-				log.Debugf("drop packet: %v", id)
+				log.Debugf("relay: drop packet: %v", id)
 			}
+			// decrement the counter for this packet ID
 			ctr[id] -= 1
 		}
 	}
 }
 
-func (pr *PacketRelay) WritePacketWithID(i int) {
-	p := &model.Packet{
-		Opcode:          model.P_CONTROL_V1,
-		RemoteSessionID: pr.RemoteSessionID,
-		LocalSessionID:  pr.localSessionID,
-		ID:              model.PacketID(i),
-	}
-	pr.dataOut <- p
-}
-
-func (pr *PacketRelay) WritePacketWithPayload(payload []byte) {
-	p := &model.Packet{
-		Opcode:          model.P_CONTROL_V1,
-		RemoteSessionID: pr.RemoteSessionID,
-		LocalSessionID:  pr.localSessionID,
-		ID:              pr.packetID(),
-		Payload:         payload,
-	}
-	pr.dataOut <- p
-}
-
+// Stop will stop the relay loop.
 func (pr *PacketRelay) Stop() {
 	pr.closeOnce.Do(func() {
 		close(pr.cancel)
 	})
 
-}
-
-func (pr *PacketRelay) packetID() model.PacketID {
-	pr.mu.Lock()
-	defer pr.mu.Unlock()
-
-	id := model.PacketID(pr.outPacketID)
-	pr.outPacketID += 1
-	return id
 }
 
 // makeLossMap returns a map from packet IDs to int. The value
@@ -300,4 +338,81 @@ func makeLossMap(l []int) map[int]int {
 		}
 	}
 	return lc
+}
+
+// EchoServer is a dummy server intended for testing. It will:
+// - send sequential packets back to a client implementation, containing each the same payload
+// and the same packet ID than incoming.
+// - write every seen packet on the ACK array for the echo response.
+type EchoServer struct {
+	dataIn  chan *model.Packet
+	dataOut chan *model.Packet
+
+	// local counter for packet id
+	outPacketID int
+
+	// localSessionID is needed to produce incoming packets that pass sanity checks.
+	localSessionID model.SessionID
+
+	// RemoteSessionID is needed to produce ACKs.
+	RemoteSessionID model.SessionID
+
+	closeOnce sync.Once
+	mu        sync.Mutex // Guards cancel
+	cancel    chan struct{}
+}
+
+func NewEchoServer(dataIn, dataOut chan *model.Packet) *EchoServer {
+	sessionID, err := bytesx.GenRandomBytes(8)
+	if err != nil {
+		panic(err)
+	}
+	return &EchoServer{
+		dataIn:          dataIn,
+		dataOut:         dataOut,
+		outPacketID:     1,
+		localSessionID:  model.SessionID(sessionID),
+		RemoteSessionID: [8]byte{},
+		closeOnce:       sync.Once{},
+		mu:              sync.Mutex{},
+		cancel:          make(chan struct{}),
+	}
+}
+
+func (e *EchoServer) Start() {
+	for {
+		select {
+		case <-e.cancel:
+			return
+		case p := <-e.dataIn:
+			e.replyToPacketWithPayload(p.Payload, p.ID)
+		}
+	}
+}
+
+func (e *EchoServer) Stop() {
+	e.closeOnce.Do(func() {
+		close(e.cancel)
+	})
+}
+
+func (e *EchoServer) replyToPacketWithPayload(payload []byte, toACK model.PacketID) {
+	p := &model.Packet{
+		Opcode:          model.P_CONTROL_V1,
+		RemoteSessionID: e.RemoteSessionID,
+		LocalSessionID:  e.localSessionID,
+		ID:              toACK,
+		Payload:         payload,
+		ACKs:            []model.PacketID{toACK},
+	}
+	e.dataOut <- p
+}
+
+func (e *EchoServer) packetID() model.PacketID {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	id := model.PacketID(e.outPacketID)
+	e.outPacketID += 1
+	return id
 }
