@@ -35,7 +35,7 @@ func NewPacketWriter(ch chan<- *model.Packet) *PacketWriter {
 
 // WriteSequence writes the passed packet sequence (in their string representation)
 // to the configured channel. It will wait the specified interval between one packet and the next.
-// The input sequence strings will be expanded for range notation.
+// The input sequence strings will be expanded for range notation, as in [1..10]
 func (pw *PacketWriter) WriteSequence(seq []string) {
 	for _, expr := range seq {
 		for _, item := range maybeExpand(expr) {
@@ -46,6 +46,7 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 
 // possibly expand a input sequence in range notation for the packet ids [1..10]
 func maybeExpand(input string) []string {
+	fmt.Println("maybe expand")
 	items := []string{}
 	pattern := `^\[(\d+)\.\.(\d+)\] (.+)`
 	regexpPattern := regexp.MustCompile(pattern)
@@ -55,6 +56,8 @@ func maybeExpand(input string) []string {
 		items = append(items, input)
 		return items
 	}
+
+	fmt.Println("len matches", len(matches))
 
 	// extract beginning and end of the range
 	fromStr := matches[1]

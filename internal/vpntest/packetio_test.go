@@ -127,7 +127,35 @@ func TestPacketReaderWriter(t *testing.T) {
 	}
 }
 
-// TODO test witness
+func TestPacketWriter_WriteExpandedSequence(t *testing.T) {
+	tests := []struct {
+		name    string
+		seq     []string
+		wantIDs []int
+	}{
+		{
+			name:    "test range expansion",
+			seq:     []string{"[1..5] CONTROL_V1 +1ms"},
+			wantIDs: []int{1, 2, 3, 4},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := make(chan *model.Packet, 20)
+			pw := NewPacketWriter(ch)
+			pw.WriteSequence(tt.seq)
+
+			got := make([]int, 0)
+			for i := 0; i < len(tt.wantIDs); i++ {
+				p := <-ch
+				got = append(got, int(p.ID))
+			}
+			if !slices.Equal(got, tt.wantIDs) {
+				t.Errorf("WriteExpandedSequence() got = %v, want %v", got, tt.wantIDs)
+			}
+		})
+	}
+}
 
 func TestWitness_VerifyOrderedPayload(t *testing.T) {
 	type args struct {
