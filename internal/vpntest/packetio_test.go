@@ -238,6 +238,54 @@ func readPacketIDSequence(ch chan *model.Packet, wantLen int) []int {
 	return got
 }
 
+func TestPacketWriter_WriteSequenceWithFixedPayload(t *testing.T) {
+	type args struct {
+		seq     []string
+		payload string
+		size    int
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "string payload with 2 char per packet",
+			args: args{
+				seq: []string{
+					"[1] CONTROL_V1 +0ms",
+					"[2] CONTROL_V1 +0ms",
+					"[3] CONTROL_V1 +0ms",
+					"[4] CONTROL_V1 +0ms",
+					"[5] CONTROL_V1 +0ms",
+					"[6] CONTROL_V1 +0ms",
+					"[7] CONTROL_V1 +0ms",
+					"[8] CONTROL_V1 +0ms",
+					"[9] CONTROL_V1 +0ms",
+					"[10] CONTROL_V1 +0ms",
+				},
+				payload: "aabbccddeeffgghhiijj",
+				size:    2,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := make(chan *model.Packet, 20)
+			pw := NewPacketWriter(ch)
+			pw.WriteSequenceWithFixedPayload(tt.args.seq, tt.args.payload, tt.args.size)
+
+			got := ""
+			for i := 0; i < len(tt.args.seq); i++ {
+				p := <-ch
+				got = got + string(p.Payload)
+			}
+			if got != tt.args.payload {
+				t.Errorf("WriteSequenceWithFixedPayload: got = %v, want %v", got, tt.args.payload)
+			}
+		})
+	}
+}
+
 // test that we're able to start/stop an echo server, and that
 // it returns the same that is delivered.
 func TestEchoServer_StartStop(t *testing.T) {

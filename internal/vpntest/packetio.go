@@ -106,6 +106,8 @@ func (pw *PacketWriter) writeSequenceItem(item string) {
 	time.Sleep(testPkt.IAT)
 }
 
+// WriteSequenceWithFixed payload will write packets according to the sequence specified in seq,
+// but will sequentially pick the payload from the passed payload string, in increments defined by size.
 func (pw *PacketWriter) WriteSequenceWithFixedPayload(seq []string, payload string, size int) {
 	pw.payload = payload
 	pw.packetPayloadSize = 3
