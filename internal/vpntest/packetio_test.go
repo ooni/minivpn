@@ -1,6 +1,8 @@
 package vpntest
 
 import (
+	"bytes"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -8,6 +10,49 @@ import (
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 )
+
+func TestPacketLog_ACKs(t *testing.T) {
+	tests := []struct {
+		name string
+		l    PacketLog
+		want []int
+	}{
+		{
+			name: "no acks",
+			l:    []*LoggedPacket{},
+			want: []int{},
+		},
+		{
+			name: "one ack packet",
+			l: []*LoggedPacket{
+				{ACKs: []model.PacketID{0}},
+			},
+			want: []int{0},
+		},
+		{
+			name: "one ack packet with two acks",
+			l: []*LoggedPacket{
+				{ACKs: []model.PacketID{1, 0}},
+			},
+			want: []int{1, 0},
+		},
+		{
+			name: "two ack packets with two acks each",
+			l: []*LoggedPacket{
+				{ACKs: []model.PacketID{1, 0}},
+				{ACKs: []model.PacketID{3, 2}},
+			},
+			want: []int{1, 0, 3, 2},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.l.ACKs(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("PacketLog.ACKs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestPacketReaderWriter(t *testing.T) {
 	type args struct {
@@ -191,4 +236,69 @@ func readPacketIDSequence(ch chan *model.Packet, wantLen int) []int {
 		}
 	}
 	return got
+}
+
+// test that we're able to start/stop an echo server, and that
+// it returns the same that is delivered.
+func TestEchoServer_StartStop(t *testing.T) {
+	type args struct {
+		dataIn []*model.Packet
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "no packets in",
+			args: args{},
+		},
+		{
+			name: "one packet in",
+			args: args{
+				[]*model.Packet{
+					{ID: 1}},
+			},
+		},
+		{
+			name: "three packet in with payloads",
+			args: args{
+				[]*model.Packet{
+					{ID: 1, Payload: []byte("aaa")},
+					{ID: 2, Payload: []byte("bbb")},
+					{ID: 3, Payload: []byte("ccc")},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		dataIn := make(chan *model.Packet, 1024)
+		dataOut := make(chan *model.Packet, 1024)
+		t.Run(tt.name, func(t *testing.T) {
+			e := NewEchoServer(dataIn, dataOut)
+			go e.Start()
+			got := make([]*model.Packet, 0)
+			for _, p := range tt.args.dataIn {
+				dataIn <- p
+			}
+			for range tt.args.dataIn {
+				p := <-dataOut
+				got = append(got, p)
+			}
+			e.Stop()
+
+			if len(got) != len(tt.args.dataIn) {
+				t.Errorf("TestEchoServer_StartStop: got len = %v, want %v", len(got), len(tt.args.dataIn))
+			}
+			for i := range got {
+				gotPacket := got[i]
+				wantPacket := tt.args.dataIn[i]
+				if gotPacket.ID != wantPacket.ID {
+					t.Errorf("TestEchoServer_StartStop: packet %d:  got ID = %v, want %v", i, gotPacket.ID, wantPacket.ID)
+				}
+				if !bytes.Equal(gotPacket.Payload, wantPacket.Payload) {
+					t.Errorf("TestEchoServer_StartStop: packet %d:  got Payload = %v, want Payload %v", i, gotPacket.Payload, wantPacket.Payload)
+				}
+			}
+		})
+	}
 }

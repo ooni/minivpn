@@ -417,6 +417,8 @@ func (e *EchoServer) replyToPacketWithPayload(payload []byte, toACK model.Packet
 	e.dataOut <- p
 }
 
+// TODO: move to ReplayServer
+/*
 func (e *EchoServer) packetID() model.PacketID {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -425,3 +427,4 @@ func (e *EchoServer) packetID() model.PacketID {
 	e.outPacketID += 1
 	return id
 }
+*/
