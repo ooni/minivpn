@@ -127,6 +127,84 @@ func TestPacketReaderWriter(t *testing.T) {
 	}
 }
 
+// TODO test witness
+
+func TestWitness_VerifyOrderedPayload(t *testing.T) {
+	type args struct {
+		packets []*model.Packet
+		payload string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "simple payload, tree packets",
+			args: args{
+				packets: []*model.Packet{
+					{
+						ID:      1,
+						Payload: []byte("aaa"),
+					},
+					{
+						ID:      2,
+						Payload: []byte("bbb"),
+					},
+					{
+						ID:      3,
+						Payload: []byte("ccc"),
+					},
+				},
+				payload: "aaabbbccc",
+			},
+			want: true,
+		},
+		{
+			name: "longer payload, two packets",
+			args: args{
+				packets: []*model.Packet{
+					{
+						ID:      1,
+						Payload: []byte("aaaaaaaaaaaaaaa"),
+					},
+					{
+						ID:      2,
+						Payload: []byte("bbbbbbbbbbbbbbb"),
+					},
+				},
+				payload: "aaaaaaaaaaaaaaabbbbbbbbbbbbbbb",
+			},
+			want: true,
+		},
+		{
+			name: "empty payload no packets",
+			args: args{
+				packets: []*model.Packet{},
+				payload: "",
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := make(chan *model.Packet, 20)
+			w := NewWitnessFromChannel(ch)
+
+			for _, p := range tt.args.packets {
+				ch <- p
+			}
+			t0 := time.Now()
+			if got := w.VerifyOrderedPayload(tt.args.payload, t0); got != tt.want {
+				t.Errorf("Witness.VerifyOrderedPayload() = %v, want %v", got, tt.want)
+			}
+			if w.Payload() != tt.args.payload {
+				t.Errorf("Witness.Payload() = %v, want %v", w.Payload(), tt.want)
+			}
+		})
+	}
+}
+
 func TestPacketRelay_RelayWithLosses(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 	type fields struct {
