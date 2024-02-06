@@ -57,9 +57,6 @@ def process_tshark_output(data):
         if len(ips) == 1:
             ips[ip_dst] = 'server'
 
-        # we need the raw data to workaround a bug with ack array
-        # raw_data = udp['udp.payload']
-
         packets.append({
             'time_relative': time_relative,
             'time_delta': time_delta,
@@ -79,7 +76,6 @@ def sequence_from_packets(packets):
             dir = '<'
 
         packet_id = packet['openvpn'].get('openvpn.mpid', 0)
-
         opcode = opcodes[packet['openvpn']['openvpn.type_tree']['openvpn.opcode']]
 
         acks = []
