@@ -53,20 +53,19 @@ def process_tshark_output(data):
         if len(ips) == 0:
             ips[ip_src] = 'client'
 
-        ip_addr = ip['ip.addr']
+        ip_dst = ip['ip.dst']
         if len(ips) == 1:
-            ips[ip_addr] = 'server'
+            ips[ip_dst] = 'server'
 
         # we need the raw data to workaround a bug with ack array
-        raw_data = udp['udp.payload']
+        # raw_data = udp['udp.payload']
 
         packets.append({
             'time_relative': time_relative,
             'time_delta': time_delta,
             'from': ips[ip_src],
-            'to': ips[ip_addr],
+            'to': ips[ip_dst],
             'openvpn': openvpn,
-            'raw': raw_data,
         })
 
     return packets
@@ -85,24 +84,8 @@ def sequence_from_packets(packets):
 
         acks = []
         ack_len = packet['openvpn'].get('openvpn.mpidarraylength')
-
-        # FIXME: there's a bug in tshark json serialization, packet-id array should be an array,
-        # acks = packet['openvpn'].get('Packet-ID Array')
-
-        # this is ugly, but seems to be correct. since tshark mistakenly returns an object
-        # in the ack array, we need to extract the acks in the packet by parsing the raw
-        # udp payload.
         if ack_len is not None and int(ack_len) != 0:
-            cnt = packet['raw'][27:29]
-            if int(cnt, 10) != int(ack_len):
-                print(cnt, ack_len)
-                raise ValueError("mismatch in ack array len")
-            offset = 30
-            for i in range(int(ack_len)):
-                _next = packet['raw'][offset:offset+11]
-                hex_int = int(_next.replace(':', ''), 16)
-                acks.append(hex_int)
-                offset += 12
+            acks = packet['openvpn']['Packet-ID Array']['openvpn.mpidarrayelement']
 
         if len(acks) > 0:
             ack_str = ','.join([str(ack) for ack in acks])
@@ -125,7 +108,7 @@ if __name__ == "__main__":
     pcap = sys.argv[1]
     subcmd = sys.argv[2]
 
-    command = f"tshark -r {pcap} -T json"
+    command = f"tshark -r {pcap} -T json --no-duplicate-keys"
     out = subprocess.check_output(command, shell=True)
     output_str = out.decode('utf-8')
     data = json.loads(output_str)
