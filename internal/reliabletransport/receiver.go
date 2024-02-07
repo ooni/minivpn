@@ -41,7 +41,7 @@ func (ws *workersState) moveUpWorker() {
 			// We should be able to deterministically test how this affects the state machine.
 
 			// drop a packet that is not for our session
-			if !bytes.Equal([]byte(packet.RemoteSessionID[:]), []byte(ws.sessionManager.LocalSessionID())) {
+			if !bytes.Equal(packet.RemoteSessionID[:], ws.sessionManager.LocalSessionID()) {
 				ws.logger.Warnf(
 					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
 					workerName,

@@ -246,6 +246,7 @@ type Witness struct {
 	reader *PacketReader
 }
 
+// NewWitness constructs a Witness from a [PacketReader].
 func NewWitness(r *PacketReader) *Witness {
 	return &Witness{r}
 }
@@ -255,22 +256,25 @@ func NewWitnessFromChannel(ch <-chan *model.Packet) *Witness {
 
 }
 
+// Log returns the packet log from the internal reader this witness uses.
 func (w *Witness) Log() PacketLog {
 	return w.reader.Log()
 }
 
-// VerifyACKs tells the underlying reader to wait for a given number of acks,
+// VerifyNumberOfACKs tells the underlying reader to wait for a given number of acks,
 // returns true if we have the same number of acks.
 func (w *Witness) VerifyNumberOfACKs(start, total int, t time.Time) bool {
 	w.reader.WaitForNumberOfACKs(total, t)
 	return len(w.Log().ACKs()) == total
 }
 
+// VerifyOrderedPayload checks that the received payload matches the one we expect.
 func (w *Witness) VerifyOrderedPayload(payload string, t time.Time) bool {
 	w.reader.WaitForOrderedPayloadLen(len(payload), t)
 	return w.reader.Payload() == payload
 }
 
+// Payload returns the string payload reconstructed from the received packets.
 func (w *Witness) Payload() string {
 	return w.reader.Payload()
 }
