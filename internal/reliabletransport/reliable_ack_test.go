@@ -11,6 +11,17 @@ import (
 )
 
 // test that everything that is received from below is eventually ACKed to the sender.
+/*
+
+   ┌────┐id ┌────┐
+   │sndr│◄──┤rcvr│
+   └─┬──┘   └──▲─┘
+     │         │
+     │         │
+     │         │
+     ▼       send
+    ack
+*/
 func TestReliable_ACK(t *testing.T) {
 
 	log.SetLevel(log.DebugLevel)

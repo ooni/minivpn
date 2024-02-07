@@ -11,8 +11,9 @@ import (
 
 // test that everything that is sent eventually arrives in bounded time, in the pressence of losses.
 /*
-        |
-	   v
+      │
+      │
+      ▼
     ┌────┐ack┌────┐
     │sndr│◄──┤rcvr│
     └─┬──┘   └──▲─┘
@@ -20,7 +21,6 @@ import (
 drop◄─┤         │
       │         │
       ▼relay (ack)
-
 */
 func TestReliable_WithLoss(t *testing.T) {
 
