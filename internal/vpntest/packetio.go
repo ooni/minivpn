@@ -425,17 +425,3 @@ func (e *EchoServer) replyToPacketWithPayload(payload []byte, toACK model.Packet
 	}
 	e.dataOut <- p
 }
-
-// TODO: write ReplayServer - server that receives a trace log and
-// sends packets looking at the trace timings (and inferred losses).
-// TODO: move to ReplayServer
-/*
-func (e *EchoServer) packetID() model.PacketID {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	id := model.PacketID(e.outPacketID)
-	e.outPacketID += 1
-	return id
-}
-*/
