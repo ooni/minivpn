@@ -23,7 +23,6 @@ drop◄─┤         │
       ▼relay (ack)
 */
 func TestReliable_WithLoss(t *testing.T) {
-
 	if testing.Verbose() {
 		log.SetLevel(log.DebugLevel)
 	}

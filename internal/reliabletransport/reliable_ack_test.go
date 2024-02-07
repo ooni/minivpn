@@ -23,8 +23,9 @@ import (
     ack
 */
 func TestReliable_ACK(t *testing.T) {
-
-	log.SetLevel(log.DebugLevel)
+	if testing.Verbose() {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	type args struct {
 		inputSequence []string

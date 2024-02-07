@@ -26,7 +26,9 @@ func Test_newReliableReceiver(t *testing.T) {
 }
 
 func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
+	if testing.Verbose() {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	type fields struct {
 		incomingPackets incomingSequence
@@ -91,7 +93,9 @@ func Test_reliableQueue_MaybeInsertIncoming(t *testing.T) {
 }
 
 func Test_reliableQueue_NextIncomingSequence(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
+	if testing.Verbose() {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	type fields struct {
 		lastConsumed    model.PacketID

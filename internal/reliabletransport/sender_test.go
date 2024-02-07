@@ -34,7 +34,9 @@ func Test_newReliableSender(t *testing.T) {
 }
 
 func Test_reliableSender_TryInsertOutgoingPacket(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
+	if testing.Verbose() {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	type fields struct {
 		inFlight inflightSequence
@@ -106,7 +108,9 @@ func Test_reliableSender_TryInsertOutgoingPacket(t *testing.T) {
 }
 
 func Test_reliableSender_NextPacketIDsToACK(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
+	if testing.Verbose() {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	type fields struct {
 		pendingACKsToSend []model.PacketID
