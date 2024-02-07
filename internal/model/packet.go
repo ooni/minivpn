@@ -33,7 +33,7 @@ const (
 )
 
 // NewOpcodeFromString returns an opcode from a string representation, and an error if it cannot parse the opcode
-// representation. The zero return value is invalid.
+// representation. The zero return value is invalid and always coupled with a non-nil error.
 func NewOpcodeFromString(s string) (Opcode, error) {
 	switch s {
 	case "CONTROL_HARD_RESET_CLIENT_V1":
