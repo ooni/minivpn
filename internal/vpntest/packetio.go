@@ -116,7 +116,7 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 		pr.log = append(pr.log, newLoggedPacket(pkt, start))
 		log.Debugf("got packet: %v", pkt.ID)
 	}
-	// TODO move the comparison to witness, leave only wait here
+	// TODO(ainghazal): move the comparison to witness, leave only wait here
 	return slices.Equal(seq, PacketLog(pr.log).IDSequence())
 }
 
