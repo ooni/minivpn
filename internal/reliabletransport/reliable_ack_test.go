@@ -143,7 +143,7 @@ func TestReliable_ACK(t *testing.T) {
 			reader := vpntest.NewPacketReader(dataOut)
 			witness := vpntest.NewWitness(reader)
 
-			if ok := witness.VerifyNumberOfACKs(tt.args.start, tt.args.wantacks, t0); !ok {
+			if ok := witness.VerifyNumberOfACKs(tt.args.wantacks, t0); !ok {
 				got := len(witness.Log().ACKs())
 				t.Errorf("TestACK: got = %v, want %v", got, tt.args.wantacks)
 			}

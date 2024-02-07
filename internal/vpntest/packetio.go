@@ -109,7 +109,7 @@ func (pw *PacketWriter) writeSequenceItem(item string) {
 	time.Sleep(testPkt.IAT)
 }
 
-// WriteSequenceWithFixed payload will write packets according to the sequence specified in seq,
+// WriteSequenceWithFixedPayload will write packets according to the sequence specified in seq,
 // but will sequentially pick the payload from the passed payload string, in increments defined by size.
 func (pw *PacketWriter) WriteSequenceWithFixedPayload(seq []string, payload string, size int) {
 	pw.payload = payload
@@ -117,6 +117,7 @@ func (pw *PacketWriter) WriteSequenceWithFixedPayload(seq []string, payload stri
 	pw.WriteSequence(seq)
 }
 
+// WritePacketWithID writes a dummy control packet with the passed ID.
 func (pw *PacketWriter) WritePacketWithID(i int) {
 	p := &model.Packet{
 		Opcode:          model.P_CONTROL_V1,
@@ -185,6 +186,7 @@ func NewPacketReader(ch <-chan *model.Packet) *PacketReader {
 	return &PacketReader{ch: ch, log: logged}
 }
 
+// Payload returns the string payload constructed from the payloads in the received packets.
 func (pr *PacketReader) Payload() string {
 	return string(pr.payload)
 }
@@ -205,6 +207,7 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 	return slices.Equal(seq, PacketLog(pr.log).IDSequence())
 }
 
+// WaitForNumberOfACKs will read from the channel until the given number of acks have been received.
 func (pr *PacketReader) WaitForNumberOfACKs(total int, start time.Time) {
 	for {
 		// have we read enough acks to call it a day?
@@ -216,6 +219,7 @@ func (pr *PacketReader) WaitForNumberOfACKs(total int, start time.Time) {
 	}
 }
 
+// WaitForOrderedPayloadLen will read from the channel until the given number of characters have been read.
 func (pr *PacketReader) WaitForOrderedPayloadLen(total int, start time.Time) {
 	for {
 		// have we read enough packets to call it a day?
@@ -251,6 +255,7 @@ func NewWitness(r *PacketReader) *Witness {
 	return &Witness{r}
 }
 
+// NewWitnessFromChannel constructs a Witness from a channel of packets.
 func NewWitnessFromChannel(ch <-chan *model.Packet) *Witness {
 	return NewWitness(NewPacketReader(ch))
 
@@ -263,8 +268,8 @@ func (w *Witness) Log() PacketLog {
 
 // VerifyNumberOfACKs tells the underlying reader to wait for a given number of acks,
 // returns true if we have the same number of acks.
-func (w *Witness) VerifyNumberOfACKs(start, total int, t time.Time) bool {
-	w.reader.WaitForNumberOfACKs(total, t)
+func (w *Witness) VerifyNumberOfACKs(total int, start time.Time) bool {
+	w.reader.WaitForNumberOfACKs(total, start)
 	return len(w.Log().ACKs()) == total
 }
 
@@ -300,6 +305,7 @@ type PacketRelay struct {
 	cancel    chan struct{}
 }
 
+// NewPacketRelay reads packets from one channel and writes them to another.
 func NewPacketRelay(dataIn <-chan *model.Packet, dataOut chan<- *model.Packet) *PacketRelay {
 	return &PacketRelay{
 		dataIn:  dataIn,
@@ -310,7 +316,7 @@ func NewPacketRelay(dataIn <-chan *model.Packet, dataOut chan<- *model.Packet) *
 	}
 }
 
-// RelayWithLossess will relay incoming packets according to a vector of packetID that must be dropped.
+// RelayWithLosses will relay incoming packets according to a vector of packetID that must be dropped.
 // To specify repeated losses for a packet ID, the vector of losses must repeat the id several times.
 func (pr *PacketRelay) RelayWithLosses(losses []int) {
 	ctr := makeLossMap(losses)
@@ -329,7 +335,7 @@ func (pr *PacketRelay) RelayWithLosses(losses []int) {
 				log.Debugf("relay: drop packet: %v", id)
 			}
 			// decrement the counter for this packet ID
-			ctr[id] -= 1
+			ctr[id]--
 		}
 	}
 }
@@ -352,7 +358,7 @@ func makeLossMap(l []int) map[int]int {
 		if !ok {
 			lc[i] = 1
 		} else {
-			lc[i] += 1
+			lc[i]++
 		}
 	}
 	return lc
@@ -380,6 +386,7 @@ type EchoServer struct {
 	cancel    chan struct{}
 }
 
+// NewEchoServer creates an [EchoServer] given two channels of [model.Packet]s.
 func NewEchoServer(dataIn, dataOut chan *model.Packet) *EchoServer {
 	randomSessionID, err := bytesx.GenRandomBytes(8)
 	if err != nil {
@@ -397,6 +404,7 @@ func NewEchoServer(dataIn, dataOut chan *model.Packet) *EchoServer {
 	}
 }
 
+// Start starts the [EchoServer].
 func (e *EchoServer) Start() {
 	for {
 		select {
@@ -408,6 +416,7 @@ func (e *EchoServer) Start() {
 	}
 }
 
+// Stop stops the [EchoServer].
 func (e *EchoServer) Stop() {
 	e.closeOnce.Do(func() {
 		close(e.cancel)
