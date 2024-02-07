@@ -113,7 +113,7 @@ func (pw *PacketWriter) writeSequenceItem(item string) {
 // but will sequentially pick the payload from the passed payload string, in increments defined by size.
 func (pw *PacketWriter) WriteSequenceWithFixedPayload(seq []string, payload string, size int) {
 	pw.payload = payload
-	pw.packetPayloadSize = 3
+	pw.packetPayloadSize = size
 	pw.WriteSequence(seq)
 }
 
