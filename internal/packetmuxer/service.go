@@ -50,12 +50,12 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (s *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:    logger,
+		logger:    config.Logger(),
 		hardReset: s.HardReset,
 		// initialize to a sufficiently long time from now
 		hardResetTicker:      time.NewTicker(longWakeup),

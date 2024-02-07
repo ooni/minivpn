@@ -334,13 +334,8 @@ func (p *Packet) IsData() bool {
 	return p.Opcode.IsData()
 }
 
-const (
-	DirectionIncoming = iota
-	DirectionOutgoing
-)
-
 // Log writes an entry in the passed logger with a representation of this packet.
-func (p *Packet) Log(logger Logger, direction int) {
+func (p *Packet) Log(logger Logger, direction Direction) {
 	var dir string
 	switch direction {
 	case DirectionIncoming:

@@ -97,7 +97,7 @@ func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, session *sessio
 // modes are supported at the moment, so no real decompression is done. It
 // returns a byte array, and an error if the operation could not be completed
 // successfully.
-func maybeDecompress(b []byte, st *dataChannelState, opt *model.Options) ([]byte, error) {
+func maybeDecompress(b []byte, st *dataChannelState, opt *model.OpenVPNOptions) ([]byte, error) {
 	if st == nil || st.dataCipher == nil {
 		return []byte{}, fmt.Errorf("%w:%s", errBadInput, "bad state")
 	}

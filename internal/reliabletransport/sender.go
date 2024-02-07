@@ -84,6 +84,7 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 
 			// log the packet
 			p.packet.Log(ws.logger, model.DirectionOutgoing)
+			ws.tracer.OnOutgoingPacket(p.packet, int(p.retries))
 
 			select {
 			case ws.dataOrControlToMuxer <- p.packet:

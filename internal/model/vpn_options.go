@@ -5,7 +5,7 @@ package model
 //
 // Mostly, this file conforms to the format in the reference implementation.
 // However, there are some additions that are specific. To avoid feature creep
-// and fat dependencies, the main `vpn` module only supports mainline
+// and fat dependencies, the internal implementation only supports mainline
 // capabilities. It is still useful to carry all options in a single type,
 // so it's up to the user of this library to do something useful with
 // such options. The `extra` package provides some of these extra features, like
@@ -92,10 +92,10 @@ var SupportedAuth = []string{
 	"SHA512",
 }
 
-// Options make all the relevant configuration options accessible to the
+// OpenVPNOptions make all the relevant openvpn configuration options accessible to the
 // different modules that need it.
-type Options struct {
-	// These options have the same name of OpenVPN options:
+type OpenVPNOptions struct {
+	// These options have the same name of OpenVPN options referenced in the official documentation:
 	Remote    string
 	Port      string
 	Proto     Proto
@@ -111,7 +111,9 @@ type Options struct {
 	Auth      string
 	TLSMaxVer string
 
-	// Below are options that do not conform to the OpenVPN configuration format:
+	// Below are options that do not conform strictly to the OpenVPN configuration format, but still can
+	// be understood by us in a configuration file:
+
 	Compress   Compression
 	ProxyOBFS4 string
 }
@@ -119,7 +121,7 @@ type Options struct {
 // ReadConfigFile expects a string with a path to a valid config file,
 // and returns a pointer to a Options struct after parsing the file, and an
 // error if the operation could not be completed.
-func ReadConfigFile(filePath string) (*Options, error) {
+func ReadConfigFile(filePath string) (*OpenVPNOptions, error) {
 	lines, err := getLinesFromFile(filePath)
 	dir, _ := filepath.Split(filePath)
 	if err != nil {
@@ -130,7 +132,7 @@ func ReadConfigFile(filePath string) (*Options, error) {
 
 // ShouldLoadCertsFromPath returns true when the options object is configured to load
 // certificates from paths; false when we have inline certificates.
-func (o *Options) ShouldLoadCertsFromPath() bool {
+func (o *OpenVPNOptions) ShouldLoadCertsFromPath() bool {
 	return o.CertPath != "" && o.KeyPath != "" && o.CAPath != ""
 }
 
@@ -138,7 +140,7 @@ func (o *Options) ShouldLoadCertsFromPath() bool {
 // - we have paths for cert, key and ca; or
 // - we have inline byte arrays for cert, key and ca; or
 // - we have username + password info.
-func (o *Options) HasAuthInfo() bool {
+func (o *OpenVPNOptions) HasAuthInfo() bool {
 	if o.CertPath != "" && o.KeyPath != "" && o.CAPath != "" {
 		return true
 	}
@@ -156,7 +158,7 @@ const clientOptions = "V4,dev-type tun,link-mtu 1549,tun-mtu 1500,proto %sv4,cip
 
 // ServerOptionsString produces a comma-separated representation of the options, in the same
 // order and format that the OpenVPN server expects from us.
-func (o *Options) ServerOptionsString() string {
+func (o *OpenVPNOptions) ServerOptionsString() string {
 	if o.Cipher == "" {
 		return ""
 	}
@@ -258,7 +260,7 @@ func PushedOptionsAsMap(pushedOptions []byte) map[string][]string {
 	return optMap
 }
 
-func parseProto(p []string, o *Options) error {
+func parseProto(p []string, o *OpenVPNOptions) error {
 	if len(p) != 1 {
 		return fmt.Errorf("%w: %s", ErrBadConfig, "proto needs one arg")
 	}
@@ -277,7 +279,7 @@ func parseProto(p []string, o *Options) error {
 
 // TODO(ainghazal): all these little functions can be better tested if we return the options object too
 
-func parseRemote(p []string, o *Options) error {
+func parseRemote(p []string, o *OpenVPNOptions) error {
 	if len(p) != 2 {
 		return fmt.Errorf("%w: %s", ErrBadConfig, "remote needs two args")
 	}
@@ -285,7 +287,7 @@ func parseRemote(p []string, o *Options) error {
 	return nil
 }
 
-func parseCipher(p []string, o *Options) error {
+func parseCipher(p []string, o *OpenVPNOptions) error {
 	if len(p) != 1 {
 		return fmt.Errorf("%w: %s", ErrBadConfig, "cipher expects one arg")
 	}
@@ -297,7 +299,7 @@ func parseCipher(p []string, o *Options) error {
 	return nil
 }
 
-func parseAuth(p []string, o *Options) error {
+func parseAuth(p []string, o *OpenVPNOptions) error {
 	if len(p) != 1 {
 		return fmt.Errorf("%w: %s", ErrBadConfig, "invalid auth entry")
 	}
@@ -309,7 +311,7 @@ func parseAuth(p []string, o *Options) error {
 	return nil
 }
 
-func parseCA(p []string, o *Options, basedir string) error {
+func parseCA(p []string, o *OpenVPNOptions, basedir string) error {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "ca expects a valid file")
 	if len(p) != 1 {
 		return e
@@ -325,7 +327,7 @@ func parseCA(p []string, o *Options, basedir string) error {
 	return nil
 }
 
-func parseCert(p []string, o *Options, basedir string) error {
+func parseCert(p []string, o *OpenVPNOptions, basedir string) error {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "cert expects a valid file")
 	if len(p) != 1 {
 		return e
@@ -341,7 +343,7 @@ func parseCert(p []string, o *Options, basedir string) error {
 	return nil
 }
 
-func parseKey(p []string, o *Options, basedir string) error {
+func parseKey(p []string, o *OpenVPNOptions, basedir string) error {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "key expects a valid file")
 	if len(p) != 1 {
 		return e
@@ -360,7 +362,7 @@ func parseKey(p []string, o *Options, basedir string) error {
 // parseAuthUser reads credentials from a given file, according to the openvpn
 // format (user and pass on a line each). To avoid path traversal / LFI, the
 // credentials file is expected to be in a subdirectory of the base dir.
-func parseAuthUser(p []string, o *Options, basedir string) error {
+func parseAuthUser(p []string, o *OpenVPNOptions, basedir string) error {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "auth-user-pass expects a valid file")
 	if len(p) != 1 {
 		return e
@@ -380,7 +382,7 @@ func parseAuthUser(p []string, o *Options, basedir string) error {
 	return nil
 }
 
-func parseCompress(p []string, o *Options) error {
+func parseCompress(p []string, o *OpenVPNOptions) error {
 	if len(p) > 1 {
 		return fmt.Errorf("%w: %s", ErrBadConfig, "compress: only empty/stub options supported")
 	}
@@ -395,7 +397,7 @@ func parseCompress(p []string, o *Options) error {
 	return fmt.Errorf("%w: %s", ErrBadConfig, "compress: only empty/stub options supported")
 }
 
-func parseCompLZO(p []string, o *Options) error {
+func parseCompLZO(p []string, o *OpenVPNOptions) error {
 	if p[0] != "no" {
 		return fmt.Errorf("%w: %s", ErrBadConfig, "comp-lzo: compression not supported")
 	}
@@ -405,7 +407,7 @@ func parseCompLZO(p []string, o *Options) error {
 
 // parseTLSVerMax sets the maximum TLS version. This is currently ignored
 // because we're using uTLS to parrot the Client Hello.
-func parseTLSVerMax(p []string, o *Options) error {
+func parseTLSVerMax(p []string, o *OpenVPNOptions) error {
 	if len(p) == 0 {
 		o.TLSMaxVer = "1.3"
 		return nil
@@ -416,7 +418,7 @@ func parseTLSVerMax(p []string, o *Options) error {
 	return nil
 }
 
-func parseProxyOBFS4(p []string, o *Options) error {
+func parseProxyOBFS4(p []string, o *OpenVPNOptions) error {
 	if len(p) != 1 {
 		return fmt.Errorf("%w: %s", ErrBadConfig, "proto-obfs4: need a properly configured proxy")
 	}
@@ -443,15 +445,15 @@ var pMapDir = map[string]interface{}{
 	"auth-user-pass": parseAuthUser,
 }
 
-func parseOption(o *Options, dir, key string, p []string, lineno int) error {
+func parseOption(o *OpenVPNOptions, dir, key string, p []string, lineno int) error {
 	switch key {
 	case "proto", "remote", "cipher", "auth", "compress", "comp-lzo", "tls-version-max", "proxy-obfs4":
-		fn := pMap[key].(func([]string, *Options) error)
+		fn := pMap[key].(func([]string, *OpenVPNOptions) error)
 		if e := fn(p, o); e != nil {
 			return e
 		}
 	case "ca", "cert", "key", "auth-user-pass":
-		fn := pMapDir[key].(func([]string, *Options, string) error)
+		fn := pMapDir[key].(func([]string, *OpenVPNOptions, string) error)
 		if e := fn(p, o, dir); e != nil {
 			return e
 		}
@@ -464,8 +466,8 @@ func parseOption(o *Options, dir, key string, p []string, lineno int) error {
 // getOptionsFromLines tries to parse all the lines coming from a config file
 // and raises validation errors if the values do not conform to the expected
 // format. The config file supports inline file inclusion for <ca>, <cert> and <key>.
-func getOptionsFromLines(lines []string, dir string) (*Options, error) {
-	opt := &Options{}
+func getOptionsFromLines(lines []string, dir string) (*OpenVPNOptions, error) {
+	opt := &OpenVPNOptions{}
 
 	// tag and inlineBuf are used to parse inline files.
 	// these follow the format used by the reference openvpn implementation.
@@ -561,7 +563,7 @@ func parseTag(tag string) string {
 }
 
 // parseInlineTag
-func parseInlineTag(o *Options, tag string, buf *bytes.Buffer) error {
+func parseInlineTag(o *OpenVPNOptions, tag string, buf *bytes.Buffer) error {
 	b := buf.Bytes()
 	if len(b) == 0 {
 		return fmt.Errorf("%w: empty inline tag: %d", ErrBadConfig, len(b))

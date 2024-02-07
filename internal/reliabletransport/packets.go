@@ -19,7 +19,7 @@ type inFlightPacket struct {
 	packet *model.Packet
 
 	// retries is a monotonically increasing counter for retransmission.
-	retries uint8
+	retries int
 }
 
 func newInFlightPacket(p *model.Packet) *inFlightPacket {

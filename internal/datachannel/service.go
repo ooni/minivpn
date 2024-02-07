@@ -50,14 +50,13 @@ type Service struct {
 // 3. keyWorker BLOCKS on keyUp to read a dataChannelKey and
 // initializes the internal state with the resulting key;
 func (s *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
-	options *model.Options,
 ) {
-	dc, err := NewDataChannelFromOptions(logger, options, sessionManager)
+	dc, err := NewDataChannelFromOptions(config.Logger(), config.OpenVPNOptions(), sessionManager)
 	if err != nil {
-		logger.Warnf("cannot initialize channel %v", err)
+		config.Logger().Warnf("cannot initialize channel %v", err)
 		return
 	}
 	ws := &workersState{
@@ -65,7 +64,7 @@ func (s *Service) StartWorkers(
 		dataOrControlToMuxer: *s.DataOrControlToMuxer,
 		dataToTUN:            s.DataToTUN,
 		keyReady:             s.KeyReady,
-		logger:               logger,
+		logger:               config.Logger(),
 		muxerToData:          s.MuxerToData,
 		sessionManager:       sessionManager,
 		tunToData:            s.TUNToData,

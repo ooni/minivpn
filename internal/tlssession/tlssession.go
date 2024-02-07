@@ -42,16 +42,15 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (svc *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
-	options *model.Options,
 ) {
 	ws := &workersState{
-		logger:         logger,
-		notifyTLS:      svc.NotifyTLS,
-		options:        options,
 		keyUp:          *svc.KeyUp,
+		logger:         config.Logger(),
+		notifyTLS:      svc.NotifyTLS,
+		options:        config.OpenVPNOptions(),
 		tlsRecordDown:  *svc.TLSRecordDown,
 		tlsRecordUp:    svc.TLSRecordUp,
 		sessionManager: sessionManager,
@@ -64,7 +63,7 @@ func (svc *Service) StartWorkers(
 type workersState struct {
 	logger         model.Logger
 	notifyTLS      <-chan *model.Notification
-	options        *model.Options
+	options        *model.OpenVPNOptions
 	tlsRecordDown  chan<- []byte
 	tlsRecordUp    <-chan []byte
 	keyUp          chan<- *session.DataChannelKey

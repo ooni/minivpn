@@ -31,21 +31,22 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (s *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger: logger,
+		controlToReliable:    s.ControlToReliable,
+		dataOrControlToMuxer: *s.DataOrControlToMuxer,
+		incomingSeen:         make(chan incomingPacketSeen, 100),
+		logger:               config.Logger(),
 		// incomingSeen is a buffered channel to avoid losing packets if we're busy
 		// processing in the sender goroutine.
-		incomingSeen:         make(chan incomingPacketSeen, 100),
-		dataOrControlToMuxer: *s.DataOrControlToMuxer,
-		controlToReliable:    s.ControlToReliable,
-		muxerToReliable:      s.MuxerToReliable,
-		reliableToControl:    *s.ReliableToControl,
-		sessionManager:       sessionManager,
-		workersManager:       workersManager,
+		muxerToReliable:   s.MuxerToReliable,
+		reliableToControl: *s.ReliableToControl,
+		sessionManager:    sessionManager,
+		tracer:            config.Tracer(),
+		workersManager:    workersManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
 	workersManager.StartWorker(ws.moveDownWorker)
@@ -53,17 +54,17 @@ func (s *Service) StartWorkers(
 
 // workersState contains the reliable workers state
 type workersState struct {
-	// logger is the logger to use
-	logger model.Logger
-
-	// incomingSeen ins the shared channel to connect sender and receiver goroutines.
-	incomingSeen chan incomingPacketSeen
+	// controlToReliable is the channel from which we read packets going down the stack.
+	controlToReliable <-chan *model.Packet
 
 	// dataOrControlToMuxer is the channel where we write packets going down the stack.
 	dataOrControlToMuxer chan<- *model.Packet
 
-	// controlToReliable is the channel from which we read packets going down the stack.
-	controlToReliable <-chan *model.Packet
+	// incomingSeen ins the shared channel to connect sender and receiver goroutines.
+	incomingSeen chan incomingPacketSeen
+
+	// logger is the logger to use
+	logger model.Logger
 
 	// muxerToReliable is the channel from which we read packets going up the stack.
 	muxerToReliable <-chan *model.Packet
@@ -73,6 +74,9 @@ type workersState struct {
 
 	// sessionManager manages the OpenVPN session.
 	sessionManager *session.Manager
+
+	// tracer is a handshake tracer.
+	tracer model.HandshakeTracer
 
 	// workersManager controls the workers lifecycle.
 	workersManager *workers.Manager

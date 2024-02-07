@@ -36,12 +36,12 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (svc *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:               logger,
+		logger:               config.Logger(),
 		notifyTLS:            *svc.NotifyTLS,
 		controlToReliable:    *svc.ControlToReliable,
 		reliableToControl:    svc.ReliableToControl,

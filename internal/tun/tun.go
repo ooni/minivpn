@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
@@ -22,18 +21,18 @@ var (
 
 // StartTUN initializes and starts the TUN device over the vpn.
 // If the passed context expires before the TUN device is ready,
-func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Options, logger model.Logger) (*TUN, error) {
+func StartTUN(ctx context.Context, conn networkio.FramingConn, config *model.Config) (*TUN, error) {
 	// create a session
-	sessionManager, err := session.NewManager(logger)
+	sessionManager, err := session.NewManager(config.Logger())
 	if err != nil {
 		return nil, err
 	}
 
 	// create the TUN that will OWN the connection
-	tunnel := newTUN(logger, conn, sessionManager)
+	tunnel := newTUN(config.Logger(), conn, sessionManager)
 
 	// start all the workers
-	workers := startWorkers(log.Log, sessionManager, tunnel, conn, options)
+	workers := startWorkers(config, conn, sessionManager, tunnel)
 	tunnel.whenDone(func() {
 		workers.StartShutdown()
 		workers.WaitWorkersShutdown()
@@ -50,7 +49,7 @@ func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Op
 		return tunnel, nil
 	case <-tlsTimeout.C:
 		defer func() {
-			log.Log.Info("tls timeout")
+			config.Logger().Info("tls timeout")
 			tunnel.Close()
 		}()
 		return nil, errors.New("tls timeout")
