@@ -33,11 +33,11 @@ func newInFlightPacket(p *model.Packet) *inFlightPacket {
 
 // ACKForHigherPacket increments the number of acks received for a higher pid than this packet. This will influence the fast rexmit selection algorithm.
 func (p *inFlightPacket) ACKForHigherPacket() {
-	p.higherACKs += 1
+	p.higherACKs++
 }
 
 func (p *inFlightPacket) ScheduleForRetransmission(t time.Time) {
-	p.retries += 1
+	p.retries++
 	p.deadline = t.Add(p.backoff())
 }
 

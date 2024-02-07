@@ -135,7 +135,7 @@ func (r *reliableReceiver) NextIncomingSequence() incomingSequence {
 	for i, p := range r.incomingPackets {
 		if p.ID-last == 1 {
 			ready = append(ready, p)
-			last += 1
+			last++
 		} else if p.ID > last {
 			// here we broke sequentiality, but we want
 			// to drop anything that is below lastConsumed
