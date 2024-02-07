@@ -4,6 +4,7 @@ import (
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
 )
@@ -16,9 +17,7 @@ import (
 func initManagers() (*workers.Manager, *session.Manager) {
 	w := workers.NewManager(log.Log)
 	s, err := session.NewManager(log.Log)
-	if err != nil {
-		panic(err)
-	}
+	runtimex.PanicOnError(err, "cannot create session manager")
 	return w, s
 }
 
