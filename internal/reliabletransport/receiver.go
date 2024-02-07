@@ -3,7 +3,6 @@ package reliabletransport
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"sort"
 
 	"github.com/ooni/minivpn/internal/model"
@@ -42,7 +41,7 @@ func (ws *workersState) moveUpWorker() {
 			// We should be able to deterministically test how this affects the state machine.
 
 			// drop a packet that is not for our session
-			if !bytes.Equal(packet.LocalSessionID[:], ws.sessionManager.RemoteSessionID()) {
+			if !bytes.Equal(packet.RemoteSessionID[:], ws.sessionManager.LocalSessionID()) {
 				ws.logger.Warnf(
 					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
 					workerName,
@@ -64,6 +63,7 @@ func (ws *workersState) moveUpWorker() {
 
 			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
 				// this packet was not inserted in the queue: we drop it
+				ws.logger.Debugf("Dropping packet: %v", packet.ID)
 				continue
 			}
 

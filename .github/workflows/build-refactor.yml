@@ -1,0 +1,57 @@
+name: build-refactor
+# this action is covering internal/ tree with go1.21
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  short-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.21'
+    - name: Run short tests
+      run: go test --short -cover ./internal/...
+
+  gosec:
+    runs-on: ubuntu-latest
+    env:
+        GO111MODULE: on
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v2
+    - name: Run Gosec security scanner
+      uses: securego/gosec@master
+      with:
+        args: '-no-fail ./...'
+
+  coverage-threshold:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.21'
+    - name: Ensure coverage threshold
+      run: make test-coverage-threshold-refactor
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: setup go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.21'
+      - name: run integration tests
+        run: go test -v ./tests/integration
+

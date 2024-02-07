@@ -32,6 +32,33 @@ const (
 	P_DATA_V2                                         // 9
 )
 
+// NewOpcodeFromString returns an opcode from a string representation, and an error if it cannot parse the opcode
+// representation. The zero return value is invalid and always coupled with a non-nil error.
+func NewOpcodeFromString(s string) (Opcode, error) {
+	switch s {
+	case "CONTROL_HARD_RESET_CLIENT_V1":
+		return P_CONTROL_HARD_RESET_CLIENT_V1, nil
+	case "CONTROL_HARD_RESET_SERVER_V1":
+		return P_CONTROL_HARD_RESET_SERVER_V1, nil
+	case "CONTROL_SOFT_RESET_V1":
+		return P_CONTROL_SOFT_RESET_V1, nil
+	case "CONTROL_V1":
+		return P_CONTROL_V1, nil
+	case "ACK_V1":
+		return P_ACK_V1, nil
+	case "DATA_V1":
+		return P_DATA_V1, nil
+	case "CONTROL_HARD_RESET_CLIENT_V2":
+		return P_CONTROL_HARD_RESET_CLIENT_V2, nil
+	case "CONTROL_HARD_RESET_SERVER_V2":
+		return P_CONTROL_HARD_RESET_SERVER_V2, nil
+	case "DATA_V2":
+		return P_DATA_V2, nil
+	default:
+		return 0, errors.New("unknown opcode")
+	}
+}
+
 // String returns the opcode string representation
 func (op Opcode) String() string {
 	switch op {

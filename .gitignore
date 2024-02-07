@@ -8,8 +8,6 @@
 *.swo
 *.pem
 *.ovpn
+/*.out
 data/*
 measurements/*
-coverage.out
-coverage-ping.out
-cov-threshold.out
