@@ -21,6 +21,16 @@ jobs:
     - name: Run short tests
       run: go test --short -cover ./internal/...
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Run Revive Action by pulling pre-built image
+      uses: actions/checkout@v4
+    - name: Lint with revive action, from pre-built image
+      uses: docker://morphy/revive-action:v2
+      with:
+        path: "internal/..."
+
   gosec:
     runs-on: ubuntu-latest
     env:
