@@ -24,8 +24,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - name: Run Revive Action by pulling pre-built image
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
     - name: Lint with revive action, from pre-built image
       uses: docker://morphy/revive-action:v2
       with:
