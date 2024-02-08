@@ -133,11 +133,7 @@ func TestReliable_ACK(t *testing.T) {
 			writer := vpntest.NewPacketWriter(dataIn)
 
 			// initialize a mock session ID for our peer
-			peerSessionID := newRandomSessionID()
-
-			writer.RemoteSessionID = model.SessionID(session.LocalSessionID())
-			writer.LocalSessionID = peerSessionID
-			session.SetRemoteSessionID(peerSessionID)
+			initializeSessionIDForWriter(writer, session)
 
 			go writer.WriteSequence(tt.args.inputSequence)
 

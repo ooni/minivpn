@@ -7,6 +7,7 @@ import (
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/optional"
+	"github.com/ooni/minivpn/internal/session"
 )
 
 // moveUpWorker moves packets up the stack (receiver).
@@ -34,7 +35,6 @@ func (ws *workersState) moveUpWorker() {
 
 			if packet.Opcode != model.P_CONTROL_HARD_RESET_SERVER_V2 {
 				// the hard reset has already been logged by the layer below
-				// TODO: move logging here?
 				packet.Log(ws.logger, model.DirectionIncoming)
 			}
 
@@ -42,17 +42,11 @@ func (ws *workersState) moveUpWorker() {
 			// I'm not sure that's a valid behavior for a server.
 			// We should be able to deterministically test how this affects the state machine.
 
-			// drop a packet that is not for our session
-			if !bytes.Equal(packet.RemoteSessionID[:], ws.sessionManager.LocalSessionID()) {
-				ws.logger.Warnf(
-					"%s: packet with invalid RemoteSessionID: expected %x; got %x",
-					workerName,
-					ws.sessionManager.LocalSessionID(),
-					packet.RemoteSessionID,
-				)
+			if ok := incomingSanityChecks(ws.logger, workerName, packet, ws.sessionManager); !ok {
 				continue
 			}
 
+			// notify seen packet to the sender using the lateral channel.
 			seen := receiver.newIncomingPacketSeen(packet)
 			ws.incomingSeen <- seen
 
@@ -87,6 +81,36 @@ func (ws *workersState) moveUpWorker() {
 			return
 		}
 	}
+}
+
+func incomingSanityChecks(logger model.Logger, workerName string, packet *model.Packet, session *session.Manager) bool {
+	// drop a packet from a remote session we don't know about.
+	if !bytes.Equal(packet.LocalSessionID[:], session.RemoteSessionID()) {
+		logger.Warnf(
+			"%s: packet with invalid LocalSessionID: got %x; expected %x",
+			workerName,
+			packet.LocalSessionID,
+			session.RemoteSessionID(),
+		)
+		return false
+	}
+
+	if len(packet.ACKs) == 0 {
+		return true
+	}
+
+	// only if we get incoming ACKs we can also check that the remote session id matches our own
+	// (packets with no ack array do not include remoteSessionID)
+	if !bytes.Equal(packet.RemoteSessionID[:], session.LocalSessionID()) {
+		logger.Warnf(
+			"%s: packet with invalid RemoteSessionID: got %x; expected %x",
+			workerName,
+			packet.RemoteSessionID,
+			session.LocalSessionID(),
+		)
+		return false
+	}
+	return true
 }
 
 //
