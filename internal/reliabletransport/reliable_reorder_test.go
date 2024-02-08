@@ -11,15 +11,15 @@ import (
 
 // test that we're able to reorder (towards TLS) whatever is received (from the muxer).
 //
-//		           dataOut
-//		              ▲
-//		              │
-//		 ┌────┐    ┌──┴─┐
-//		 │sndr│    │rcvr│
-//		 └────┘    └────┘
-//	              ▲
+//	          dataOut
+//	             ▲
+//	             │
+//	┌────┐    ┌──┴─┐
+//	│sndr│    │rcvr│
+//	└────┘    └────┘
+//	             ▲
 //	             |
-//		          dataIn
+//	           dataIn
 func TestReliable_Reordering_UP(t *testing.T) {
 	if testing.Verbose() {
 		log.SetLevel(log.DebugLevel)
