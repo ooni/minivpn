@@ -139,6 +139,11 @@ func (td *TunDialer) DialTimeout(network, address string, timeout time.Duration)
 	return conn, err
 }
 
+// CloseIdleConnections implements OONI's model.Dialer interface.
+func (td *TunDialer) CloseIdleConnections() {
+	// TODO(https://github.com/ooni/minivpn/issues/27): cleanup on shutdown.
+}
+
 func (td *TunDialer) createNetTUN(ctx context.Context) (*netstack.Net, error) {
 	localIP := td.client.LocalAddr().String()
 

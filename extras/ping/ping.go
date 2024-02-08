@@ -27,6 +27,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
+	"golang.org/x/net/icmp"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -99,6 +100,9 @@ type PingReply struct {
 type Pinger struct {
 	// Target is a string with the target host IP.
 	Target string
+
+	// Raw indicates whether to use raw-socket like packets (set to true to craft the IP layer).
+	Raw bool
 
 	// Interval is the wait time between each packet send. Default is 1s.
 	Interval time.Duration
@@ -372,8 +376,9 @@ func (p *Pinger) runLoop(recvCh <-chan *packet) error {
 			return nil
 
 		case r := <-recvCh:
-			err := p.processPacket(r)
+			err := p.processPacket(r, &dstIP)
 			if err != nil {
+				fmt.Println("ERROR", err)
 				continue
 			}
 
@@ -384,7 +389,8 @@ func (p *Pinger) runLoop(recvCh <-chan *packet) error {
 			}
 			currentUUID := p.getCurrentTrackerUUID()
 
-			icmpPacket := newIcmpData(&srcIP, &dstIP, 8, p.TTL, p.PacketsSent, p.id, currentUUID)
+			icmpPacket := newIcmpData(p.Raw, &srcIP, &dstIP, 8, p.TTL, p.PacketsSent, p.id, currentUUID)
+
 			_, err := p.conn.Write(icmpPacket)
 			if err != nil {
 				return fmt.Errorf("%w: %s", errCannotWrite, err)
@@ -487,10 +493,11 @@ func (p *Pinger) recvICMP(recv chan<- *packet) error {
 			if err := p.conn.SetReadDeadline(time.Now().Add(delay)); err != nil {
 				return fmt.Errorf("%w: %s", errCannotSetReadDeadline, err)
 			}
+
 			n, err := p.conn.Read(buf)
 			if err != nil {
 				var netErr *net.OpError
-				if errors.As(err, &netErr) && netErr.Timeout() {
+				if errors.As(err, &netErr) && netErr.Timeout() || err.Error() == "i/o timeout" {
 					// Read timeout
 					delay = expBackoff.Get()
 					continue
@@ -501,7 +508,7 @@ func (p *Pinger) recvICMP(recv chan<- *packet) error {
 			select {
 			case <-p.done:
 				return nil
-			case recv <- &packet{bytes: buf, nbytes: n}:
+			case recv <- &packet{bytes: buf[:], nbytes: n}:
 			}
 		}
 	}
@@ -528,8 +535,14 @@ func (p *Pinger) getCurrentTrackerUUID() uuid.UUID {
 	return p.trackerUUIDs[len(p.trackerUUIDs)-1]
 }
 
-func (p *Pinger) processPacket(recv *packet) error {
-	pkt := p.parseEchoReply(recv.bytes)
+func (p *Pinger) processPacket(recv *packet, from *net.IP) error {
+	var pkt *Packet
+	switch p.Raw {
+	case false:
+		pkt = p.parseEchoReplyFromICMP(recv.bytes, from)
+	case true:
+		pkt = p.parseEchoReplyFromIP(recv.bytes)
+	}
 
 	if pkt == nil || pkt.Data == nil {
 		return nil
@@ -572,15 +585,47 @@ func (p *Pinger) processPacket(recv *packet) error {
 	return nil
 }
 
+func (p *Pinger) parseEchoReplyFromICMP(data []byte, from *net.IP) *Packet {
+	replyPacket, err := icmp.ParseMessage(1, data[:])
+	if err != nil {
+		log.Printf("error: %v\n", err)
+		return &Packet{}
+	}
+	if _, ok := replyPacket.Body.(*icmp.Echo); !ok {
+		log.Printf("error: invalid reply type: %v\n", replyPacket)
+		return &Packet{}
+	}
+
+	icmp := layers.ICMPv4{}
+	udp := layers.UDP{}
+	payload := gopacket.Payload{}
+	decoded := []gopacket.LayerType{}
+	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeICMPv4, &icmp, &udp, &payload)
+
+	if err := parser.DecodeLayers(data, &decoded); err != nil {
+		log.Printf("error: %v\n", err)
+		return &Packet{}
+	}
+
+	return &Packet{
+		Nbytes: len(data),
+		Seq:    int(icmp.Seq),
+		Addr:   p.addr,
+		ID:     p.id,
+		Data:   payload.Payload(),
+		SrcIP:  from,
+	}
+}
+
 // TODO(ainghazal): here I am using the naive way of doing timestamps, equivalent to "ping -U",
 // but I expect it to be unstable under certain circumstances (high CPU load, GC pauses etc).
 // It'd be a better idea to try to use kernel capabilities if available (need to research what's possible in osx/windows, possibly have a fallback to the naive way).
 // in case we do see that load produces instability.
 // https://coroot.com/blog/how-to-ping
-func (p *Pinger) parseEchoReply(data []byte) *Packet {
+func (p *Pinger) parseEchoReplyFromIP(data []byte) *Packet {
 	ip := layers.IPv4{}
-	udp := layers.UDP{}
 	icmp := layers.ICMPv4{}
+	udp := layers.UDP{}
 	payload := gopacket.Payload{}
 	decoded := []gopacket.LayerType{}
 	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeIPv4, &ip, &icmp, &udp, &payload)
@@ -639,7 +684,7 @@ func (p *Pinger) PacketLoss() int {
 }
 
 // newIcmpData crafts an ICMP packet, using gopacket library.
-func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int, currentUUID uuid.UUID) (data []byte) {
+func newIcmpData(raw bool, src, dest *net.IP, typeCode, ttl, seq, id int, currentUUID uuid.UUID) (data []byte) {
 	ip := &layers.IPv4{}
 	ip.Version = 4
 	ip.Protocol = layers.IPProtocolICMPv4
@@ -667,11 +712,17 @@ func newIcmpData(src, dest *net.IP, typeCode, ttl, seq, id int, currentUUID uuid
 	payload := append(timeToBytes(time.Now()), uuidEncoded...)
 
 	buf := gopacket.NewSerializeBuffer()
-	err = gopacket.SerializeLayers(buf, opts, ip, icmp, gopacket.Payload(payload))
+
+	switch raw {
+	case false:
+		err = gopacket.SerializeLayers(buf, opts, icmp, gopacket.Payload(payload))
+	case true:
+		err = gopacket.SerializeLayers(buf, opts, ip, icmp, gopacket.Payload(payload))
+	}
+
 	if err != nil {
 		log.Println("error:", err)
 	}
-
 	return buf.Bytes()
 }
 
