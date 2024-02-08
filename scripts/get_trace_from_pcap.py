@@ -3,6 +3,7 @@
 # Parse an OpenVPN handshake pcap file, extract relevant fields from the json,
 # and return a compact representation of the packets in the handshake that can be
 # used for testing minivpn's implementation.
+#
 # This script depends on tshark.
 # 
 # Usage: 
@@ -41,7 +42,7 @@ def process_tshark_output(data):
         ip = packet['_source']['layers']['ip']
         udp = packet['_source']['layers']['udp']
 
-        # TODO: do sanity check here and verify all of them belong to the same UDP stream.
+        # TODO(ainghazal): do sanity check here and verify all of them belong to the same UDP stream.
 
         openvpn = packet['_source']['layers']['openvpn']
 
@@ -115,3 +116,4 @@ if __name__ == "__main__":
 
     if subcmd == "sequence":
         sequence_from_packets(packets)
+        sys.exit(0)
