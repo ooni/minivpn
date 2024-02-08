@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 #
-#
 # Parse an OpenVPN handshake pcap file, extract relevant fields from the json,
 # and return a compact representation of the packets in the handshake that can be
 # used for testing minivpn's implementation.
