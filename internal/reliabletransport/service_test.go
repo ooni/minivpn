@@ -52,7 +52,7 @@ func TestService_StartWorkers(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(_ *testing.T) {
 			s := &Service{
 				DataOrControlToMuxer: tt.fields.DataOrControlToMuxer,
 				ControlToReliable:    tt.fields.ControlToReliable,

@@ -99,16 +99,19 @@ netns-shell:
 	sudo ip netns exec protected sudo -u `whoami` -i
 
 .PHONY: lint
-lint: go-fmt go-vet go-sec
+lint: go-fmt go-vet go-sec go-revive
 
 go-fmt:
 	gofmt -s -l .
 
 go-vet:
-	go vet ./...
+	go vet internal/...
 
 go-sec:
-	gosec ./...
+	gosec internal/...
+
+go-revive:
+	revive internal/...
 
 clean:
 	@rm -f coverage.out

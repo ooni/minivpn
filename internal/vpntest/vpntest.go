@@ -28,8 +28,10 @@ type TestPacket struct {
 	IAT time.Duration
 }
 
-// the test packet string is in the form:
-// "[ID] OPCODE +42ms"
+// NewTestPacketFromString constructs a new TestPacket. The input
+// representation for the test packet string is in the form:
+// "[ID] OPCODE (ack:) +42ms"
+// where the ack array is optional.
 func NewTestPacketFromString(s string) (*TestPacket, error) {
 	parts := strings.Split(s, " +")
 

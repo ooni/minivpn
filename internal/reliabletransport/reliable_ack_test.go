@@ -11,9 +11,21 @@ import (
 )
 
 // test that everything that is received from below is eventually ACKed to the sender.
-func TestReliable_ACK(t *testing.T) {
+/*
 
-	log.SetLevel(log.DebugLevel)
+   ┌────┐id ┌────┐
+   │sndr│◄──┤rcvr│
+   └─┬──┘   └──▲─┘
+     │         │
+     │         │
+     │         │
+     ▼       send
+    ack
+*/
+func TestReliable_ACK(t *testing.T) {
+	if testing.Verbose() {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	type args struct {
 		inputSequence []string
@@ -91,22 +103,6 @@ func TestReliable_ACK(t *testing.T) {
 				wantacks: 5,
 			},
 		},
-		/*
-			{
-				name: "a burst of packets",
-				args: args{
-					inputSequence: []string{
-						"[5] CONTROL_V1 +1ms",
-						"[1] CONTROL_V1 +1ms",
-						"[3] CONTROL_V1 +1ms",
-						"[2] CONTROL_V1 +1ms",
-						"[4] CONTROL_V1 +1ms",
-					},
-					start:    1,
-					wantacks: 5,
-				},
-			},
-		*/
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -148,7 +144,7 @@ func TestReliable_ACK(t *testing.T) {
 			reader := vpntest.NewPacketReader(dataOut)
 			witness := vpntest.NewWitness(reader)
 
-			if ok := witness.VerifyNumberOfACKs(tt.args.start, tt.args.wantacks, t0); !ok {
+			if ok := witness.VerifyNumberOfACKs(tt.args.wantacks, t0); !ok {
 				got := len(witness.Log().ACKs())
 				t.Errorf("TestACK: got = %v, want %v", got, tt.args.wantacks)
 			}
