@@ -182,7 +182,7 @@ func TestReliable_WithLoss(t *testing.T) {
 			},
 		},
 
-		// we could exclude the following tests if not --short
+		// TODO(ainghazal): exclude the following tests if not `-short`?
 
 		{
 			name: "ten ordered packets, first lost 4 times",
