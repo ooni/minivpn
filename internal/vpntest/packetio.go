@@ -203,7 +203,7 @@ func (pr *PacketReader) WaitForSequence(seq []int, start time.Time) bool {
 		// no, so let's keep reading until the test runner kills us
 		pr.appendOneIncomingPacket(start)
 	}
-	// TODO move the comparison to witness, leave only wait here
+	// TODO(ainghazal): move the comparison to witness, leave only wait here
 	return slices.Equal(seq, PacketLog(pr.log).IDSequence())
 }
 
