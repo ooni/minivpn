@@ -128,7 +128,7 @@ func (t *Tracer) OnHandshakeDone(remoteAddr string) {
 func (t *Tracer) Trace() []model.HandshakeEvent {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.events
+	return append([]model.HandshakeEvent{}, t.events...)
 }
 
 func logPacket(p *model.Packet, retries int, direction model.Direction) optional.Value[model.LoggedPacket] {

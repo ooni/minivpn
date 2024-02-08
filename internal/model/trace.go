@@ -30,6 +30,7 @@ type HandshakeTracer interface {
 	OnHandshakeDone(remoteAddr string)
 
 	// Trace returns an array of [HandshakeEvent]s.
+	// TODO -- remove the Trace() method -------------------------------
 	Trace() []HandshakeEvent
 }
 
@@ -63,6 +64,7 @@ func (e HandshakeEventType) String() string {
 }
 
 // HandshakeEvent must implement the event annotation methods, plus json serialization.
+// TODO: this is easier as a struct
 type HandshakeEvent interface {
 	Type() HandshakeEventType
 	Time() time.Time
