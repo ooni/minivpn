@@ -4,18 +4,6 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 )
 
-// sequentialPacket is a packet that can return a [model.PacketID].
-type sequentialPacket interface {
-	ID() model.PacketID
-	ExtractACKs() []model.PacketID
-	Packet() *model.Packet
-}
-
-// retransmissionPacket is a packet that can be scheduled for retransmission.
-type retransmissionPacket interface {
-	ScheduleForRetransmission()
-}
-
 type outgoingPacketWriter interface {
 	// TryInsertOutgoingPacket attempts to insert a packet into the
 	// inflight queue. If return value is false, insertion was not successful (e.g., too many

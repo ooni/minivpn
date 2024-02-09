@@ -10,7 +10,7 @@ import (
 
 func Test_inFlightPacket_backoff(t *testing.T) {
 	type fields struct {
-		retries uint8
+		retries int
 	}
 	tests := []struct {
 		name   string

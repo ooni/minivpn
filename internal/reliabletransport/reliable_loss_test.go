@@ -250,7 +250,7 @@ func TestReliable_WithLoss(t *testing.T) {
 			t0 := time.Now()
 
 			// let the workers pump up the jam!
-			s.StartWorkers(log.Log, workers, session)
+			s.StartWorkers(model.NewConfig(model.WithLogger(log.Log)), workers, session)
 
 			writer := vpntest.NewPacketWriter(dataIn)
 			go writer.WriteSequenceWithFixedPayload(tt.args.inputSequence, tt.args.inputPayload, 3)
