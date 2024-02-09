@@ -60,7 +60,7 @@ type workersState struct {
 	// dataOrControlToMuxer is the channel where we write packets going down the stack.
 	dataOrControlToMuxer chan<- *model.Packet
 
-	// incomingSeen ins the shared channel to connect sender and receiver goroutines.
+	// incomingSeen is the shared channel to connect sender and receiver goroutines.
 	incomingSeen chan incomingPacketSeen
 
 	// logger is the logger to use
