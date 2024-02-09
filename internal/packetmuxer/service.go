@@ -66,6 +66,7 @@ func (s *Service) StartWorkers(
 		muxerToNetwork:       *s.MuxerToNetwork,
 		networkToMuxer:       s.NetworkToMuxer,
 		sessionManager:       sessionManager,
+		tracer:               config.Tracer(),
 		workersManager:       workersManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
@@ -106,6 +107,9 @@ type workersState struct {
 
 	// sessionManager manages the OpenVPN session.
 	sessionManager *session.Manager
+
+	// tracer is a [model.HandshakeTracer].
+	tracer model.HandshakeTracer
 
 	// workersManager controls the workers lifecycle.
 	workersManager *workers.Manager
@@ -288,6 +292,12 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 	if err != nil {
 		return err
 	}
+
+	ws.tracer.OnOutgoingPacket(
+		packet,
+		int(ws.sessionManager.NegotiationState()),
+		ws.hardResetCount,
+	)
 
 	// emit the packet. Possibly BLOCK writing to the networkio layer.
 	select {
