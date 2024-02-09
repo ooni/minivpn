@@ -1,3 +1,5 @@
+// Package controlchannel implements the control channel logic. The control channel sits
+// above the reliable transport and below the TLS layer.
 package controlchannel
 
 import (
