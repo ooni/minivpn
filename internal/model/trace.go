@@ -15,13 +15,13 @@ type HandshakeTracer interface {
 	OnStateChange(state int)
 
 	// OnIncomingPacket is called when a packet is received.
-	OnIncomingPacket(packet *Packet)
+	OnIncomingPacket(packet *Packet, stage int)
 
 	// OnOutgoingPacket is called when a packet is about to be sent.
-	OnOutgoingPacket(packet *Packet, retries int)
+	OnOutgoingPacket(packet *Packet, stage int, retries int)
 
 	// OnDroppedPacket is called whenever a packet is dropped (in/out)
-	OnDroppedPacket(direction Direction, packet *Packet)
+	OnDroppedPacket(direction Direction, stage int, packet *Packet)
 
 	// OnHandshakeDone is called when we have completed a handshake.
 	OnHandshakeDone(remoteAddr string)
@@ -63,13 +63,13 @@ func (dt *dummyTracer) TimeNow() time.Time { return time.Now() }
 func (dt *dummyTracer) OnStateChange(state int) {}
 
 // OnIncomingPacket is called when a packet is received.
-func (dt *dummyTracer) OnIncomingPacket(packet *Packet) {}
+func (dt *dummyTracer) OnIncomingPacket(*Packet, int) {}
 
 // OnOutgoingPacket is called when a packet is about to be sent.
-func (dt *dummyTracer) OnOutgoingPacket(packet *Packet, retries int) {}
+func (dt *dummyTracer) OnOutgoingPacket(*Packet, int, int) {}
 
 // OnDroppedPacket is called whenever a packet is dropped (in/out)
-func (dt *dummyTracer) OnDroppedPacket(direction Direction, packet *Packet) {
+func (dt *dummyTracer) OnDroppedPacket(Direction, int, *Packet) {
 }
 
 func (dt *dummyTracer) OnHandshakeDone(remoteAddr string) {}

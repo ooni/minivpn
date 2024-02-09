@@ -23,7 +23,7 @@ var (
 // If the passed context expires before the TUN device is ready,
 func StartTUN(ctx context.Context, conn networkio.FramingConn, config *model.Config) (*TUN, error) {
 	// create a session
-	sessionManager, err := session.NewManager(config.Logger())
+	sessionManager, err := session.NewManager(config)
 	if err != nil {
 		return nil, err
 	}

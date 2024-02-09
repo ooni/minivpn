@@ -45,7 +45,7 @@ func TestService_StartWorkers(t *testing.T) {
 				config:         model.NewConfig(model.WithLogger(log.Log)),
 				workersManager: workers.NewManager(log.Log),
 				sessionManager: func() *session.Manager {
-					m, _ := session.NewManager(log.Log)
+					m, _ := session.NewManager(model.NewConfig(model.WithLogger(log.Log)))
 					return m
 				}(),
 			},

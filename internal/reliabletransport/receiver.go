@@ -31,7 +31,7 @@ func (ws *workersState) moveUpWorker() {
 		// or POSSIBLY BLOCK waiting for notifications
 		select {
 		case packet := <-ws.muxerToReliable:
-			ws.tracer.OnIncomingPacket(packet)
+			ws.tracer.OnIncomingPacket(packet, int(ws.sessionManager.NegotiationState()))
 
 			if packet.Opcode != model.P_CONTROL_HARD_RESET_SERVER_V2 {
 				// the hard reset has already been logged by the layer below
@@ -55,14 +55,20 @@ func (ws *workersState) moveUpWorker() {
 			// we only want to insert control packets going to the tls layer
 			if packet.Opcode != model.P_CONTROL_V1 {
 				// TODO: add reason
-				ws.tracer.OnDroppedPacket(model.DirectionIncoming, packet)
+				ws.tracer.OnDroppedPacket(
+					model.DirectionIncoming,
+					int(ws.sessionManager.NegotiationState()),
+					packet)
 				continue
 			}
 
 			if inserted := receiver.MaybeInsertIncoming(packet); !inserted {
 				// this packet was not inserted in the queue: we drop it
 				// TODO: add reason
-				ws.tracer.OnDroppedPacket(model.DirectionIncoming, packet)
+				ws.tracer.OnDroppedPacket(
+					model.DirectionIncoming,
+					int(ws.sessionManager.NegotiationState()),
+					packet)
 				ws.logger.Debugf("Dropping packet: %v", packet.ID)
 				continue
 			}

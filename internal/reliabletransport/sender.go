@@ -82,9 +82,13 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 			// append any pending ACKs
 			p.packet.ACKs = sender.NextPacketIDsToACK()
 
-			// log the packet
+			// log and trace the packet
 			p.packet.Log(ws.logger, model.DirectionOutgoing)
-			ws.tracer.OnOutgoingPacket(p.packet, int(p.retries))
+			ws.tracer.OnOutgoingPacket(
+				p.packet,
+				int(ws.sessionManager.NegotiationState()),
+				int(p.retries),
+			)
 
 			select {
 			case ws.dataOrControlToMuxer <- p.packet:

@@ -84,6 +84,7 @@ type Manager struct {
 	negState             SessionNegotiationState
 	remoteSessionID      optional.Value[model.SessionID]
 	tunnelInfo           model.TunnelInfo
+	tracer               model.HandshakeTracer
 
 	// Ready is a channel where we signal that we can start accepting data, because we've
 	// successfully generated key material for the data channel.
@@ -91,7 +92,7 @@ type Manager struct {
 }
 
 // NewManager returns a [Manager] ready to be used.
-func NewManager(logger model.Logger) (*Manager, error) {
+func NewManager(config *model.Config) (*Manager, error) {
 	key0 := &DataChannelKey{}
 	sessionManager := &Manager{
 		keyID: 0,
@@ -99,11 +100,12 @@ func NewManager(logger model.Logger) (*Manager, error) {
 		// localControlPacketID should be initialized to 1 because we handle hard-reset as special cases
 		localControlPacketID: 1,
 		localSessionID:       [8]byte{},
-		logger:               logger,
+		logger:               config.Logger(),
 		mu:                   sync.Mutex{},
 		negState:             0,
 		remoteSessionID:      optional.None[model.SessionID](),
 		tunnelInfo:           model.TunnelInfo{},
+		tracer:               config.Tracer(),
 
 		// empirically, it seems that the reference OpenVPN server misbehaves if we initialize
 		// the data packet ID counter to zero.
@@ -272,6 +274,7 @@ func (m *Manager) SetNegotiationState(sns SessionNegotiationState) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
 	m.logger.Infof("[@] %s -> %s", m.negState, sns)
+	m.tracer.OnStateChange(int(sns))
 	m.negState = sns
 	if sns == S_GENERATED_KEYS {
 		m.Ready <- true
