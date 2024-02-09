@@ -54,11 +54,6 @@ func (ws *workersState) moveUpWorker() {
 
 			// we only want to insert control packets going to the tls layer
 			if packet.Opcode != model.P_CONTROL_V1 {
-				// TODO: add reason
-				ws.tracer.OnDroppedPacket(
-					model.DirectionIncoming,
-					int(ws.sessionManager.NegotiationState()),
-					packet)
 				continue
 			}
 
