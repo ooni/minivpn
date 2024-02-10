@@ -194,7 +194,11 @@ func (ws *workersState) moveDownWorker() {
 
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
+	// increment the hard reset counter for retries
 	ws.hardResetCount += 1
+
+	// reset the state to become initial again.
+	ws.sessionManager.SetNegotiationState(session.S_PRE_START)
 
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
 	packet := ws.sessionManager.NewHardResetPacket()
@@ -204,11 +208,6 @@ func (ws *workersState) startHardReset() error {
 
 	// resend if not received the server's reply in 2 seconds.
 	ws.hardResetTicker.Reset(time.Second * 2)
-
-	// reset the state to become initial again.
-	ws.sessionManager.SetNegotiationState(session.S_PRE_START)
-
-	// TODO: any other change to apply in this case?
 
 	return nil
 }
