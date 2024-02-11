@@ -132,7 +132,8 @@ func (ws *workersState) moveUpWorker() {
 		case rawPacket := <-ws.networkToMuxer:
 			if err := ws.handleRawPacket(rawPacket); err != nil {
 				// error already printed
-				return
+				// TODO: trace malformed input
+				continue
 			}
 
 		case <-ws.hardResetTicker.C:
@@ -242,8 +243,15 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 			// before we have a working session. Under normal operations, the
 			// connection in the client side should pick a different port,
 			// so that data sent from previous sessions will not be delivered.
-			// However, it does not harm to be defensive here.
-			return errors.New("not ready to handle data")
+			// However, it does not harm to be defensive here. One such case
+			// is that we get injected packets intended to mess with the handshake.
+			// In this case we should drop and log/trace the event.
+			if packet.IsData() {
+				ws.logger.Warnf("packetmuxer: moveUpWorker: cannot handle data yet")
+				return errors.New("not ready to handle data")
+			}
+			ws.logger.Warnf("malformed input")
+			return errors.New("malformed input")
 		}
 		select {
 		case ws.muxerToData <- packet:
