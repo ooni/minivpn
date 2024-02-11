@@ -396,7 +396,6 @@ func (p *Pinger) runLoop(recvCh <-chan *packet) error {
 
 		}
 		if p.Count > 0 && p.PacketsRecv >= p.Count {
-			p.done <- true
 			return nil
 		}
 	}
@@ -484,16 +483,13 @@ func (p *Pinger) recvICMP(recv chan<- *packet) error {
 		case <-p.done:
 			return nil
 		default:
-			if p.PacketsRecv >= p.Count {
-				return nil
-			}
 			buf := make([]byte, 512)
 			if err := p.conn.SetReadDeadline(time.Now().Add(delay)); err != nil {
 				return fmt.Errorf("%w: %s", errCannotSetReadDeadline, err)
 			}
 			n, err := p.conn.Read(buf)
 			if err != nil {
-				var netErr net.Error
+				var netErr *net.OpError
 				if errors.As(err, &netErr) && netErr.Timeout() {
 					// Read timeout
 					delay = expBackoff.Get()
