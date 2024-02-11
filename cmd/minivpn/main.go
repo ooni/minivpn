@@ -18,8 +18,8 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/runtimex"
-	"github.com/ooni/minivpn/internal/tracex"
 	"github.com/ooni/minivpn/internal/tun"
+	"github.com/ooni/minivpn/pkg/tracex"
 )
 
 func runCmd(binaryPath string, args ...string) {
@@ -75,8 +75,18 @@ func main() {
 
 	start := time.Now()
 
+	var tracer *tracex.Tracer
 	if cfg.doTrace {
-		opts = append(opts, model.WithHandshakeTracer(tracex.NewTracer(start)))
+		tracer = tracex.NewTracer(start)
+		opts = append(opts, model.WithHandshakeTracer(tracer))
+		defer func() {
+			trace := tracer.Trace()
+			jsonData, err := json.MarshalIndent(trace, "", "  ")
+			runtimex.PanicOnError(err, "cannot serialize trace")
+			fileName := fmt.Sprintf("handshake-trace-%s.json", time.Now().Format("2006-01-02-15:05:00"))
+			os.WriteFile(fileName, jsonData, 0644)
+			fmt.Println("trace written to", fileName)
+		}()
 	}
 
 	config := model.NewConfig(opts...)
@@ -90,7 +100,8 @@ func main() {
 
 	conn, err := dialer.DialContext(ctx, proto, addr)
 	if err != nil {
-		log.WithError(err).Fatal("dialer.DialContext")
+		log.WithError(err).Error("dialer.DialContext")
+		return
 	}
 
 	// The TLS will expire in 60 seconds by default, but we can pass
@@ -101,7 +112,7 @@ func main() {
 	// create a vpn tun Device
 	tunnel, err := tun.StartTUN(ctx, conn, config)
 	if err != nil {
-		log.WithError(err).Fatal("init error")
+		log.WithError(err).Error("init error")
 		return
 	}
 	log.Infof("Local IP: %s\n", tunnel.LocalAddr())
@@ -111,13 +122,7 @@ func main() {
 	fmt.Printf("elapsed: %v\n", time.Since(start))
 
 	if cfg.doTrace {
-		trace := config.Tracer().Trace()
-		jsonData, err := json.MarshalIndent(trace, "", "  ")
-		runtimex.PanicOnError(err, "cannot serialize trace")
-		fileName := "handshake-trace.json"
-		os.WriteFile(fileName, jsonData, 0644)
-		fmt.Println("trace written to", fileName)
-		os.Exit(0)
+		return
 	}
 
 	if cfg.doPing {
