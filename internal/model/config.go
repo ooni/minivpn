@@ -21,7 +21,6 @@ type Config struct {
 
 // NewConfig returns a Config ready to intialize a vpn tunnel.
 func NewConfig(options ...Option) *Config {
-	// TODO(ainghazal): provide a nop-tracer.
 	cfg := &Config{
 		openvpnOptions: &OpenVPNOptions{},
 		logger:         log.Log,
