@@ -22,9 +22,6 @@ type HandshakeTracer interface {
 
 	// OnDroppedPacket is called whenever a packet is dropped (in/out)
 	OnDroppedPacket(direction Direction, stage int, packet *Packet)
-
-	// OnHandshakeDone is called when we have completed a handshake.
-	OnHandshakeDone(remoteAddr string)
 }
 
 // Direction is one of two directions on a packet.

@@ -156,10 +156,6 @@ func (t *Tracer) OnDroppedPacket(direction model.Direction, stage int, packet *m
 	t.events = append(t.events, e)
 }
 
-func (t *Tracer) OnHandshakeDone(remoteAddr string) {
-	panic("not implemented") // TODO: Implement - when received IP from server.
-}
-
 // Trace returns a structured log containing a copy of the array of [model.HandshakeEvent].
 func (t *Tracer) Trace() []*event {
 	t.mu.Lock()
@@ -199,7 +195,6 @@ type LoggedPacket struct {
 	PayloadSize int
 
 	// Retries keeps track of packet retransmission (only for outgoing packets).
-	// TODO: use optional here.
 	Retries optional.Value[int]
 }
 
