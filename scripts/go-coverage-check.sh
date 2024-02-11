@@ -5,7 +5,7 @@
 
 # Usage:
 # go test -race -v -coverprofile=coverage.out
-# ./cover-check.sh coverage.out 70
+# ./go-coverage-check.sh coverage.out 70
 
 
 PROFILE=$1

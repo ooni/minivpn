@@ -18,7 +18,6 @@ import (
 // encryptAndEncodePayloadAEAD peforms encryption and encoding of the payload in AEAD modes (i.e., AES-GCM).
 // TODO(ainghazal): for testing we can pass both the state object and the encryptFn
 func encryptAndEncodePayloadAEAD(log model.Logger, padded []byte, session *session.Manager, state *dataChannelState) ([]byte, error) {
-	// TODO(ainghazal): call Session.NewPacket() instead?
 	nextPacketID, err := session.LocalDataPacketID()
 	if err != nil {
 		return []byte{}, fmt.Errorf("bad packet id")
@@ -65,13 +64,16 @@ func encryptAndEncodePayloadAEAD(log model.Logger, padded []byte, session *sessi
 
 }
 
+// assign the random function to allow using a deterministic one in tests.
+var genRandomFn = bytesx.GenRandomBytes
+
 // encryptAndEncodePayloadNonAEAD peforms encryption and encoding of the payload in Non-AEAD modes (i.e., AES-CBC).
 func encryptAndEncodePayloadNonAEAD(log model.Logger, padded []byte, session *session.Manager, state *dataChannelState) ([]byte, error) {
 	// For iv generation, OpenVPN uses a nonce-based PRNG that is initially seeded with
 	// OpenSSL RAND_bytes function. I am assuming this is good enough for our current purposes.
 	blockSize := state.dataCipher.blockSize()
 
-	iv, err := bytesx.GenRandomBytes(int(blockSize))
+	iv, err := genRandomFn(int(blockSize))
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +152,6 @@ func doPadding(b []byte, compress model.Compression, blockSize uint8) ([]byte, e
 	return padded, nil
 }
 
-// TODO(ainghazal): move to a different layer?
 // prependPacketID returns the original buffer with the passed packetID
 // concatenated at the beginning.
 func prependPacketID(p model.PacketID, buf []byte) []byte {

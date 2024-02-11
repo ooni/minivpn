@@ -38,7 +38,7 @@ var _ dataChannelHandler = &DataChannel{} // Ensure that we implement dataChanne
 
 // NewDataChannelFromOptions returns a new data object, initialized with the
 // options given. it also returns any error raised.
-func NewDataChannelFromOptions(log model.Logger,
+func NewDataChannelFromOptions(logger model.Logger,
 	opt *model.OpenVPNOptions,
 	sessionManager *session.Manager) (*DataChannel, error) {
 	runtimex.Assert(opt != nil, "openvpn datachannel: opts cannot be nil")
@@ -69,13 +69,13 @@ func NewDataChannelFromOptions(log model.Logger,
 
 	hmacHash, ok := newHMACFactory(strings.ToLower(opt.Auth))
 	if !ok {
-		return data, fmt.Errorf("%w: %s", errDataChannel, fmt.Sprintf("no such mac: %v", opt.Auth))
+		return data, fmt.Errorf("%w: %s", ErrInitError, fmt.Sprintf("no such mac: %v", opt.Auth))
 	}
 	data.state.hash = hmacHash
 	data.decryptFn = state.dataCipher.decrypt
 
-	log.Info(fmt.Sprintf("Cipher: %s", opt.Cipher))
-	log.Info(fmt.Sprintf("Auth:   %s", opt.Auth))
+	logger.Info(fmt.Sprintf("Cipher: %s", opt.Cipher))
+	logger.Info(fmt.Sprintf("Auth:   %s", opt.Auth))
 
 	return data, nil
 }
@@ -140,35 +140,28 @@ func (d *DataChannel) setupKeys(dck *session.DataChannelKey) error {
 func (d *DataChannel) writePacket(payload []byte) (*model.Packet, error) {
 	runtimex.Assert(d.state != nil, "data: nil state")
 	runtimex.Assert(d.state.dataCipher != nil, "data.state: nil dataCipher")
-
-	var plain []byte
 	var err error
 
 	switch d.state.dataCipher.isAEAD() {
-	case true:
-		plain, err = doCompress(payload, d.options.Compress)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
-		}
 	case false: // non-aead
 		localPacketID, _ := d.sessionManager.LocalDataPacketID()
-		plain = prependPacketID(localPacketID, payload)
-
-		plain, err = doCompress(plain, d.options.Compress)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
-		}
+		payload = prependPacketID(localPacketID, payload)
+	case true:
 	}
 
-	// encrypted adds padding, if needed, and it also includes the
+	payload, err = doCompress(payload, d.options.Compress)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
+	}
+	// encryptAndEncodePayload adds padding, if needed, and it also includes the
 	// opcode/keyid and peer-id headers and, if used, any authenticated
 	// parts in the packet.
-	encrypted, err := d.encryptAndEncodePayload(plain, d.state)
+	encrypted, err := d.encryptAndEncodePayload(payload, d.state)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
 	}
 
-	// TODO(ainghazal): increment counter for used bytes?
+	// TODO(ainghazal): increment counter for used bytes
 	// and trigger renegotiation if we're near the end of the key useful lifetime.
 
 	packet := model.NewPacket(model.P_DATA_V2, d.sessionManager.CurrentKeyID(), encrypted)
@@ -186,19 +179,17 @@ func (d *DataChannel) encryptAndEncodePayload(plaintext []byte, dcs *dataChannel
 	runtimex.Assert(dcs.dataCipher != nil, "dcs.dataCipher is nil")
 
 	if len(plaintext) == 0 {
-		return nil, fmt.Errorf("%w: nothing to encrypt", ErrCannotEncrypt)
+		return []byte{}, fmt.Errorf("%w: nothing to encrypt", ErrCannotEncrypt)
 	}
 
 	padded, err := doPadding(plaintext, d.options.Compress, dcs.dataCipher.blockSize())
 	if err != nil {
-		return nil,
-			fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
+		return []byte{}, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
 	}
 
 	encrypted, err := d.encryptEncodeFn(d.log, padded, d.sessionManager, d.state)
 	if err != nil {
-		return nil,
-			fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
+		return []byte{}, fmt.Errorf("%w: %s", ErrCannotEncrypt, err)
 	}
 	return encrypted, nil
 
@@ -225,7 +216,7 @@ func (d *DataChannel) readPacket(p *model.Packet) ([]byte, error) {
 
 func (d *DataChannel) decrypt(encrypted []byte) ([]byte, error) {
 	if d.decryptFn == nil {
-		return []byte{}, errInitError
+		return []byte{}, ErrInitError
 	}
 	if len(d.state.hmacKeyRemote) == 0 {
 		d.log.Warn("decrypt: not ready yet")
@@ -233,7 +224,10 @@ func (d *DataChannel) decrypt(encrypted []byte) ([]byte, error) {
 	}
 	encryptedData, err := d.decodeEncryptedPayload(encrypted, d.state)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrCannotDecrypt, err)
+		return []byte{}, fmt.Errorf("%w: %s", ErrCannotDecrypt, err)
+	}
+	if len(encryptedData.ciphertext) == 0 {
+		return []byte{}, fmt.Errorf("%w: nothing to decrypt", ErrCannotDecrypt)
 	}
 
 	plainText, err := d.decryptFn(d.state.cipherKeyRemote[:], encryptedData)

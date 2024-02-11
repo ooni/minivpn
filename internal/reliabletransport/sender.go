@@ -105,8 +105,6 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 	}
 
 	// All packets are inflight but we still owe ACKs to the peer.
-	ws.logger.Debugf("Creating ACK: %d pending to ack", sender.pendingACKsToSend.Len())
-
 	ACK, err := ws.sessionManager.NewACKForPacketIDs(sender.NextPacketIDsToACK())
 	if err != nil {
 		ws.logger.Warnf("moveDownWorker: tryToSend: cannot create ack: %v", err.Error())

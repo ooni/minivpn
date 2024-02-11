@@ -3,25 +3,24 @@ package datachannel
 import "errors"
 
 var (
-	errDataChannel    = errors.New("datachannel error")
 	errDataChannelKey = errors.New("bad key")
 	errBadCompression = errors.New("bad compression")
-	errReplayAttack   = errors.New("replay attack")
-	errBadHMAC        = errors.New("bad hmac")
-	errInitError      = errors.New("improperly initialized")
-	errExpiredKey     = errors.New("key is expired")
+	ErrReplayAttack   = errors.New("replay attack")
+	ErrBadHMAC        = errors.New("bad hmac")
+	ErrInitError      = errors.New("improperly initialized")
+	ErrExpiredKey     = errors.New("key is expired")
 
-	// errInvalidKeySize means that the key size is invalid.
-	errInvalidKeySize = errors.New("invalid key size")
+	// ErrInvalidKeySize means that the key size is invalid.
+	ErrInvalidKeySize = errors.New("invalid key size")
 
-	// errUnsupportedCipher indicates we don't support the desired cipher.
-	errUnsupportedCipher = errors.New("unsupported cipher")
+	// ErrUnsupportedCipher indicates we don't support the desired cipher.
+	ErrUnsupportedCipher = errors.New("unsupported cipher")
 
-	// errUnsupportedMode indicates that the mode is not uspported.
-	errUnsupportedMode = errors.New("unsupported mode")
+	// ErrUnsupportedMode indicates that the mode is not uspported.
+	ErrUnsupportedMode = errors.New("unsupported mode")
 
-	// errBadInput indicates invalid inputs to encrypt/decrypt functions.
-	errBadInput = errors.New("bad input")
+	// ErrBadInput indicates invalid inputs to encrypt/decrypt functions.
+	ErrBadInput = errors.New("bad input")
 
 	ErrSerialization = errors.New("cannot create packet")
 	ErrCannotEncrypt = errors.New("cannot encrypt")

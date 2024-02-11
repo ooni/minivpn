@@ -1,4 +1,6 @@
-// Package optional implements optional values.
+// Package optional contains safer code to handle optional values.
+// This package is taken from probe-cli/internal/optional.
+// Copyright 2024, Simone Basso
 package optional
 
 import (
@@ -40,26 +42,6 @@ func maybeSetFromValue[T any](v *Value[T], value T) {
 	v.indirect = &value
 }
 
-// IsNone returns whether this [Value] is empty.
-func (v Value[T]) IsNone() bool {
-	return v.indirect == nil
-}
-
-// Unwrap returns the underlying value or panics. In case of
-// panic, the value passed to panic is an error.
-func (v Value[T]) Unwrap() T {
-	runtimex.Assert(!v.IsNone(), "is none")
-	return *v.indirect
-}
-
-// UnwrapOr returns the fallback if the [Value] is empty.
-func (v Value[T]) UnwrapOr(fallback T) T {
-	if v.IsNone() {
-		return fallback
-	}
-	return v.Unwrap()
-}
-
 var _ json.Unmarshaler = &Value[int]{}
 
 // UnmarshalJSON implements json.Unmarshaler. Note that a `null` JSON
@@ -98,4 +80,24 @@ func (v Value[T]) MarshalJSON() ([]byte, error) {
 		return json.Marshal(nil)
 	}
 	return json.Marshal(*v.indirect)
+}
+
+// IsNone returns whether this [Value] is empty.
+func (v Value[T]) IsNone() bool {
+	return v.indirect == nil
+}
+
+// Unwrap returns the underlying value or panics. In case of
+// panic, the value passed to panic is an error.
+func (v Value[T]) Unwrap() T {
+	runtimex.Assert(!v.IsNone(), "is none")
+	return *v.indirect
+}
+
+// UnwrapOr returns the fallback if the [Value] is empty.
+func (v Value[T]) UnwrapOr(fallback T) T {
+	if v.IsNone() {
+		return fallback
+	}
+	return v.Unwrap()
 }

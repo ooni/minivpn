@@ -72,7 +72,7 @@ func NewManager(config *model.Config) (*Manager, error) {
 	if err != nil {
 		return sessionManager, err
 	}
-	k.local = localKey
+	k.AddLocalKey(localKey)
 	return sessionManager, nil
 }
 
@@ -129,7 +129,6 @@ func (m *Manager) NewACKForPacketIDs(ids []model.PacketID) (*model.Packet, error
 func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) (*model.Packet, error) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
-	// TODO: consider unifying with ACKing code
 	packet := model.NewPacket(
 		opcode,
 		m.keyID,
@@ -231,13 +230,6 @@ func (m *Manager) ActiveKey() (*DataChannelKey, error) {
 		return nil, fmt.Errorf("%w: %s", errDataChannelKey, "no such key id")
 	}
 	dck := m.keys[m.keyID]
-	// TODO(bassosimone): the following code would prevent us from
-	// creating a new session at the beginning--refactor?
-	/*
-		if !dck.Ready() {
-			return nil, fmt.Errorf("%w: %s", errDataChannelKey, "not ready")
-		}
-	*/
 	return dck, nil
 }
 

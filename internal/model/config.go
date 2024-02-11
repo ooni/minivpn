@@ -35,6 +35,30 @@ func NewConfig(options ...Option) *Config {
 // Option is an option you can pass to initialize minivpn.
 type Option func(config *Config)
 
+// WithLogger configures the passed [Logger].
+func WithLogger(logger Logger) Option {
+	return func(config *Config) {
+		config.logger = logger
+	}
+}
+
+// Logger returns the configured logger.
+func (c *Config) Logger() Logger {
+	return c.logger
+}
+
+// WithHandshakeTracer configures the passed [HandshakeTracer].
+func WithHandshakeTracer(tracer HandshakeTracer) Option {
+	return func(config *Config) {
+		config.tracer = tracer
+	}
+}
+
+// Tracer returns the handshake tracer.
+func (c *Config) Tracer() HandshakeTracer {
+	return c.tracer
+}
+
 // WithConfigFile configures OpenVPNOptions parsed from the given file.
 func WithConfigFile(configPath string) Option {
 	return func(config *Config) {
@@ -45,28 +69,11 @@ func WithConfigFile(configPath string) Option {
 	}
 }
 
-// WithLogger configures the passed [Logger].
-func WithLogger(logger Logger) Option {
+// WithOpenVPNOptions configures the passed OpenVPN options.
+func WithOpenVPNOptions(openvpnOptions *OpenVPNOptions) Option {
 	return func(config *Config) {
-		config.logger = logger
+		config.openvpnOptions = openvpnOptions
 	}
-}
-
-// WithHandshakeTracer configures the passed [HandshakeTracer].
-func WithHandshakeTracer(tracer HandshakeTracer) Option {
-	return func(config *Config) {
-		config.tracer = tracer
-	}
-}
-
-// Logger returns the configured logger.
-func (c *Config) Logger() Logger {
-	return c.logger
-}
-
-// Tracer returns the handshake tracer.
-func (c *Config) Tracer() HandshakeTracer {
-	return c.tracer
 }
 
 // OpenVPNOptions returns the configured openvpn options.
@@ -74,16 +81,7 @@ func (c *Config) OpenVPNOptions() *OpenVPNOptions {
 	return c.openvpnOptions
 }
 
-// Remote returns the OpenVPN remote.
-func (c *Config) Remote() *Remote {
-	return &Remote{
-		IPAddr:   c.openvpnOptions.Remote,
-		Endpoint: net.JoinHostPort(c.openvpnOptions.Remote, c.openvpnOptions.Port),
-		Protocol: c.openvpnOptions.Proto.String(),
-	}
-}
-
-// Remote has info about the OpenVPN remote.
+// Remote has info about the OpenVPN remote, useful to pass to the external dialer.
 type Remote struct {
 	// IPAddr is the IP Address for the remote.
 	IPAddr string
@@ -93,4 +91,13 @@ type Remote struct {
 
 	// Protocol is either "tcp" or "udp"
 	Protocol string
+}
+
+// Remote returns the OpenVPN remote.
+func (c *Config) Remote() *Remote {
+	return &Remote{
+		IPAddr:   c.openvpnOptions.Remote,
+		Endpoint: net.JoinHostPort(c.openvpnOptions.Remote, c.openvpnOptions.Port),
+		Protocol: c.openvpnOptions.Proto.String(),
+	}
 }

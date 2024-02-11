@@ -33,11 +33,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
+
+	"github.com/ooni/minivpn/internal/runtimex"
 )
 
 type (
@@ -140,6 +142,7 @@ func (o *OpenVPNOptions) ShouldLoadCertsFromPath() bool {
 // - we have paths for cert, key and ca; or
 // - we have inline byte arrays for cert, key and ca; or
 // - we have username + password info.
+// TODO(ainghazal): add sanity checks for valid/existing credentials.
 func (o *OpenVPNOptions) HasAuthInfo() bool {
 	if o.CertPath != "" && o.KeyPath != "" && o.CAPath != "" {
 		return true
@@ -200,69 +203,9 @@ type TunnelInfo struct {
 	PeerID int
 }
 
-// NewTunnelInfoFromPushedOptions takes a map of string to array of strings, and returns
-// a new tunnel struct with the relevant info.
-func NewTunnelInfoFromPushedOptions(opts map[string][]string) *TunnelInfo {
-	t := &TunnelInfo{}
-	if r := opts["route"]; len(r) >= 1 {
-		t.GW = r[0]
-	} else if r := opts["route-gateway"]; len(r) >= 1 {
-		t.GW = r[0]
-	}
-	ifconfig := opts["ifconfig"]
-	if len(ifconfig) >= 1 {
-		t.IP = ifconfig[0]
-	}
-	if len(ifconfig) >= 2 {
-		t.NetMask = ifconfig[1]
-	}
-	peerID := opts["peer-id"]
-	if len(peerID) == 1 {
-		peer, err := strconv.Atoi(peerID[0])
-		if err != nil {
-			log.Println("Cannot parse peer-id:", err.Error())
-		} else {
-			t.PeerID = peer
-		}
-	}
-	return t
-}
-
-// parseIntFromOption parses an int from a null-terminated string
-func parseIntFromOption(s string) (int, error) {
-	str := ""
-	for i := 0; i < len(s); i++ {
-		if byte(s[i]) == 0x00 {
-			return strconv.Atoi(str)
-		}
-		str = str + string(s[i])
-	}
-	return 0, nil
-}
-
-// PushedOptionsAsMap returns a map for the server-pushed options,
-// where the options are the keys and each space-separated value is the value.
-// This function always returns an initialized map, even if empty.
-func PushedOptionsAsMap(pushedOptions []byte) map[string][]string {
-	optMap := make(map[string][]string)
-	if len(pushedOptions) == 0 {
-		return optMap
-	}
-
-	optStr := string(pushedOptions[:len(pushedOptions)-1])
-
-	opts := strings.Split(optStr, ",")
-	for _, opt := range opts {
-		vals := strings.Split(opt, " ")
-		k, v := vals[0], vals[1:]
-		optMap[k] = v
-	}
-	return optMap
-}
-
-func parseProto(p []string, o *OpenVPNOptions) error {
+func parseProto(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if len(p) != 1 {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "proto needs one arg")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "proto needs one arg")
 	}
 	m := p[0]
 	switch m {
@@ -271,160 +214,158 @@ func parseProto(p []string, o *OpenVPNOptions) error {
 	case ProtoTCP.String():
 		o.Proto = ProtoTCP
 	default:
-		return fmt.Errorf("%w: bad proto: %s", ErrBadConfig, m)
+		return o, fmt.Errorf("%w: bad proto: %s", ErrBadConfig, m)
 
 	}
-	return nil
+	return o, nil
 }
 
-// TODO(ainghazal): all these little functions can be better tested if we return the options object too
-
-func parseRemote(p []string, o *OpenVPNOptions) error {
+func parseRemote(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if len(p) != 2 {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "remote needs two args")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "remote needs two args")
 	}
 	o.Remote, o.Port = p[0], p[1]
-	return nil
+	return o, nil
 }
 
-func parseCipher(p []string, o *OpenVPNOptions) error {
+func parseCipher(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if len(p) != 1 {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "cipher expects one arg")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "cipher expects one arg")
 	}
 	cipher := p[0]
 	if !hasElement(cipher, SupportedCiphers) {
-		return fmt.Errorf("%w: unsupported cipher: %s", ErrBadConfig, cipher)
+		return o, fmt.Errorf("%w: unsupported cipher: %s", ErrBadConfig, cipher)
 	}
 	o.Cipher = cipher
-	return nil
+	return o, nil
 }
 
-func parseAuth(p []string, o *OpenVPNOptions) error {
+func parseAuth(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if len(p) != 1 {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "invalid auth entry")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "invalid auth entry")
 	}
 	auth := p[0]
 	if !hasElement(auth, SupportedAuth) {
-		return fmt.Errorf("%w: unsupported auth: %s", ErrBadConfig, auth)
+		return o, fmt.Errorf("%w: unsupported auth: %s", ErrBadConfig, auth)
 	}
 	o.Auth = auth
-	return nil
+	return o, nil
 }
 
-func parseCA(p []string, o *OpenVPNOptions, basedir string) error {
+func parseCA(p []string, o *OpenVPNOptions, basedir string) (*OpenVPNOptions, error) {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "ca expects a valid file")
 	if len(p) != 1 {
-		return e
+		return o, e
 	}
 	ca := toAbs(p[0], basedir)
 	if sub, _ := isSubdir(basedir, ca); !sub {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "ca must be below config path")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "ca must be below config path")
 	}
 	if !existsFile(ca) {
-		return e
+		return o, e
 	}
 	o.CAPath = ca
-	return nil
+	return o, nil
 }
 
-func parseCert(p []string, o *OpenVPNOptions, basedir string) error {
+func parseCert(p []string, o *OpenVPNOptions, basedir string) (*OpenVPNOptions, error) {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "cert expects a valid file")
 	if len(p) != 1 {
-		return e
+		return o, e
 	}
 	cert := toAbs(p[0], basedir)
 	if sub, _ := isSubdir(basedir, cert); !sub {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "cert must be below config path")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "cert must be below config path")
 	}
 	if !existsFile(cert) {
-		return e
+		return o, e
 	}
 	o.CertPath = cert
-	return nil
+	return o, nil
 }
 
-func parseKey(p []string, o *OpenVPNOptions, basedir string) error {
+func parseKey(p []string, o *OpenVPNOptions, basedir string) (*OpenVPNOptions, error) {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "key expects a valid file")
 	if len(p) != 1 {
-		return e
+		return o, e
 	}
 	key := toAbs(p[0], basedir)
 	if sub, _ := isSubdir(basedir, key); !sub {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "key must be below config path")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "key must be below config path")
 	}
 	if !existsFile(key) {
-		return e
+		return o, e
 	}
 	o.KeyPath = key
-	return nil
+	return o, nil
 }
 
 // parseAuthUser reads credentials from a given file, according to the openvpn
 // format (user and pass on a line each). To avoid path traversal / LFI, the
 // credentials file is expected to be in a subdirectory of the base dir.
-func parseAuthUser(p []string, o *OpenVPNOptions, basedir string) error {
+func parseAuthUser(p []string, o *OpenVPNOptions, basedir string) (*OpenVPNOptions, error) {
 	e := fmt.Errorf("%w: %s", ErrBadConfig, "auth-user-pass expects a valid file")
 	if len(p) != 1 {
-		return e
+		return o, e
 	}
 	auth := toAbs(p[0], basedir)
 	if sub, _ := isSubdir(basedir, auth); !sub {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "auth must be below config path")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "auth must be below config path")
 	}
 	if !existsFile(auth) {
-		return e
+		return o, e
 	}
 	creds, err := getCredentialsFromFile(auth)
 	if err != nil {
-		return err
+		return o, err
 	}
 	o.Username, o.Password = creds[0], creds[1]
-	return nil
+	return o, nil
 }
 
-func parseCompress(p []string, o *OpenVPNOptions) error {
+func parseCompress(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if len(p) > 1 {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "compress: only empty/stub options supported")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "compress: only empty/stub options supported")
 	}
 	if len(p) == 0 {
 		o.Compress = CompressionEmpty
-		return nil
+		return o, nil
 	}
 	if p[0] == "stub" {
 		o.Compress = CompressionStub
-		return nil
+		return o, nil
 	}
-	return fmt.Errorf("%w: %s", ErrBadConfig, "compress: only empty/stub options supported")
+	return o, fmt.Errorf("%w: %s", ErrBadConfig, "compress: only empty/stub options supported")
 }
 
-func parseCompLZO(p []string, o *OpenVPNOptions) error {
+func parseCompLZO(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if p[0] != "no" {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "comp-lzo: compression not supported")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "comp-lzo: compression not supported")
 	}
 	o.Compress = "lzo-no"
-	return nil
+	return o, nil
 }
 
 // parseTLSVerMax sets the maximum TLS version. This is currently ignored
 // because we're using uTLS to parrot the Client Hello.
-func parseTLSVerMax(p []string, o *OpenVPNOptions) error {
+func parseTLSVerMax(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if len(p) == 0 {
 		o.TLSMaxVer = "1.3"
-		return nil
+		return o, nil
 	}
 	if p[0] == "1.2" {
 		o.TLSMaxVer = "1.2"
 	}
-	return nil
+	return o, nil
 }
 
-func parseProxyOBFS4(p []string, o *OpenVPNOptions) error {
+func parseProxyOBFS4(p []string, o *OpenVPNOptions) (*OpenVPNOptions, error) {
 	if len(p) != 1 {
-		return fmt.Errorf("%w: %s", ErrBadConfig, "proto-obfs4: need a properly configured proxy")
+		return o, fmt.Errorf("%w: %s", ErrBadConfig, "proto-obfs4: need a properly configured proxy")
 	}
 	// TODO(ainghazal): can validate the obfs4://... scheme here
 	o.ProxyOBFS4 = p[0]
-	return nil
+	return o, nil
 }
 
 var pMap = map[string]interface{}{
@@ -445,29 +386,46 @@ var pMapDir = map[string]interface{}{
 	"auth-user-pass": parseAuthUser,
 }
 
-func parseOption(o *OpenVPNOptions, dir, key string, p []string, lineno int) error {
+func parseOption(opt *OpenVPNOptions, dir, key string, p []string, lineno int) (*OpenVPNOptions, error) {
 	switch key {
 	case "proto", "remote", "cipher", "auth", "compress", "comp-lzo", "tls-version-max", "proxy-obfs4":
-		fn := pMap[key].(func([]string, *OpenVPNOptions) error)
-		if e := fn(p, o); e != nil {
-			return e
+		fn := pMap[key].(func([]string, *OpenVPNOptions) (*OpenVPNOptions, error))
+		if updatedOpt, e := fn(p, opt); e != nil {
+			return updatedOpt, e
 		}
 	case "ca", "cert", "key", "auth-user-pass":
-		fn := pMapDir[key].(func([]string, *OpenVPNOptions, string) error)
-		if e := fn(p, o, dir); e != nil {
-			return e
+		fn := pMapDir[key].(func([]string, *OpenVPNOptions, string) (*OpenVPNOptions, error))
+		if updatedOpt, e := fn(p, opt, dir); e != nil {
+			return updatedOpt, e
 		}
 	default:
 		log.Printf("warn: unsupported key in line %d\n", lineno)
 	}
-	return nil
+	return opt, nil
 }
 
 // getOptionsFromLines tries to parse all the lines coming from a config file
 // and raises validation errors if the values do not conform to the expected
 // format. The config file supports inline file inclusion for <ca>, <cert> and <key>.
 func getOptionsFromLines(lines []string, dir string) (*OpenVPNOptions, error) {
-	opt := &OpenVPNOptions{}
+	opt := &OpenVPNOptions{
+		Remote:     "",
+		Port:       "",
+		Proto:      ProtoTCP,
+		Username:   "",
+		Password:   "",
+		CAPath:     "",
+		CertPath:   "",
+		KeyPath:    "",
+		CA:         []byte{},
+		Cert:       []byte{},
+		Key:        []byte{},
+		Cipher:     "",
+		Auth:       "",
+		TLSMaxVer:  "",
+		Compress:   CompressionEmpty,
+		ProxyOBFS4: "",
+	}
 
 	// tag and inlineBuf are used to parse inline files.
 	// these follow the format used by the reference openvpn implementation.
@@ -523,9 +481,10 @@ func getOptionsFromLines(lines []string, dir string) (*OpenVPNOptions, error) {
 		} else {
 			key, parts = p[0], p[1:]
 		}
-		e := parseOption(opt, dir, key, parts, lineno)
-		if e != nil {
-			return nil, e
+		var err error
+		opt, err = parseOption(opt, dir, key, parts, lineno)
+		if err != nil {
+			return nil, err
 		}
 	}
 	return opt, nil
@@ -599,14 +558,19 @@ func existsFile(path string) bool {
 	return !errors.Is(err, os.ErrNotExist) && statbuf.Mode().IsRegular()
 }
 
+func mustClose(c io.Closer) {
+	err := c.Close()
+	runtimex.PanicOnError(err, "could not close")
+}
+
 // getLinesFromFile accepts a path parameter, and return a string array with
 // its content and an error if the operation cannot be completed.
 func getLinesFromFile(path string) ([]string, error) {
 	f, err := os.Open(path)
-	defer f.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer mustClose(f)
 
 	lines := make([]string, 0)
 	scanner := bufio.NewScanner(f)

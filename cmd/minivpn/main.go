@@ -96,7 +96,7 @@ func main() {
 	ctx := context.Background()
 
 	proto := config.Remote().Protocol
-	addr := config.Remote().AddrPort
+	addr := config.Remote().Endpoint
 
 	conn, err := dialer.DialContext(ctx, proto, addr)
 	if err != nil {
