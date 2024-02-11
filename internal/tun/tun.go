@@ -127,6 +127,8 @@ func (t *TUN) whenDone(fn func()) {
 	t.whenDoneFn = fn
 }
 
+// Close is an idempotent method that closes the underlying connection (owned by us) and
+// potentially executes any registed callback.
 func (t *TUN) Close() error {
 	t.closeOnce.Do(func() {
 		close(t.hangup)
@@ -138,6 +140,7 @@ func (t *TUN) Close() error {
 	return nil
 }
 
+// Read implements net.Conn
 func (t *TUN) Read(data []byte) (int, error) {
 	for {
 		count, _ := t.readBuffer.Read(data)
@@ -159,6 +162,7 @@ func (t *TUN) Read(data []byte) (int, error) {
 	}
 }
 
+// Write implements net.Conn
 func (t *TUN) Write(data []byte) (int, error) {
 	if isClosedChan(t.writeDeadline.wait()) {
 		return 0, os.ErrDeadlineExceeded
@@ -173,27 +177,32 @@ func (t *TUN) Write(data []byte) (int, error) {
 	}
 }
 
+// LocalAddr implements net.Conn
 func (t *TUN) LocalAddr() net.Addr {
 	ip := t.session.TunnelInfo().IP
 	return &tunBioAddr{ip, t.network}
 }
 
+// RemoteAddr implements net.Conn
 func (t *TUN) RemoteAddr() net.Addr {
 	gw := t.session.TunnelInfo().GW
 	return &tunBioAddr{gw, t.network}
 }
 
+// SetDeadline implements net.Conn
 func (t *TUN) SetDeadline(tm time.Time) error {
 	t.readDeadline.set(tm)
 	t.writeDeadline.set(tm)
 	return nil
 }
 
+// SetReadDeadline implements net.Conn
 func (t *TUN) SetReadDeadline(tm time.Time) error {
 	t.readDeadline.set(tm)
 	return nil
 }
 
+// SetWriteDeadline implements net.Conn
 func (t *TUN) SetWriteDeadline(tm time.Time) error {
 	t.writeDeadline.set(tm)
 	return nil
@@ -218,6 +227,7 @@ func (t *tunBioAddr) String() string {
 	return t.addr
 }
 
+// NetMask returns the configured net mask for the TUN interface.
 func (t *TUN) NetMask() net.IPMask {
 	return net.IPMask(net.ParseIP(t.session.TunnelInfo().NetMask))
 }
