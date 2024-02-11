@@ -53,6 +53,9 @@ type event struct {
 	// AtTime is the time for this event, relative to the start time.
 	AtTime time.Duration
 
+	// Tags is an array of tags that can be useful to interpret this event, like the contents of the packet.
+	Tags []string
+
 	// LoggedPacket is an optional packet metadata.
 	LoggedPacket optional.Value[LoggedPacket]
 }
@@ -62,6 +65,7 @@ func newEvent(etype HandshakeEventType, st session.SessionNegotiationState, t ti
 		EventType:    etype,
 		Stage:        st,
 		AtTime:       t.Sub(t0),
+		Tags:         make([]string, 0),
 		LoggedPacket: optional.None[LoggedPacket](),
 	}
 }
@@ -72,11 +76,13 @@ func (e event) MarshalJSON() ([]byte, error) {
 		Type   string                       `json:"operation"`
 		Stage  string                       `json:"stage"`
 		Time   float64                      `json:"t"`
+		Tags   []string                     `json:"tags"`
 		Packet optional.Value[LoggedPacket] `json:"packet"`
 	}{
 		Type:   e.EventType.String(),
 		Stage:  e.Stage.String()[2:],
 		Time:   e.AtTime.Seconds(),
+		Tags:   e.Tags,
 		Packet: e.LoggedPacket,
 	}
 	return json.Marshal(j)
@@ -123,6 +129,7 @@ func (t *Tracer) OnIncomingPacket(packet *model.Packet, stage int) {
 	stg := session.SessionNegotiationState(stage)
 	e := newEvent(handshakeEventPacketIn, stg, t.TimeNow(), t.zeroTime)
 	e.LoggedPacket = logPacket(packet, -1, model.DirectionIncoming)
+	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
 }
 
@@ -134,6 +141,7 @@ func (t *Tracer) OnOutgoingPacket(packet *model.Packet, stage int, retries int) 
 	stg := session.SessionNegotiationState(stage)
 	e := newEvent(handshakeEventPacketOut, stg, t.TimeNow(), t.zeroTime)
 	e.LoggedPacket = logPacket(packet, retries, model.DirectionOutgoing)
+	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
 }
 
@@ -218,4 +226,21 @@ func (lp LoggedPacket) MarshalJSON() ([]byte, error) {
 var dirMap = map[string]string{
 	"recv": "read",
 	"send": "write",
+}
+
+// maybeAddTagsFromPacket attempts to derive meaningful tags from
+// the packet payload, and adds it to the tag array in the passed event.
+func maybeAddTagsFromPacket(e *event, packet *model.Packet) {
+	if len(packet.Payload) <= 0 {
+		return
+	}
+	p := packet.Payload
+	if p[0] == 0x16 && p[5] == 0x01 {
+		e.Tags = append(e.Tags, "client_hello")
+		return
+	}
+	if p[0] == 0x16 && p[5] == 0x02 {
+		e.Tags = append(e.Tags, "server_hello")
+		return
+	}
 }
