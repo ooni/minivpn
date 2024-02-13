@@ -132,7 +132,7 @@ func (ws *workersState) moveUpWorker() {
 		case rawPacket := <-ws.networkToMuxer:
 			if err := ws.handleRawPacket(rawPacket); err != nil {
 				// error already printed
-				// TODO: trace malformed input
+				// TODO(ainghazal): trace malformed input
 				continue
 			}
 
