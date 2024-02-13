@@ -41,9 +41,9 @@ var _ fmt.Stringer = Direction(0)
 func (d Direction) String() string {
 	switch d {
 	case DirectionIncoming:
-		return "recv"
-	case 1:
-		return "send"
+		return "read"
+	case DirectionOutgoing:
+		return "write"
 	default:
 		return "undefined"
 	}

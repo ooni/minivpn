@@ -208,7 +208,7 @@ func (lp LoggedPacket) MarshalJSON() ([]byte, error) {
 		PayloadSize int                              `json:"payload_size"`
 		Retries     optional.Value[int]              `json:"send_attempts"`
 	}{
-		Direction:   dirMap[lp.Direction.String()],
+		Direction:   lp.Direction.String(),
 		Opcode:      lp.Opcode.String(),
 		ID:          lp.ID,
 		ACKs:        lp.ACKs,
@@ -216,11 +216,6 @@ func (lp LoggedPacket) MarshalJSON() ([]byte, error) {
 		Retries:     lp.Retries,
 	}
 	return json.Marshal(j)
-}
-
-var dirMap = map[string]string{
-	"recv": "read",
-	"send": "write",
 }
 
 // maybeAddTagsFromPacket attempts to derive meaningful tags from
