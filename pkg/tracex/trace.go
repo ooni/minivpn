@@ -3,7 +3,6 @@
 package tracex
 
 import (
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -45,47 +44,29 @@ func (e HandshakeEventType) String() string {
 // event is one handshake event collected by this [model.HandshakeTracer].
 type event struct {
 	// EventType is the type for this event.
-	EventType HandshakeEventType
+	EventType string `json:"operation"`
 
 	// Stage is the stage of the handshake negotiation we're in.
-	Stage session.SessionNegotiationState
+	Stage string `json:"stage"`
 
 	// AtTime is the time for this event, relative to the start time.
-	AtTime time.Duration
+	AtTime float64 `json:"t"`
 
 	// Tags is an array of tags that can be useful to interpret this event, like the contents of the packet.
-	Tags []string
+	Tags []string `json:"tags"`
 
 	// LoggedPacket is an optional packet metadata.
-	LoggedPacket optional.Value[LoggedPacket]
+	LoggedPacket optional.Value[LoggedPacket] `json:"packet"`
 }
 
 func newEvent(etype HandshakeEventType, st session.SessionNegotiationState, t time.Time, t0 time.Time) *event {
 	return &event{
-		EventType:    etype,
-		Stage:        st,
-		AtTime:       t.Sub(t0),
+		EventType:    etype.String(),
+		Stage:        st.String()[2:],
+		AtTime:       t.Sub(t0).Seconds(),
 		Tags:         make([]string, 0),
 		LoggedPacket: optional.None[LoggedPacket](),
 	}
-}
-
-// MarshalJSON implements json.Marshaler
-func (e event) MarshalJSON() ([]byte, error) {
-	j := struct {
-		Type   string                       `json:"operation"`
-		Stage  string                       `json:"stage"`
-		Time   float64                      `json:"t"`
-		Tags   []string                     `json:"tags"`
-		Packet optional.Value[LoggedPacket] `json:"packet"`
-	}{
-		Type:   e.EventType.String(),
-		Stage:  e.Stage.String()[2:],
-		Time:   e.AtTime.Seconds(),
-		Tags:   e.Tags,
-		Packet: e.LoggedPacket,
-	}
-	return json.Marshal(j)
 }
 
 // Tracer implements [model.HandshakeTracer].
@@ -128,7 +109,7 @@ func (t *Tracer) OnIncomingPacket(packet *model.Packet, stage int) {
 
 	stg := session.SessionNegotiationState(stage)
 	e := newEvent(handshakeEventPacketIn, stg, t.TimeNow(), t.zeroTime)
-	e.LoggedPacket = logPacket(packet, -1, model.DirectionIncoming)
+	e.LoggedPacket = logPacket(packet, optional.None[int](), model.DirectionIncoming)
 	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
 }
@@ -140,7 +121,7 @@ func (t *Tracer) OnOutgoingPacket(packet *model.Packet, stage int, retries int) 
 
 	stg := session.SessionNegotiationState(stage)
 	e := newEvent(handshakeEventPacketOut, stg, t.TimeNow(), t.zeroTime)
-	e.LoggedPacket = logPacket(packet, retries, model.DirectionOutgoing)
+	e.LoggedPacket = logPacket(packet, optional.Some(retries), model.DirectionOutgoing)
 	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
 }
@@ -152,7 +133,7 @@ func (t *Tracer) OnDroppedPacket(direction model.Direction, stage int, packet *m
 
 	stg := session.SessionNegotiationState(stage)
 	e := newEvent(handshakeEventPacketDropped, stg, t.TimeNow(), t.zeroTime)
-	e.LoggedPacket = logPacket(packet, -1, direction)
+	e.LoggedPacket = logPacket(packet, optional.None[int](), direction)
 	t.events = append(t.events, e)
 }
 
@@ -163,18 +144,14 @@ func (t *Tracer) Trace() []*event {
 	return append([]*event{}, t.events...)
 }
 
-func logPacket(p *model.Packet, retries int, direction model.Direction) optional.Value[LoggedPacket] {
-	retriesValue := optional.None[int]()
-	if retries != -1 {
-		retriesValue = optional.Some(retries)
-	}
+func logPacket(p *model.Packet, retries optional.Value[int], direction model.Direction) optional.Value[LoggedPacket] {
 	logged := LoggedPacket{
-		Opcode:      p.Opcode,
+		Opcode:      p.Opcode.String(),
 		ID:          p.ID,
 		ACKs:        optional.None[[]model.PacketID](),
-		Direction:   direction,
+		Direction:   direction.String(),
 		PayloadSize: len(p.Payload),
-		Retries:     retriesValue,
+		Retries:     retries,
 	}
 	if len(p.ACKs) != 0 {
 		logged.ACKs = optional.Some(p.ACKs)
@@ -184,38 +161,18 @@ func logPacket(p *model.Packet, retries int, direction model.Direction) optional
 
 // LoggedPacket tracks metadata about a packet useful to build traces.
 type LoggedPacket struct {
-	Direction model.Direction
+	Direction string `json:"operation"`
 
 	// the only fields of the packet we want to log.
-	Opcode model.Opcode
-	ID     model.PacketID
-	ACKs   optional.Value[[]model.PacketID]
+	Opcode string                           `json:"opcode"`
+	ID     model.PacketID                   `json:"id"`
+	ACKs   optional.Value[[]model.PacketID] `json:"acks"`
 
 	// PayloadSize is the size of the payload in bytes
-	PayloadSize int
+	PayloadSize int `json:"payload_size"`
 
 	// Retries keeps track of packet retransmission (only for outgoing packets).
-	Retries optional.Value[int]
-}
-
-// MarshalJSON implements json.Marshaler.
-func (lp LoggedPacket) MarshalJSON() ([]byte, error) {
-	j := struct {
-		Direction   string                           `json:"operation"`
-		Opcode      string                           `json:"opcode"`
-		ID          model.PacketID                   `json:"id"`
-		ACKs        optional.Value[[]model.PacketID] `json:"acks"`
-		PayloadSize int                              `json:"payload_size"`
-		Retries     optional.Value[int]              `json:"send_attempts"`
-	}{
-		Direction:   lp.Direction.String(),
-		Opcode:      lp.Opcode.String(),
-		ID:          lp.ID,
-		ACKs:        lp.ACKs,
-		PayloadSize: lp.PayloadSize,
-		Retries:     lp.Retries,
-	}
-	return json.Marshal(j)
+	Retries optional.Value[int] `json:"send_attempts"`
 }
 
 // maybeAddTagsFromPacket attempts to derive meaningful tags from
