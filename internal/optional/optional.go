@@ -1,3 +1,4 @@
+// Package optional implements optional values.
 package optional
 
 import (
