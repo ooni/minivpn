@@ -43,7 +43,6 @@ func WithConfigFile(configPath string) Option {
 		runtimex.PanicIfFalse(openvpnOpts.HasAuthInfo(), "missing auth info")
 		config.openvpnOptions = openvpnOpts
 	}
-
 }
 
 // WithLogger configures the passed [Logger].
