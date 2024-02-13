@@ -64,28 +64,33 @@ func (c *Config) Logger() Logger {
 	return c.logger
 }
 
-// OpenVPNOptions returns the configured openvpn options.
-func (c *Config) OpenVPNOptions() *OpenVPNOptions {
-	return c.openvpnOptions
-}
-
-// Remote returns the openvpn remote.
-func (c *Config) Remote() *Remote {
-	return &Remote{
-		IPAddr:   c.openvpnOptions.Remote,
-		AddrPort: net.JoinHostPort(c.openvpnOptions.Remote, c.openvpnOptions.Port),
-		Protocol: c.openvpnOptions.Proto.String(),
-	}
-}
-
 // Tracer returns the handshake tracer.
 func (c *Config) Tracer() HandshakeTracer {
 	return c.tracer
 }
 
+// OpenVPNOptions returns the configured openvpn options.
+func (c *Config) OpenVPNOptions() *OpenVPNOptions {
+	return c.openvpnOptions
+}
+
+// Remote returns the OpenVPN remote.
+func (c *Config) Remote() *Remote {
+	return &Remote{
+		IPAddr:   c.openvpnOptions.Remote,
+		Endpoint: net.JoinHostPort(c.openvpnOptions.Remote, c.openvpnOptions.Port),
+		Protocol: c.openvpnOptions.Proto.String(),
+	}
+}
+
 // Remote has info about the OpenVPN remote.
 type Remote struct {
-	IPAddr   string
-	AddrPort string
+	// IPAddr is the IP Address for the remote.
+	IPAddr string
+
+	// Endpoint is in the form ip:port.
+	Endpoint string
+
+	// Protocol is either "tcp" or "udp"
 	Protocol string
 }
