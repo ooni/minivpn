@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"testing"
 
 	"github.com/apex/log"
 	"github.com/ory/dockertest/v3"
@@ -98,59 +97,6 @@ func stopContainer(p *dockertest.Pool, res *dockertest.Resource) {
 	}
 }
 
-func TestClientAES256GCM(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping test in short mode.")
-	}
-	tmp := t.TempDir()
-
-	fmt.Println("launching docker")
-	config, pool, resource, err := launchDocker("AES-256-GCM", "SHA256")
-	if err != nil {
-		t.Errorf("cannot start docker: %v", err)
-	}
-	// when all test done, time to kill and remove the container
-	defer stopContainer(pool, resource)
-
-	cfgFile, err := os.CreateTemp(tmp, "minivpn-e2e-")
-	if err != nil {
-		t.Errorf("Cannot create temporary file: %v", err)
-	}
-	defer cfgFile.Close()
-	fmt.Println("Config written to: " + cfgFile.Name())
-
-	if _, err = cfgFile.Write(config); err != nil {
-		t.Errorf("Failed to write config to temporary file: %v", err)
-	}
-
-	// actual test begins
-	vpnConfig := model.NewConfig(model.WithConfigFile(cfgFile.Name()))
-
-	dialer := networkio.NewDialer(log.Log, &net.Dialer{})
-	conn, err := dialer.DialContext(context.TODO(), vpnConfig.Remote().Protocol, vpnConfig.Remote().Endpoint)
-	if err != nil {
-		t.Errorf("dial error: %v", err)
-	}
-
-	tunnel, err := tun.StartTUN(context.TODO(), conn, vpnConfig)
-	if err != nil {
-		t.Errorf("cannot start tunnel: %v", err)
-	}
-
-	pinger := ping.New(target, tunnel)
-	pinger.Count = count
-	err = pinger.Run(context.Background())
-	defer pinger.Stop()
-	if err != nil {
-		log.Fatalf("VPN Error: %s", err)
-	}
-	if pinger.PacketLoss() != 0 {
-		log.Fatalf("packet loss is not zero")
-	}
-	// let's assert something wise about the pings
-	// can we parse the logs? get initialization etc
-}
-
 func readLines(f string) ([]string, error) {
 	var ll []string
 	rf, err := os.Open(f)
@@ -164,4 +110,56 @@ func readLines(f string) ([]string, error) {
 		ll = append(ll, fs.Text())
 	}
 	return ll, nil
+}
+
+// This main function exercises AES256GCM
+func main() {
+	tmp, err := os.MkdirTemp("", "minivpn-integration-test")
+	defer os.RemoveAll(tmp) // clean up
+
+	fmt.Println("launching docker")
+	config, pool, resource, err := launchDocker("AES-256-GCM", "SHA256")
+	if err != nil {
+		log.WithError(err).Fatal("cannot start docker")
+	}
+	// when all test done, time to kill and remove the container
+	defer stopContainer(pool, resource)
+
+	cfgFile, err := os.CreateTemp(tmp, "minivpn-e2e-")
+	if err != nil {
+		log.WithError(err).Fatal("Cannot create temporary file")
+	}
+	defer cfgFile.Close()
+	fmt.Println("Config written to: " + cfgFile.Name())
+
+	if _, err = cfgFile.Write(config); err != nil {
+		log.WithError(err).Fatal("Failed to write config to temporary file")
+	}
+
+	// actual test begins
+	vpnConfig := model.NewConfig(model.WithConfigFile(cfgFile.Name()))
+
+	dialer := networkio.NewDialer(log.Log, &net.Dialer{})
+	conn, err := dialer.DialContext(context.TODO(), vpnConfig.Remote().Protocol, vpnConfig.Remote().Endpoint)
+	if err != nil {
+		log.WithError(err).Fatal("dial error")
+	}
+
+	tunnel, err := tun.StartTUN(context.Background(), conn, vpnConfig)
+	if err != nil {
+		log.WithError(err).Fatal("cannot start tunnel")
+	}
+
+	pinger := ping.New(target, tunnel)
+	pinger.Count = count
+	err = pinger.Run(context.Background())
+	defer pinger.Stop()
+	if err != nil {
+		log.WithError(err).Fatalf("VPN Error")
+	}
+	if pinger.PacketLoss() != 0 {
+		log.Fatalf("packet loss is not zero")
+	}
+	// let's assert something wise about the pings
+	// can we parse the logs? get initialization etc
 }
