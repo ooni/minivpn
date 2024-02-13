@@ -6,6 +6,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/internal/vpntest"
 	"github.com/ooni/minivpn/internal/workers"
 )
 
@@ -16,7 +17,7 @@ import (
 // initManagers initializes a workers manager and a session manager.
 func initManagers() (*workers.Manager, *session.Manager) {
 	w := workers.NewManager(log.Log)
-	s, err := session.NewManager(log.Log)
+	s, err := session.NewManager(model.NewConfig(model.WithLogger(log.Log)))
 	runtimex.PanicOnError(err, "cannot create session manager")
 	return w, s
 }
@@ -44,4 +45,11 @@ func ackSetFromRange(start, total int) *ackSet {
 		acks = append(acks, model.PacketID(start+i))
 	}
 	return newACKSet(acks...)
+}
+
+func initializeSessionIDForWriter(writer *vpntest.PacketWriter, session *session.Manager) {
+	peerSessionID := newRandomSessionID()
+	writer.RemoteSessionID = model.SessionID(session.LocalSessionID())
+	writer.LocalSessionID = peerSessionID
+	session.SetRemoteSessionID(peerSessionID)
 }

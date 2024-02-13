@@ -23,7 +23,7 @@ import (
 // encodeClientControlMessage returns a byte array with the payload for a control channel packet.
 // This is the packet that the client sends to the server with the key
 // material, local options and credentials (if username+password authentication is used).
-func encodeClientControlMessageAsBytes(k *session.KeySource, o *model.Options) ([]byte, error) {
+func encodeClientControlMessageAsBytes(k *session.KeySource, o *model.OpenVPNOptions) ([]byte, error) {
 	opt, err := bytesx.EncodeOptionStringToBytes(o.ServerOptionsString())
 	if err != nil {
 		return nil, err

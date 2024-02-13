@@ -1,3 +1,5 @@
+// Package controlchannel implements the control channel logic. The control channel sits
+// above the reliable transport and below the TLS layer.
 package controlchannel
 
 import (
@@ -36,12 +38,12 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (svc *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:               logger,
+		logger:               config.Logger(),
 		notifyTLS:            *svc.NotifyTLS,
 		controlToReliable:    *svc.ControlToReliable,
 		reliableToControl:    svc.ReliableToControl,
@@ -90,10 +92,10 @@ func (ws *workersState) moveUpWorker() {
 				// even if after the first key generation we receive two SOFT_RESET requests
 				// back to back.
 
-				if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+				if ws.sessionManager.NegotiationState() < model.S_GENERATED_KEYS {
 					continue
 				}
-				ws.sessionManager.SetNegotiationState(session.S_INITIAL)
+				ws.sessionManager.SetNegotiationState(model.S_INITIAL)
 				// TODO(ainghazal): revisit this step.
 				// when we implement key rotation.  OpenVPN has
 				// the concept of a "lame duck", i.e., the

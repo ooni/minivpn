@@ -18,7 +18,7 @@ func TestService_StartWorkers(t *testing.T) {
 		ReliableToControl    *chan *model.Packet
 	}
 	type args struct {
-		logger         model.Logger
+		config         *model.Config
 		workersManager *workers.Manager
 		sessionManager *session.Manager
 	}
@@ -42,10 +42,10 @@ func TestService_StartWorkers(t *testing.T) {
 				}(),
 			},
 			args: args{
-				logger:         log.Log,
+				config:         model.NewConfig(model.WithLogger(log.Log)),
 				workersManager: workers.NewManager(log.Log),
 				sessionManager: func() *session.Manager {
-					m, _ := session.NewManager(log.Log)
+					m, _ := session.NewManager(model.NewConfig(model.WithLogger(log.Log)))
 					return m
 				}(),
 			},
@@ -59,7 +59,7 @@ func TestService_StartWorkers(t *testing.T) {
 				MuxerToReliable:      tt.fields.MuxerToReliable,
 				ReliableToControl:    tt.fields.ReliableToControl,
 			}
-			s.StartWorkers(tt.args.logger, tt.args.workersManager, tt.args.sessionManager)
+			s.StartWorkers(tt.args.config, tt.args.workersManager, tt.args.sessionManager)
 			tt.args.workersManager.StartShutdown()
 			tt.args.workersManager.WaitWorkersShutdown()
 		})

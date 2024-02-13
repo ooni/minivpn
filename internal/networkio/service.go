@@ -26,13 +26,13 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (svc *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	manager *workers.Manager,
 	conn FramingConn,
 ) {
 	ws := &workersState{
 		conn:           conn,
-		logger:         logger,
+		logger:         config.Logger(),
 		manager:        manager,
 		muxerToNetwork: svc.MuxerToNetwork,
 		networkToMuxer: *svc.NetworkToMuxer,

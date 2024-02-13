@@ -46,7 +46,6 @@ func (pw *PacketWriter) WriteSequence(seq []string) {
 
 // possibly expand a input sequence in range notation for the packet ids [1..10]
 func maybeExpand(input string) []string {
-	fmt.Println("maybe expand")
 	items := []string{}
 	pattern := `^\[(\d+)\.\.(\d+)\] (.+)`
 	regexpPattern := regexp.MustCompile(pattern)

@@ -118,7 +118,7 @@ type certConfig struct {
 // newCertConfigFromOptions is a constructor that returns a certConfig object initialized
 // from the paths specified in the passed Options object, and an error if it
 // could not be properly built.
-func newCertConfigFromOptions(o *model.Options) (*certConfig, error) {
+func newCertConfigFromOptions(o *model.OpenVPNOptions) (*certConfig, error) {
 	var cfg *certConfig
 	var err error
 	if o.ShouldLoadCertsFromPath() {
