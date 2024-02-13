@@ -245,7 +245,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 			// so that data sent from previous sessions will not be delivered.
 			// However, it does not harm to be defensive here. One such case
 			// is that we get injected packets intended to mess with the handshake.
-			// In this case we should drop and log/trace the event.
+			// In this case, the caller will drop and log/trace the event.
 			if packet.IsData() {
 				ws.logger.Warnf("packetmuxer: moveUpWorker: cannot handle data yet")
 				return errors.New("not ready to handle data")
