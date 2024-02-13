@@ -29,7 +29,7 @@ type Direction int
 
 const (
 	// DirectionIncoming marks received packets.
-	DirectionIncoming = iota
+	DirectionIncoming = Direction(iota)
 
 	// DirectionOutgoing marks packets to be sent.
 	DirectionOutgoing
