@@ -57,7 +57,7 @@ type dummyTracer struct{}
 func (dt *dummyTracer) TimeNow() time.Time { return time.Now() }
 
 // OnStateChange is called for each transition in the state machine.
-func (dt *dummyTracer) OnStateChange(state int) {}
+func (dt *dummyTracer) OnStateChange(_ int) {}
 
 // OnIncomingPacket is called when a packet is received.
 func (dt *dummyTracer) OnIncomingPacket(*Packet, int) {}
