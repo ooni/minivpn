@@ -97,6 +97,7 @@ func (t *Tracer) TimeNow() time.Time {
 func (t *Tracer) OnStateChange(state int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	stg := session.SessionNegotiationState(state)
 	e := newEvent(handshakeEventStateChange, stg, t.TimeNow(), t.zeroTime)
 	t.events = append(t.events, e)
