@@ -128,16 +128,12 @@ func TestReliable_ACK(t *testing.T) {
 			t0 := time.Now()
 
 			// let the workers pump up the jam!
-			s.StartWorkers(log.Log, workers, session)
+			s.StartWorkers(model.NewConfig(model.WithLogger(log.Log)), workers, session)
 
 			writer := vpntest.NewPacketWriter(dataIn)
 
 			// initialize a mock session ID for our peer
-			peerSessionID := newRandomSessionID()
-
-			writer.RemoteSessionID = model.SessionID(session.LocalSessionID())
-			writer.LocalSessionID = peerSessionID
-			session.SetRemoteSessionID(peerSessionID)
+			initializeSessionIDForWriter(writer, session)
 
 			go writer.WriteSequence(tt.args.inputSequence)
 

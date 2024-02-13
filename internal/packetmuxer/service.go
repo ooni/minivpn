@@ -50,12 +50,12 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (s *Service) StartWorkers(
-	logger model.Logger,
+	config *model.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
 	ws := &workersState{
-		logger:    logger,
+		logger:    config.Logger(),
 		hardReset: s.HardReset,
 		// initialize to a sufficiently long time from now
 		hardResetTicker:      time.NewTicker(longWakeup),
@@ -66,6 +66,7 @@ func (s *Service) StartWorkers(
 		muxerToNetwork:       *s.MuxerToNetwork,
 		networkToMuxer:       s.NetworkToMuxer,
 		sessionManager:       sessionManager,
+		tracer:               config.Tracer(),
 		workersManager:       workersManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
@@ -107,6 +108,9 @@ type workersState struct {
 	// sessionManager manages the OpenVPN session.
 	sessionManager *session.Manager
 
+	// tracer is a [model.HandshakeTracer].
+	tracer model.HandshakeTracer
+
 	// workersManager controls the workers lifecycle.
 	workersManager *workers.Manager
 }
@@ -128,7 +132,8 @@ func (ws *workersState) moveUpWorker() {
 		case rawPacket := <-ws.networkToMuxer:
 			if err := ws.handleRawPacket(rawPacket); err != nil {
 				// error already printed
-				return
+				// TODO(ainghazal): trace malformed input
+				continue
 			}
 
 		case <-ws.hardResetTicker.C:
@@ -190,7 +195,11 @@ func (ws *workersState) moveDownWorker() {
 
 // startHardReset is invoked when we need to perform a HARD RESET.
 func (ws *workersState) startHardReset() error {
-	ws.hardResetCount += 1
+	// increment the hard reset counter for retries
+	ws.hardResetCount++
+
+	// reset the state to become initial again.
+	ws.sessionManager.SetNegotiationState(model.S_PRE_START)
 
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
 	packet := ws.sessionManager.NewHardResetPacket()
@@ -200,11 +209,6 @@ func (ws *workersState) startHardReset() error {
 
 	// resend if not received the server's reply in 2 seconds.
 	ws.hardResetTicker.Reset(time.Second * 2)
-
-	// reset the state to become initial again.
-	ws.sessionManager.SetNegotiationState(session.S_PRE_START)
-
-	// TODO: any other change to apply in this case?
 
 	return nil
 }
@@ -219,7 +223,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	}
 
 	// handle the case where we're performing a HARD_RESET
-	if ws.sessionManager.NegotiationState() == session.S_PRE_START &&
+	if ws.sessionManager.NegotiationState() == model.S_PRE_START &&
 		packet.Opcode == model.P_CONTROL_HARD_RESET_SERVER_V2 {
 		packet.Log(ws.logger, model.DirectionIncoming)
 		ws.hardResetTicker.Stop()
@@ -234,13 +238,20 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 			return workers.ErrShutdown
 		}
 	} else {
-		if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+		if ws.sessionManager.NegotiationState() < model.S_GENERATED_KEYS {
 			// A well-behaved server should not send us data packets
 			// before we have a working session. Under normal operations, the
 			// connection in the client side should pick a different port,
 			// so that data sent from previous sessions will not be delivered.
-			// However, it does not harm to be defensive here.
-			return errors.New("not ready to handle data")
+			// However, it does not harm to be defensive here. One such case
+			// is that we get injected packets intended to mess with the handshake.
+			// In this case, the caller will drop and log/trace the event.
+			if packet.IsData() {
+				ws.logger.Warnf("packetmuxer: moveUpWorker: cannot handle data yet")
+				return errors.New("not ready to handle data")
+			}
+			ws.logger.Warnf("malformed input")
+			return errors.New("malformed input")
 		}
 		select {
 		case ws.muxerToData <- packet:
@@ -258,7 +269,7 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
 
 	// advance the state
-	ws.sessionManager.SetNegotiationState(session.S_START)
+	ws.sessionManager.SetNegotiationState(model.S_START)
 
 	// pass the packet up so that we can ack it properly
 	select {
@@ -288,6 +299,12 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 	if err != nil {
 		return err
 	}
+
+	ws.tracer.OnOutgoingPacket(
+		packet,
+		ws.sessionManager.NegotiationState(),
+		ws.hardResetCount,
+	)
 
 	// emit the packet. Possibly BLOCK writing to the networkio layer.
 	select {

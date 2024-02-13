@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
@@ -22,18 +21,18 @@ var (
 
 // StartTUN initializes and starts the TUN device over the vpn.
 // If the passed context expires before the TUN device is ready,
-func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Options, logger model.Logger) (*TUN, error) {
+func StartTUN(ctx context.Context, conn networkio.FramingConn, config *model.Config) (*TUN, error) {
 	// create a session
-	sessionManager, err := session.NewManager(logger)
+	sessionManager, err := session.NewManager(config)
 	if err != nil {
 		return nil, err
 	}
 
 	// create the TUN that will OWN the connection
-	tunnel := newTUN(logger, conn, sessionManager)
+	tunnel := newTUN(config.Logger(), conn, sessionManager)
 
 	// start all the workers
-	workers := startWorkers(log.Log, sessionManager, tunnel, conn, options)
+	workers := startWorkers(config, conn, sessionManager, tunnel)
 	tunnel.whenDone(func() {
 		workers.StartShutdown()
 		workers.WaitWorkersShutdown()
@@ -50,7 +49,7 @@ func StartTUN(ctx context.Context, conn networkio.FramingConn, options *model.Op
 		return tunnel, nil
 	case <-tlsTimeout.C:
 		defer func() {
-			log.Log.Info("tls timeout")
+			config.Logger().Info("tls timeout")
 			tunnel.Close()
 		}()
 		return nil, errors.New("tls timeout")
@@ -128,6 +127,8 @@ func (t *TUN) whenDone(fn func()) {
 	t.whenDoneFn = fn
 }
 
+// Close is an idempotent method that closes the underlying connection (owned by us) and
+// potentially executes any registed callback.
 func (t *TUN) Close() error {
 	t.closeOnce.Do(func() {
 		close(t.hangup)
@@ -139,6 +140,7 @@ func (t *TUN) Close() error {
 	return nil
 }
 
+// Read implements net.Conn
 func (t *TUN) Read(data []byte) (int, error) {
 	for {
 		count, _ := t.readBuffer.Read(data)
@@ -160,6 +162,7 @@ func (t *TUN) Read(data []byte) (int, error) {
 	}
 }
 
+// Write implements net.Conn
 func (t *TUN) Write(data []byte) (int, error) {
 	if isClosedChan(t.writeDeadline.wait()) {
 		return 0, os.ErrDeadlineExceeded
@@ -174,27 +177,32 @@ func (t *TUN) Write(data []byte) (int, error) {
 	}
 }
 
+// LocalAddr implements net.Conn
 func (t *TUN) LocalAddr() net.Addr {
 	ip := t.session.TunnelInfo().IP
 	return &tunBioAddr{ip, t.network}
 }
 
+// RemoteAddr implements net.Conn
 func (t *TUN) RemoteAddr() net.Addr {
 	gw := t.session.TunnelInfo().GW
 	return &tunBioAddr{gw, t.network}
 }
 
+// SetDeadline implements net.Conn
 func (t *TUN) SetDeadline(tm time.Time) error {
 	t.readDeadline.set(tm)
 	t.writeDeadline.set(tm)
 	return nil
 }
 
+// SetReadDeadline implements net.Conn
 func (t *TUN) SetReadDeadline(tm time.Time) error {
 	t.readDeadline.set(tm)
 	return nil
 }
 
+// SetWriteDeadline implements net.Conn
 func (t *TUN) SetWriteDeadline(tm time.Time) error {
 	t.writeDeadline.set(tm)
 	return nil
@@ -219,6 +227,7 @@ func (t *tunBioAddr) String() string {
 	return t.addr
 }
 
+// NetMask returns the configured net mask for the TUN interface.
 func (t *TUN) NetMask() net.IPMask {
 	return net.IPMask(net.ParseIP(t.session.TunnelInfo().NetMask))
 }

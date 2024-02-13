@@ -1,6 +1,9 @@
+// Package optional implements optional values.
 package optional
 
 import (
+	"bytes"
+	"encoding/json"
 	"reflect"
 
 	"github.com/ooni/minivpn/internal/runtimex"
@@ -55,4 +58,44 @@ func (v Value[T]) UnwrapOr(fallback T) T {
 		return fallback
 	}
 	return v.Unwrap()
+}
+
+var _ json.Unmarshaler = &Value[int]{}
+
+// UnmarshalJSON implements json.Unmarshaler. Note that a `null` JSON
+// value always leads to an empty Value.
+func (v *Value[T]) UnmarshalJSON(data []byte) error {
+	// A `null` underlying value should always be equivalent to
+	// invoking the None constructor of for T. While this is not
+	// what the [json] package recommends doing for this case,
+	// it is consistent with initializing an optional.
+	if bytes.Equal(data, []byte(`null`)) {
+		v.indirect = nil
+		return nil
+	}
+
+	// Otherwise, let's try to unmarshal into a real value
+	var value T
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+
+	// Enforce the same semantics of the Some constructor: treat
+	// pointer types specially to avoid the case where we have
+	// a Value that is wrapping a nil pointer but for which the
+	// IsNone check actually returns false. (Maybe this check is
+	// redundant but it seems better to enforce it anyway.)
+	maybeSetFromValue(v, value)
+	return nil
+}
+
+var _ json.Marshaler = Value[int]{}
+
+// MarshalJSON implements json.Marshaler. An empty value serializes
+// to `null` and otherwise we serialize the underluing value.
+func (v Value[T]) MarshalJSON() ([]byte, error) {
+	if v.indirect == nil {
+		return json.Marshal(nil)
+	}
+	return json.Marshal(*v.indirect)
 }

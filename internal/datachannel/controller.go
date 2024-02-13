@@ -25,7 +25,7 @@ type dataChannelHandler interface {
 // DataChannel represents the data "channel", that will encrypt and decrypt the tunnel payloads.
 // data implements the dataHandler interface.
 type DataChannel struct {
-	options         *model.Options
+	options         *model.OpenVPNOptions
 	sessionManager  *session.Manager
 	state           *dataChannelState
 	decodeFn        func(model.Logger, []byte, *session.Manager, *dataChannelState) (*encryptedData, error)
@@ -39,7 +39,7 @@ var _ dataChannelHandler = &DataChannel{} // Ensure that we implement dataChanne
 // NewDataChannelFromOptions returns a new data object, initialized with the
 // options given. it also returns any error raised.
 func NewDataChannelFromOptions(log model.Logger,
-	opt *model.Options,
+	opt *model.OpenVPNOptions,
 	sessionManager *session.Manager) (*DataChannel, error) {
 	runtimex.Assert(opt != nil, "openvpn datachannel: opts cannot be nil")
 	runtimex.Assert(opt != nil, "openvpn datachannel: opts cannot be nil")

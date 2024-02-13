@@ -25,10 +25,11 @@ func connectChannel[T any](signal chan T, slot **chan T) {
 // file for more information about the workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func startWorkers(logger model.Logger, sessionManager *session.Manager,
-	tunDevice *TUN, conn networkio.FramingConn, options *model.Options) *workers.Manager {
+func startWorkers(config *model.Config, conn networkio.FramingConn,
+	sessionManager *session.Manager, tunDevice *TUN) *workers.Manager {
+
 	// create a workers manager
-	workersManager := workers.NewManager(logger)
+	workersManager := workers.NewManager(config.Logger())
 
 	// create the networkio service.
 	nio := &networkio.Service{
@@ -109,12 +110,12 @@ func startWorkers(logger model.Logger, sessionManager *session.Manager,
 	connectChannel(tlsx.NotifyTLS, &muxer.NotifyTLS)
 
 	// start all the workers
-	nio.StartWorkers(logger, workersManager, conn)
-	muxer.StartWorkers(logger, workersManager, sessionManager)
-	rel.StartWorkers(logger, workersManager, sessionManager)
-	ctrl.StartWorkers(logger, workersManager, sessionManager)
-	datach.StartWorkers(logger, workersManager, sessionManager, options)
-	tlsx.StartWorkers(logger, workersManager, sessionManager, options)
+	nio.StartWorkers(config, workersManager, conn)
+	muxer.StartWorkers(config, workersManager, sessionManager)
+	rel.StartWorkers(config, workersManager, sessionManager)
+	ctrl.StartWorkers(config, workersManager, sessionManager)
+	datach.StartWorkers(config, workersManager, sessionManager)
+	tlsx.StartWorkers(config, workersManager, sessionManager)
 
 	// tell the packetmuxer that it should handshake ASAP
 	muxer.HardReset <- true

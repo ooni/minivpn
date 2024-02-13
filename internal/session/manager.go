@@ -13,64 +13,6 @@ import (
 	"github.com/ooni/minivpn/internal/runtimex"
 )
 
-// SessionNegotiationState is the state of the session negotiation.
-type SessionNegotiationState int
-
-const (
-	// S_ERROR means there was some form of protocol error.
-	S_ERROR = SessionNegotiationState(iota) - 1
-
-	// S_UNDER is the undefined state.
-	S_UNDEF
-
-	// S_INITIAL means we're ready to begin the three-way handshake.
-	S_INITIAL
-
-	// S_PRE_START means we're waiting for acknowledgment from the remote.
-	S_PRE_START
-
-	// S_START means we've done the three-way handshake.
-	S_START
-
-	// S_SENT_KEY means we have sent the local part of the key_source2 random material.
-	S_SENT_KEY
-
-	// S_GOT_KEY means we have got the remote part of key_source2.
-	S_GOT_KEY
-
-	// S_ACTIVE means the control channel was established.
-	S_ACTIVE
-
-	// S_GENERATED_KEYS means the data channel keys have been generated.
-	S_GENERATED_KEYS
-)
-
-// String maps a [SessionNegotiationState] to a string.
-func (sns SessionNegotiationState) String() string {
-	switch sns {
-	case S_UNDEF:
-		return "S_UNDEF"
-	case S_INITIAL:
-		return "S_INITIAL"
-	case S_PRE_START:
-		return "S_PRE_START"
-	case S_START:
-		return "S_START"
-	case S_SENT_KEY:
-		return "S_SENT_KEY"
-	case S_GOT_KEY:
-		return "S_GOT_KEY"
-	case S_ACTIVE:
-		return "S_ACTIVE"
-	case S_GENERATED_KEYS:
-		return "S_GENERATED_KEYS"
-	case S_ERROR:
-		return "S_ERROR"
-	default:
-		return "S_INVALID"
-	}
-}
-
 // Manager manages the session. The zero value is invalid. Please, construct
 // using [NewManager]. This struct is concurrency safe.
 type Manager struct {
@@ -81,9 +23,10 @@ type Manager struct {
 	localSessionID       model.SessionID
 	logger               model.Logger
 	mu                   sync.Mutex
-	negState             SessionNegotiationState
+	negState             model.NegotiationState
 	remoteSessionID      optional.Value[model.SessionID]
 	tunnelInfo           model.TunnelInfo
+	tracer               model.HandshakeTracer
 
 	// Ready is a channel where we signal that we can start accepting data, because we've
 	// successfully generated key material for the data channel.
@@ -91,7 +34,7 @@ type Manager struct {
 }
 
 // NewManager returns a [Manager] ready to be used.
-func NewManager(logger model.Logger) (*Manager, error) {
+func NewManager(config *model.Config) (*Manager, error) {
 	key0 := &DataChannelKey{}
 	sessionManager := &Manager{
 		keyID: 0,
@@ -99,11 +42,12 @@ func NewManager(logger model.Logger) (*Manager, error) {
 		// localControlPacketID should be initialized to 1 because we handle hard-reset as special cases
 		localControlPacketID: 1,
 		localSessionID:       [8]byte{},
-		logger:               logger,
+		logger:               config.Logger(),
 		mu:                   sync.Mutex{},
 		negState:             0,
 		remoteSessionID:      optional.None[model.SessionID](),
 		tunnelInfo:           model.TunnelInfo{},
+		tracer:               config.Tracer(),
 
 		// empirically, it seems that the reference OpenVPN server misbehaves if we initialize
 		// the data packet ID counter to zero.
@@ -261,19 +205,20 @@ func (m *Manager) localControlPacketIDLocked() (model.PacketID, error) {
 }
 
 // NegotiationState returns the state of the negotiation.
-func (m *Manager) NegotiationState() SessionNegotiationState {
+func (m *Manager) NegotiationState() model.NegotiationState {
 	defer m.mu.Unlock()
 	m.mu.Lock()
 	return m.negState
 }
 
 // SetNegotiationState sets the state of the negotiation.
-func (m *Manager) SetNegotiationState(sns SessionNegotiationState) {
+func (m *Manager) SetNegotiationState(sns model.NegotiationState) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
 	m.logger.Infof("[@] %s -> %s", m.negState, sns)
+	m.tracer.OnStateChange(sns)
 	m.negState = sns
-	if sns == S_GENERATED_KEYS {
+	if sns == model.S_GENERATED_KEYS {
 		m.Ready <- true
 	}
 }
