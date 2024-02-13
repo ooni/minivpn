@@ -42,6 +42,7 @@ func (ws *workersState) moveUpWorker() {
 			// I'm not sure that's a valid behavior for a server.
 			// We should be able to deterministically test how this affects the state machine.
 
+			// sanity check incoming packet
 			if ok := incomingSanityChecks(ws.logger, workerName, packet, ws.sessionManager); !ok {
 				continue
 			}
