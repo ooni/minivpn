@@ -57,7 +57,7 @@ type dummyTracer struct{}
 func (dt *dummyTracer) TimeNow() time.Time { return time.Now() }
 
 // OnStateChange is called for each transition in the state machine.
-func (dt *dummyTracer) OnStateChange(_ int) {}
+func (dt *dummyTracer) OnStateChange(int) {}
 
 // OnIncomingPacket is called when a packet is received.
 func (dt *dummyTracer) OnIncomingPacket(*Packet, int) {}
@@ -66,10 +66,7 @@ func (dt *dummyTracer) OnIncomingPacket(*Packet, int) {}
 func (dt *dummyTracer) OnOutgoingPacket(*Packet, int, int) {}
 
 // OnDroppedPacket is called whenever a packet is dropped (in/out)
-func (dt *dummyTracer) OnDroppedPacket(Direction, int, *Packet) {
-}
-
-func (dt *dummyTracer) OnHandshakeDone(remoteAddr string) {}
+func (dt *dummyTracer) OnDroppedPacket(Direction, int, *Packet) {}
 
 // Assert that dummyTracer implements [model.HandshakeTracer].
 var _ HandshakeTracer = &dummyTracer{}
