@@ -41,7 +41,7 @@ func (e HandshakeEventType) String() string {
 	}
 }
 
-// event is one handshake event collected by this [model.HandshakeTracer].
+// event is a handshake event collected by this [model.HandshakeTracer].
 type event struct {
 	// EventType is the type for this event.
 	EventType string `json:"operation"`
