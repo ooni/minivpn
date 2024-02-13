@@ -35,18 +35,18 @@ func (s *Service) StartWorkers(
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
+	// incomingSeen is a buffered channel to avoid losing packets if we're busy
+	// processing in the sender goroutine.
 	ws := &workersState{
 		controlToReliable:    s.ControlToReliable,
 		dataOrControlToMuxer: *s.DataOrControlToMuxer,
 		incomingSeen:         make(chan incomingPacketSeen, 100),
 		logger:               config.Logger(),
-		// incomingSeen is a buffered channel to avoid losing packets if we're busy
-		// processing in the sender goroutine.
-		muxerToReliable:   s.MuxerToReliable,
-		reliableToControl: *s.ReliableToControl,
-		sessionManager:    sessionManager,
-		tracer:            config.Tracer(),
-		workersManager:    workersManager,
+		muxerToReliable:      s.MuxerToReliable,
+		reliableToControl:    *s.ReliableToControl,
+		sessionManager:       sessionManager,
+		tracer:               config.Tracer(),
+		workersManager:       workersManager,
 	}
 	workersManager.StartWorker(ws.moveUpWorker)
 	workersManager.StartWorker(ws.moveDownWorker)
