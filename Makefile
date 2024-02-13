@@ -57,7 +57,6 @@ integration-server:
 test-fetch-config:
 	rm -rf data/tests
 	mkdir -p data/tests && curl 172.17.0.2:8080/ > data/tests/config
-	cd data/tests && ../../tests/integration/extract.sh config
 
 test-ping-local:
 	# run the integration-server first
@@ -72,9 +71,11 @@ qa:
 	@rm -rf data/tests
 	@mkdir -p data/tests && curl 172.17.0.2:8080/ > data/tests/config
 	@sleep 1
-	@cd data/tests && ../../tests/integration/extract.sh config
 	./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
 	@docker stop ovpn1
+
+integration:
+	go run ./tests/integration
 
 filternet-qa:
 	cd tests/qa && ./run-filternet.sh remote-block-all
