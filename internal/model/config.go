@@ -83,7 +83,7 @@ func (c *Config) Tracer() HandshakeTracer {
 	return c.tracer
 }
 
-// Remote has info about the OpenVPNRemote.
+// Remote has info about the OpenVPN remote.
 type Remote struct {
 	IPAddr   string
 	AddrPort string
