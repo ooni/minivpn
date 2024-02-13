@@ -199,7 +199,7 @@ func (ws *workersState) startHardReset() error {
 	ws.hardResetCount++
 
 	// reset the state to become initial again.
-	ws.sessionManager.SetNegotiationState(session.S_PRE_START)
+	ws.sessionManager.SetNegotiationState(model.S_PRE_START)
 
 	// emit a CONTROL_HARD_RESET_CLIENT_V2 pkt
 	packet := ws.sessionManager.NewHardResetPacket()
@@ -223,7 +223,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 	}
 
 	// handle the case where we're performing a HARD_RESET
-	if ws.sessionManager.NegotiationState() == session.S_PRE_START &&
+	if ws.sessionManager.NegotiationState() == model.S_PRE_START &&
 		packet.Opcode == model.P_CONTROL_HARD_RESET_SERVER_V2 {
 		packet.Log(ws.logger, model.DirectionIncoming)
 		ws.hardResetTicker.Stop()
@@ -238,7 +238,7 @@ func (ws *workersState) handleRawPacket(rawPacket []byte) error {
 			return workers.ErrShutdown
 		}
 	} else {
-		if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+		if ws.sessionManager.NegotiationState() < model.S_GENERATED_KEYS {
 			// A well-behaved server should not send us data packets
 			// before we have a working session. Under normal operations, the
 			// connection in the client side should pick a different port,
@@ -269,7 +269,7 @@ func (ws *workersState) finishThreeWayHandshake(packet *model.Packet) error {
 	ws.sessionManager.SetRemoteSessionID(packet.LocalSessionID)
 
 	// advance the state
-	ws.sessionManager.SetNegotiationState(session.S_START)
+	ws.sessionManager.SetNegotiationState(model.S_START)
 
 	// pass the packet up so that we can ack it properly
 	select {
@@ -302,7 +302,7 @@ func (ws *workersState) serializeAndEmit(packet *model.Packet) error {
 
 	ws.tracer.OnOutgoingPacket(
 		packet,
-		int(ws.sessionManager.NegotiationState()),
+		ws.sessionManager.NegotiationState(),
 		ws.hardResetCount,
 	)
 

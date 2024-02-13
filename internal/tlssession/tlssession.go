@@ -156,7 +156,7 @@ func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch cha
 		errorch <- err
 		return
 	}
-	ws.sessionManager.SetNegotiationState(session.S_SENT_KEY)
+	ws.sessionManager.SetNegotiationState(model.S_SENT_KEY)
 
 	// read the server's keySource and options
 	remoteKey, serverOptions, err := ws.recvAuthReplyMessage(tlsConn)
@@ -174,7 +174,7 @@ func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch cha
 
 	// add the remote key to the active key
 	activeKey.AddRemoteKey(remoteKey)
-	ws.sessionManager.SetNegotiationState(session.S_GOT_KEY)
+	ws.sessionManager.SetNegotiationState(model.S_GOT_KEY)
 
 	// send the push request
 	if err := ws.sendPushRequestMessage(tlsConn); err != nil {
@@ -193,7 +193,7 @@ func (ws *workersState) doTLSAuth(conn net.Conn, config *tls.Config, errorch cha
 	ws.sessionManager.UpdateTunnelInfo(tinfo)
 
 	// progress to the ACTIVE state
-	ws.sessionManager.SetNegotiationState(session.S_ACTIVE)
+	ws.sessionManager.SetNegotiationState(model.S_ACTIVE)
 
 	// notify the datachannel that we've got a key pair ready to use
 	ws.keyUp <- activeKey

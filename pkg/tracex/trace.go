@@ -9,7 +9,6 @@ import (
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/optional"
-	"github.com/ooni/minivpn/internal/session"
 )
 
 const (
@@ -41,8 +40,8 @@ func (e HandshakeEventType) String() string {
 	}
 }
 
-// event is a handshake event collected by this [model.HandshakeTracer].
-type event struct {
+// Event is a handshake event collected by this [model.HandshakeTracer].
+type Event struct {
 	// EventType is the type for this event.
 	EventType string `json:"operation"`
 
@@ -59,8 +58,10 @@ type event struct {
 	LoggedPacket optional.Value[LoggedPacket] `json:"packet"`
 }
 
-func newEvent(etype HandshakeEventType, st session.SessionNegotiationState, t time.Time, t0 time.Time) *event {
-	return &event{
+type NegotiationState = model.NegotiationState
+
+func newEvent(etype HandshakeEventType, st NegotiationState, t time.Time, t0 time.Time) *Event {
+	return &Event{
 		EventType:    etype.String(),
 		Stage:        st.String()[2:],
 		AtTime:       t.Sub(t0).Seconds(),
@@ -72,7 +73,7 @@ func newEvent(etype HandshakeEventType, st session.SessionNegotiationState, t ti
 // Tracer implements [model.HandshakeTracer].
 type Tracer struct {
 	// events is the array of handshake events.
-	events []*event
+	events []*Event
 
 	// mu guards access to the events.
 	mu sync.Mutex
@@ -94,55 +95,51 @@ func (t *Tracer) TimeNow() time.Time {
 }
 
 // OnStateChange is called for each transition in the state machine.
-func (t *Tracer) OnStateChange(state int) {
+func (t *Tracer) OnStateChange(state NegotiationState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	stg := session.SessionNegotiationState(state)
-	e := newEvent(handshakeEventStateChange, stg, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventStateChange, state, t.TimeNow(), t.zeroTime)
 	t.events = append(t.events, e)
 }
 
 // OnIncomingPacket is called when a packet is received.
-func (t *Tracer) OnIncomingPacket(packet *model.Packet, stage int) {
+func (t *Tracer) OnIncomingPacket(packet *model.Packet, stage NegotiationState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	stg := session.SessionNegotiationState(stage)
-	e := newEvent(handshakeEventPacketIn, stg, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventPacketIn, stage, t.TimeNow(), t.zeroTime)
 	e.LoggedPacket = logPacket(packet, optional.None[int](), model.DirectionIncoming)
 	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
 }
 
 // OnOutgoingPacket is called when a packet is about to be sent.
-func (t *Tracer) OnOutgoingPacket(packet *model.Packet, stage int, retries int) {
+func (t *Tracer) OnOutgoingPacket(packet *model.Packet, stage NegotiationState, retries int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	stg := session.SessionNegotiationState(stage)
-	e := newEvent(handshakeEventPacketOut, stg, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventPacketOut, stage, t.TimeNow(), t.zeroTime)
 	e.LoggedPacket = logPacket(packet, optional.Some(retries), model.DirectionOutgoing)
 	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
 }
 
 // OnDroppedPacket is called whenever a packet is dropped (in/out)
-func (t *Tracer) OnDroppedPacket(direction model.Direction, stage int, packet *model.Packet) {
+func (t *Tracer) OnDroppedPacket(direction model.Direction, stage NegotiationState, packet *model.Packet) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	stg := session.SessionNegotiationState(stage)
-	e := newEvent(handshakeEventPacketDropped, stg, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventPacketDropped, stage, t.TimeNow(), t.zeroTime)
 	e.LoggedPacket = logPacket(packet, optional.None[int](), direction)
 	t.events = append(t.events, e)
 }
 
 // Trace returns a structured log containing a copy of the array of [model.HandshakeEvent].
-func (t *Tracer) Trace() []*event {
+func (t *Tracer) Trace() []*Event {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return append([]*event{}, t.events...)
+	return append([]*Event{}, t.events...)
 }
 
 func logPacket(p *model.Packet, retries optional.Value[int], direction model.Direction) optional.Value[LoggedPacket] {
@@ -178,7 +175,7 @@ type LoggedPacket struct {
 
 // maybeAddTagsFromPacket attempts to derive meaningful tags from
 // the packet payload, and adds it to the tag array in the passed event.
-func maybeAddTagsFromPacket(e *event, packet *model.Packet) {
+func maybeAddTagsFromPacket(e *Event, packet *model.Packet) {
 	if len(packet.Payload) <= 0 {
 		return
 	}

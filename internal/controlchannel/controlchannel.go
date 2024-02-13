@@ -92,10 +92,10 @@ func (ws *workersState) moveUpWorker() {
 				// even if after the first key generation we receive two SOFT_RESET requests
 				// back to back.
 
-				if ws.sessionManager.NegotiationState() < session.S_GENERATED_KEYS {
+				if ws.sessionManager.NegotiationState() < model.S_GENERATED_KEYS {
 					continue
 				}
-				ws.sessionManager.SetNegotiationState(session.S_INITIAL)
+				ws.sessionManager.SetNegotiationState(model.S_INITIAL)
 				// TODO(ainghazal): revisit this step.
 				// when we implement key rotation.  OpenVPN has
 				// the concept of a "lame duck", i.e., the

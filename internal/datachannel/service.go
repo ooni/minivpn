@@ -192,7 +192,7 @@ func (ws *workersState) keyWorker(firstKeyReady chan<- any) {
 				ws.logger.Warnf("error on key derivation: %v", err)
 				continue
 			}
-			ws.sessionManager.SetNegotiationState(session.S_GENERATED_KEYS)
+			ws.sessionManager.SetNegotiationState(model.S_GENERATED_KEYS)
 			once.Do(func() {
 				close(firstKeyReady)
 			})

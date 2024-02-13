@@ -86,8 +86,8 @@ func (ws *workersState) blockOnTryingToSend(sender *reliableSender, ticker *time
 			p.packet.Log(ws.logger, model.DirectionOutgoing)
 			ws.tracer.OnOutgoingPacket(
 				p.packet,
-				int(ws.sessionManager.NegotiationState()),
-				int(p.retries),
+				ws.sessionManager.NegotiationState(),
+				p.retries,
 			)
 
 			select {

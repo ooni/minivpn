@@ -12,16 +12,16 @@ type HandshakeTracer interface {
 	TimeNow() time.Time
 
 	// OnStateChange is called for each transition in the state machine.
-	OnStateChange(state int)
+	OnStateChange(state NegotiationState)
 
 	// OnIncomingPacket is called when a packet is received.
-	OnIncomingPacket(packet *Packet, stage int)
+	OnIncomingPacket(packet *Packet, stage NegotiationState)
 
 	// OnOutgoingPacket is called when a packet is about to be sent.
-	OnOutgoingPacket(packet *Packet, stage int, retries int)
+	OnOutgoingPacket(packet *Packet, stage NegotiationState, retries int)
 
 	// OnDroppedPacket is called whenever a packet is dropped (in/out)
-	OnDroppedPacket(direction Direction, stage int, packet *Packet)
+	OnDroppedPacket(direction Direction, stage NegotiationState, packet *Packet)
 }
 
 // Direction is one of two directions on a packet.
@@ -57,16 +57,16 @@ type dummyTracer struct{}
 func (dt *dummyTracer) TimeNow() time.Time { return time.Now() }
 
 // OnStateChange is called for each transition in the state machine.
-func (dt *dummyTracer) OnStateChange(int) {}
+func (dt *dummyTracer) OnStateChange(NegotiationState) {}
 
 // OnIncomingPacket is called when a packet is received.
-func (dt *dummyTracer) OnIncomingPacket(*Packet, int) {}
+func (dt *dummyTracer) OnIncomingPacket(*Packet, NegotiationState) {}
 
 // OnOutgoingPacket is called when a packet is about to be sent.
-func (dt *dummyTracer) OnOutgoingPacket(*Packet, int, int) {}
+func (dt *dummyTracer) OnOutgoingPacket(*Packet, NegotiationState, int) {}
 
 // OnDroppedPacket is called whenever a packet is dropped (in/out)
-func (dt *dummyTracer) OnDroppedPacket(Direction, int, *Packet) {}
+func (dt *dummyTracer) OnDroppedPacket(Direction, NegotiationState, *Packet) {}
 
 // Assert that dummyTracer implements [model.HandshakeTracer].
 var _ HandshakeTracer = &dummyTracer{}

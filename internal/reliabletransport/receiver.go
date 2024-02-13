@@ -31,7 +31,7 @@ func (ws *workersState) moveUpWorker() {
 		// or POSSIBLY BLOCK waiting for notifications
 		select {
 		case packet := <-ws.muxerToReliable:
-			ws.tracer.OnIncomingPacket(packet, int(ws.sessionManager.NegotiationState()))
+			ws.tracer.OnIncomingPacket(packet, ws.sessionManager.NegotiationState())
 
 			if packet.Opcode != model.P_CONTROL_HARD_RESET_SERVER_V2 {
 				// the hard reset has already been logged by the layer below
@@ -63,7 +63,7 @@ func (ws *workersState) moveUpWorker() {
 				// TODO: add reason
 				ws.tracer.OnDroppedPacket(
 					model.DirectionIncoming,
-					int(ws.sessionManager.NegotiationState()),
+					ws.sessionManager.NegotiationState(),
 					packet)
 				ws.logger.Debugf("Dropping packet: %v", packet.ID)
 				continue
