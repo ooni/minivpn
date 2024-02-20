@@ -12,6 +12,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 var (
@@ -50,7 +51,7 @@ type Service struct {
 // 3. keyWorker BLOCKS on keyUp to read a dataChannelKey and
 // initializes the internal state with the resulting key;
 func (s *Service) StartWorkers(
-	config *model.Config,
+	config *config.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {

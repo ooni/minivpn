@@ -7,6 +7,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // test that we can start and stop the workers
@@ -26,7 +27,7 @@ func TestService_StartWorkers(t *testing.T) {
 	session := makeTestingSession()
 
 	opts := makeTestingOptions(t, "AES-128-GCM", "sha512")
-	s.StartWorkers(model.NewConfig(model.WithOpenVPNOptions(opts)), workers, session)
+	s.StartWorkers(config.NewConfig(config.WithOpenVPNOptions(opts)), workers, session)
 
 	keyReady <- makeTestingDataChannelKey()
 	<-session.Ready

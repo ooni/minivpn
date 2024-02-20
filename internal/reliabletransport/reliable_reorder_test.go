@@ -7,6 +7,7 @@ import (
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/vpntest"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // test that we're able to reorder (towards TLS) whatever is received (from the muxer).
@@ -123,7 +124,7 @@ func TestReliable_Reordering_UP(t *testing.T) {
 			t0 := time.Now()
 
 			// let the workers pump up the jam!
-			s.StartWorkers(model.NewConfig(model.WithLogger(log.Log)), workers, session)
+			s.StartWorkers(config.NewConfig(config.WithLogger(log.Log)), workers, session)
 
 			writer := vpntest.NewPacketWriter(dataIn)
 			initializeSessionIDForWriter(writer, session)

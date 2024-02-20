@@ -11,6 +11,7 @@ import (
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/tlssession"
 	"github.com/ooni/minivpn/internal/workers"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // connectChannel connects an existing channel (a "signal" in Qt terminology)
@@ -25,7 +26,7 @@ func connectChannel[T any](signal chan T, slot **chan T) {
 // file for more information about the workers.
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
-func startWorkers(config *model.Config, conn networkio.FramingConn,
+func startWorkers(config *config.Config, conn networkio.FramingConn,
 	sessionManager *session.Manager, tunDevice *TUN) *workers.Manager {
 
 	// create a workers manager

@@ -1,4 +1,4 @@
-package model
+package config
 
 import (
 	"errors"
@@ -624,7 +624,7 @@ func Test_parseTLSVerMax(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			// TODO(ainghazal): this case should probably fail
+			// TODO(ainghazal): this case should fail
 			name:    "default with too many parts",
 			args:    args{p: []string{"1.2", "1.3"}, o: &OpenVPNOptions{}},
 			wantErr: nil,

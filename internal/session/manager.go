@@ -11,6 +11,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/optional"
 	"github.com/ooni/minivpn/internal/runtimex"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // Manager manages the session. The zero value is invalid. Please, construct
@@ -34,7 +35,7 @@ type Manager struct {
 }
 
 // NewManager returns a [Manager] ready to be used.
-func NewManager(config *model.Config) (*Manager, error) {
+func NewManager(config *config.Config) (*Manager, error) {
 	key0 := &DataChannelKey{}
 	sessionManager := &Manager{
 		keyID: 0,

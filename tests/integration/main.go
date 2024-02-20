@@ -15,7 +15,6 @@ import (
 	dc "github.com/ory/dockertest/v3/docker"
 
 	"github.com/ooni/minivpn/extras/ping"
-	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/tun"
 )
@@ -137,7 +136,7 @@ func main() {
 	}
 
 	// actual test begins
-	vpnConfig := model.NewConfig(model.WithConfigFile(cfgFile.Name()))
+	vpnConfig := config.NewConfig(config.WithConfigFile(cfgFile.Name()))
 
 	dialer := networkio.NewDialer(log.Log, &net.Dialer{})
 	conn, err := dialer.DialContext(context.TODO(), vpnConfig.Remote().Protocol, vpnConfig.Remote().Endpoint)

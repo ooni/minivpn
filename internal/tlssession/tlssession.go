@@ -7,6 +7,8 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
+	"github.com/ooni/minivpn/pkg/config"
+
 	tls "github.com/refraction-networking/utls"
 )
 
@@ -42,7 +44,7 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (svc *Service) StartWorkers(
-	config *model.Config,
+	config *config.Config,
 	workersManager *workers.Manager,
 	sessionManager *session.Manager,
 ) {
@@ -63,7 +65,7 @@ func (svc *Service) StartWorkers(
 type workersState struct {
 	logger         model.Logger
 	notifyTLS      <-chan *model.Notification
-	options        *model.OpenVPNOptions
+	options        *config.OpenVPNOptions
 	tlsRecordDown  chan<- []byte
 	tlsRecordUp    <-chan []byte
 	keyUp          chan<- *session.DataChannelKey

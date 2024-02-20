@@ -12,6 +12,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 var (
@@ -21,7 +22,8 @@ var (
 
 // StartTUN initializes and starts the TUN device over the vpn.
 // If the passed context expires before the TUN device is ready,
-func StartTUN(ctx context.Context, conn networkio.FramingConn, config *model.Config) (*TUN, error) {
+// an error will be returned.
+func StartTUN(ctx context.Context, conn networkio.FramingConn, config *config.Config) (*TUN, error) {
 	// create a session
 	sessionManager, err := session.NewManager(config)
 	if err != nil {
