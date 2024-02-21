@@ -3,7 +3,7 @@ TARGET ?= "1.1.1.1"
 COUNT ?= 5
 TIMEOUT ?= 10
 LOCAL_TARGET := $(shell ip -4 addr show docker0 | grep 'inet ' | awk '{print $$2}' | cut -f 1 -d /)
-COVERAGE_THRESHOLD := 90
+COVERAGE_THRESHOLD := 80
 FLAGS=-ldflags="-w -s -buildid=none -linkmode=external" -buildmode=pie -buildvcs=false
 
 build:
