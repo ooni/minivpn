@@ -394,7 +394,7 @@ func Test_parseCA(t *testing.T) {
 }
 
 func Test_parseCert(t *testing.T) {
-	t.Run("more than one part should ", func(t *testing.T) {
+	t.Run("more than one part should fail", func(t *testing.T) {
 		_, err := parseCert([]string{"one", "two"}, &OpenVPNOptions{}, "")
 		wantErr := ErrBadConfig
 		if !errors.Is(err, wantErr) {
