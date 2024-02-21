@@ -49,7 +49,7 @@ func (dck *DataChannelKey) AddRemoteKey(k *KeySource) error {
 	return nil
 }
 
-// AddRemoteKey adds the local keySource to our dataChannelKey.
+// AddLocalKey adds the local keySource to our dataChannelKey.
 func (dck *DataChannelKey) AddLocalKey(k *KeySource) error {
 	dck.mu.Lock()
 	defer dck.mu.Unlock()
