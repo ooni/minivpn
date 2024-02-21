@@ -1,12 +1,3 @@
-// Package bytesx provides functions operating on bytes.
-//
-// Specifically we implement these operations:
-//
-// 1. generating random bytes;
-//
-// 2. OpenVPN options encoding and decoding;
-//
-// 3. PKCS#7 padding and unpadding.
 package bytesx
 
 import (
