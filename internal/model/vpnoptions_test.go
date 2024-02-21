@@ -602,7 +602,7 @@ func Test_parseAuthUser(t *testing.T) {
 	}
 }
 
-// TODO(ainghazal): return options object so that it's testable too
+// TODO(ainghazal): either check returned value or check mutation of the options argument.
 func Test_parseTLSVerMax(t *testing.T) {
 	type args struct {
 		p []string
@@ -624,7 +624,7 @@ func Test_parseTLSVerMax(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			// FIXME this case should probably fail
+			// TODO(ainghazal): this case should probably fail
 			name:    "default with too many parts",
 			args:    args{p: []string{"1.2", "1.3"}, o: &OpenVPNOptions{}},
 			wantErr: nil,
