@@ -300,7 +300,6 @@ func Test_ParseConfigFile(t *testing.T) {
 			t.Errorf("expected error with http uri")
 		}
 	})
-
 }
 
 func Test_parseProto(t *testing.T) {
