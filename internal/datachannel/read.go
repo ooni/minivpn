@@ -13,6 +13,11 @@ import (
 	"github.com/ooni/minivpn/internal/session"
 )
 
+var (
+	ErrTooShort      = errors.New("too short")
+	ErrBadRemoteHMAC = errors.New("bad remote hmac")
+)
+
 func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, session *session.Manager, state *dataChannelState) (*encryptedData, error) {
 	//   P_DATA_V2 GCM data channel crypto format
 	//   48000001 00000005 7e7046bd 444a7e28 cc6387b1 64a4d6c1 380275a...
@@ -21,12 +26,14 @@ func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, session *session.M
 	//   [ - opcode/peer-id - ] [ - packet ID - ] [ TAG ] [ * packet payload * ]
 
 	// preconditions
+	runtimex.Assert(state != nil, "passed nil state")
+	runtimex.Assert(state.dataCipher != nil, "data cipher not initialized")
 
 	if len(buf) == 0 || len(buf) < 20 {
-		return nil, fmt.Errorf("too short: %d bytes", len(buf))
+		return &encryptedData{}, fmt.Errorf("%w: %d bytes", ErrTooShort, len(buf))
 	}
 	if len(state.hmacKeyRemote) < 8 {
-		return nil, fmt.Errorf("bad remote hmac")
+		return &encryptedData{}, ErrBadRemoteHMAC
 	}
 	remoteHMAC := state.hmacKeyRemote[:8]
 	packet_id := buf[:4]
@@ -55,7 +62,7 @@ func decodeEncryptedPayloadAEAD(log model.Logger, buf []byte, session *session.M
 	return encrypted, nil
 }
 
-var errCannotDecode = errors.New("cannot decode")
+var ErrCannotDecode = errors.New("cannot decode")
 
 func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, session *session.Manager, state *dataChannelState) (*encryptedData, error) {
 	runtimex.Assert(state != nil, "passed nil state")
@@ -67,7 +74,7 @@ func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, session *sessio
 	minLen := hashSize + blockSize
 
 	if len(buf) < int(minLen) {
-		return &encryptedData{}, fmt.Errorf("%w: too short (%d bytes)", errCannotDecode, len(buf))
+		return &encryptedData{}, fmt.Errorf("%w: too short (%d bytes)", ErrCannotDecode, len(buf))
 	}
 
 	receivedHMAC := buf[:hashSize]
@@ -81,7 +88,7 @@ func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, session *sessio
 
 	if !hmac.Equal(computedHMAC, receivedHMAC) {
 		log.Warnf("expected: %x, got: %x", computedHMAC, receivedHMAC)
-		return &encryptedData{}, fmt.Errorf("%w: %s", ErrCannotDecrypt, errBadHMAC)
+		return &encryptedData{}, fmt.Errorf("%w: %s", ErrCannotDecrypt, ErrBadHMAC)
 	}
 
 	encrypted := &encryptedData{
@@ -99,10 +106,10 @@ func decodeEncryptedPayloadNonAEAD(log model.Logger, buf []byte, session *sessio
 // successfully.
 func maybeDecompress(b []byte, st *dataChannelState, opt *model.OpenVPNOptions) ([]byte, error) {
 	if st == nil || st.dataCipher == nil {
-		return []byte{}, fmt.Errorf("%w:%s", errBadInput, "bad state")
+		return []byte{}, fmt.Errorf("%w:%s", ErrBadInput, "bad state")
 	}
 	if opt == nil {
-		return []byte{}, fmt.Errorf("%w:%s", errBadInput, "bad options")
+		return []byte{}, fmt.Errorf("%w:%s", ErrBadInput, "bad options")
 	}
 
 	var compr byte // compression type
@@ -110,6 +117,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *model.OpenVPNOptions) 
 
 	// TODO(ainghazal): have two different decompress implementations
 	// instead of this switch
+
 	switch st.dataCipher.isAEAD() {
 	case true:
 		switch opt.Compress {
@@ -128,7 +136,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *model.OpenVPNOptions) 
 			return payload, err
 		}
 		if remotePacketID <= lastKnownRemote {
-			return []byte{}, errReplayAttack
+			return []byte{}, ErrReplayAttack
 		}
 		st.SetRemotePacketID(remotePacketID)
 
@@ -157,8 +165,7 @@ func maybeDecompress(b []byte, st *dataChannelState, opt *model.OpenVPNOptions) 
 		// http://build.openvpn.net/doxygen/comp_8h_source.html
 		// see: https://community.openvpn.net/openvpn/ticket/952#comment:5
 	default:
-		errMsg := fmt.Sprintf("cannot handle compression:%x", compr)
-		return []byte{}, fmt.Errorf("%w:%s", errBadCompression, errMsg)
+		return []byte{}, fmt.Errorf("%w: cannot handle compression %x", errBadCompression, compr)
 	}
 	return payload, nil
 }

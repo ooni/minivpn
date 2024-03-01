@@ -113,7 +113,6 @@ func (ws *workersState) moveDownWorker(firstKeyReady <-chan any) {
 					ws.logger.Warnf("error encrypting: %v", err)
 					continue
 				}
-				// ws.logger.Infof("encrypted %d bytes", len(packet.Payload))
 
 				select {
 				case ws.dataOrControlToMuxer <- packet:
@@ -154,7 +153,7 @@ func (ws *workersState) moveUpWorker() {
 			}
 
 			if len(decrypted) == 16 {
-				// HACK - figure out what this fixed packet is. keepalive?
+				// TODO: should reply to this keepalive ping
 				// "2a 18 7b f3 64 1e b4 cb  07 ed 2d 0a 98 1f c7 48"
 				fmt.Println(hex.Dump(decrypted))
 				continue
@@ -183,7 +182,7 @@ func (ws *workersState) keyWorker(firstKeyReady chan<- any) {
 	for {
 		select {
 		case key := <-ws.keyReady:
-			// TODO(keyrotation): thread safety here - need to lock.
+			// TODO(ainghazal): thread safety here - need to lock.
 			// When we actually get to key rotation, we need to add locks.
 			// Use RW lock, reader locks.
 

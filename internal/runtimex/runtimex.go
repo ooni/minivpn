@@ -1,19 +1,22 @@
 // Package runtimex contains [runtime] extensions.
 package runtimex
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // PanicIfFalse calls panic with the given message if the given statement is false.
-func PanicIfFalse(stmt bool, message interface{}) {
+func PanicIfFalse(stmt bool, message string) {
 	if !stmt {
-		panic(message)
+		panic(errors.New(message))
 	}
 }
 
 // PanicIfTrue calls panic with the given message if the given statement is true.
-func PanicIfTrue(stmt bool, message interface{}) {
+func PanicIfTrue(stmt bool, message string) {
 	if stmt {
-		panic(message)
+		panic(errors.New(message))
 	}
 }
 

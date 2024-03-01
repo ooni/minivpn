@@ -12,7 +12,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"errors"
 	"fmt"
 	"hash"
 	"log"
@@ -126,7 +125,7 @@ func (a *dataCipherAES) blockSize() uint8 {
 func (a *dataCipherAES) decrypt(key []byte, data *encryptedData) ([]byte, error) {
 	// TODO(ainghazal): split this function, it's too large
 	if len(key) < a.keySizeBytes() {
-		return nil, errInvalidKeySize
+		return nil, ErrInvalidKeySize
 	}
 
 	// they key material might be longer
@@ -147,14 +146,6 @@ func (a *dataCipherAES) decrypt(key []byte, data *encryptedData) ([]byte, error)
 		if err != nil {
 			return nil, err
 		}
-		padLen := len(data.ciphertext) - len(plaintext)
-		if padLen > block.BlockSize() || padLen > len(plaintext) {
-			// TODO(bassosimone, ainghazal): discuss the cases in which
-			// this set of conditions actually occurs.
-			// TODO(ainghazal): this assertion might actually be moved into a
-			// boundary assertion in the unpad fun.
-			return nil, errors.New("unpadding error")
-		}
 		return plaintext, nil
 
 	case cipherModeGCM:
@@ -171,21 +162,12 @@ func (a *dataCipherAES) decrypt(key []byte, data *encryptedData) ([]byte, error)
 		plaintext, err := aesGCM.Open(nil, data.iv, data.ciphertext, data.aead)
 		if err != nil {
 			log.Println("gdm decryption failed:", err.Error())
-			/*
-				log.Println("dump begins----")
-				log.Println("len:", len(data.ciphertext))
-				log.Println("iv:", data.iv)
-				log.Printf("%v\n", data.ciphertext)
-				log.Printf("%x\n", data.ciphertext)
-				log.Printf("aead: %x\n", data.aead)
-				log.Println("dump ends------")
-			*/
 			return nil, err
 		}
 		return plaintext, nil
 
 	default:
-		return nil, errUnsupportedMode
+		return nil, ErrUnsupportedMode
 	}
 }
 
@@ -198,7 +180,7 @@ func (a *dataCipherAES) cipherMode() cipherMode {
 // our key size.
 func (a *dataCipherAES) encrypt(key []byte, data *plaintextData) ([]byte, error) {
 	if len(key) < a.keySizeBytes() {
-		return nil, errInvalidKeySize
+		return nil, ErrInvalidKeySize
 	}
 	k := key[:a.keySizeBytes()]
 	block, err := aes.NewCipher(k)
@@ -238,7 +220,7 @@ func (a *dataCipherAES) encrypt(key []byte, data *plaintextData) ([]byte, error)
 		return ciphertext, nil
 
 	default:
-		return nil, errUnsupportedMode
+		return nil, ErrUnsupportedMode
 	}
 }
 
@@ -256,24 +238,24 @@ func newDataCipherFromCipherSuite(c string) (dataCipher, error) {
 	case "AES-256-GCM":
 		return newDataCipher(cipherNameAES, 256, cipherModeGCM)
 	default:
-		return nil, errUnsupportedCipher
+		return nil, ErrUnsupportedCipher
 	}
 }
 
 // newDataCipher constructs a new dataCipher from the given name, bits, and mode.
 func newDataCipher(name cipherName, bits int, mode cipherMode) (dataCipher, error) {
 	if bits%8 != 0 || bits > 512 || bits < 64 {
-		return nil, fmt.Errorf("%w: %d", errInvalidKeySize, bits)
+		return nil, fmt.Errorf("%w: %d", ErrInvalidKeySize, bits)
 	}
 	switch name {
 	case cipherNameAES:
 	default:
-		return nil, fmt.Errorf("%w: %s", errUnsupportedCipher, name)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedCipher, name)
 	}
 	switch mode {
 	case cipherModeCBC, cipherModeGCM:
 	default:
-		return nil, fmt.Errorf("%w: %s", errUnsupportedMode, mode)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedMode, mode)
 	}
 	dc := &dataCipherAES{
 		ksb:  bits / 8,

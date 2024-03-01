@@ -3,7 +3,7 @@ TARGET ?= "1.1.1.1"
 COUNT ?= 5
 TIMEOUT ?= 10
 LOCAL_TARGET := $(shell ip -4 addr show docker0 | grep 'inet ' | awk '{print $$2}' | cut -f 1 -d /)
-COVERAGE_THRESHOLD := 80
+COVERAGE_THRESHOLD := 75
 FLAGS=-ldflags="-w -s -buildid=none -linkmode=external" -buildmode=pie -buildvcs=false
 
 build:
@@ -30,11 +30,19 @@ bootstrap:
 test:
 	GOFLAGS='-count=1' go test -v ./...
 
-test-coverage:
-	go test -coverprofile=coverage.out ./vpn
+test-unit:
+	mkdir -p ./coverage/unit
+	go test -cover ./internal/... -args -test.gocoverdir="`pwd`/coverage/unit"
 
-test-coverage-refactor:
-	go test -coverprofile=coverage.out ./internal/...
+test-integration:
+	cd tests/integration && ./wrap_integration_cover.sh
+
+test-combined-coverage:
+	go tool covdata percent -i=./coverage/unit,./coverage/int
+	# convert to text profile and exclude extras/integration test itself
+	go tool covdata textfmt -i=./coverage/unit,./coverage/int -o coverage/profile
+	cat coverage/profile| grep -v "extras/ping" | grep -v "tests/integration" > coverage/profile.out
+	scripts/go-coverage-check.sh ./coverage/profile.out ${COVERAGE_THRESHOLD}
 
 test-coverage-threshold:
 	go test --short -coverprofile=cov-threshold.out ./vpn

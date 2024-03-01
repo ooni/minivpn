@@ -23,17 +23,15 @@ type dataChannelState struct {
 	hmacKeyLocal    keySlot
 	hmacKeyRemote   keySlot
 
-	/*
-		// not used at the moment, paving the way for key rotation.
-		keyID           int
-	*/
-
 	// TODO(ainghazal): we need to keep a local packetID too. It should be separated from the control channel.
 	// TODO: move this to sessionManager perhaps?
 	remotePacketID model.PacketID
 
 	hash func() hash.Hash
 	mu   sync.Mutex
+
+	// not used at the moment, paving the way for key rotation.
+	// keyID           int
 }
 
 // SetRemotePacketID stores the passed packetID internally.
@@ -52,7 +50,7 @@ func (dcs *dataChannelState) RemotePacketID() (model.PacketID, error) {
 	pid := dcs.remotePacketID
 	if pid == math.MaxUint32 {
 		// we reached the max packetID, increment will overflow
-		return 0, errExpiredKey
+		return 0, ErrExpiredKey
 	}
 	return pid, nil
 }

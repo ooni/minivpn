@@ -1,4 +1,3 @@
-// Package model contains common data models.
 package model
 
 // Logger is the generic logger definition.

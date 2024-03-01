@@ -155,6 +155,7 @@ type Packet struct {
 	// includes sequence number and optional time_t timestamp".
 	//
 	// This library does not use the timestamp.
+	// TODO(ainghazal): use optional.Value (only control packets have packet id)
 	ID PacketID
 
 	// Payload is the packet's payload.
@@ -167,10 +168,12 @@ var ErrPacketTooShort = errors.New("openvpn: packet too short")
 // ParsePacket produces a packet after parsing the common header. We assume that
 // the underlying connection has already stripped out the framing.
 func ParsePacket(buf []byte) (*Packet, error) {
-	// parsing opcode and keyID
+	// a valid packet is larger, but this allows us
+	// to keep parsing a non-data packet.
 	if len(buf) < 2 {
 		return nil, ErrPacketTooShort
 	}
+	// parsing opcode and keyID
 	opcode := Opcode(buf[0] >> 3)
 	keyID := buf[0] & 0x07
 
@@ -207,6 +210,20 @@ func ParsePacket(buf []byte) (*Packet, error) {
 		Payload:         payload,
 	}
 	return p, nil
+}
+
+// NewPacket returns a packet from the passed arguments: opcode, keyID and a raw payload.
+func NewPacket(opcode Opcode, keyID uint8, payload []byte) *Packet {
+	return &Packet{
+		Opcode:          opcode,
+		KeyID:           keyID,
+		PeerID:          [3]byte{},
+		LocalSessionID:  [8]byte{},
+		ACKs:            []PacketID{},
+		RemoteSessionID: [8]byte{},
+		ID:              0,
+		Payload:         payload,
+	}
 }
 
 // ErrEmptyPayload indicates tha the payload of an OpenVPN control packet is empty.
@@ -273,22 +290,8 @@ func parseControlOrACKPacket(opcode Opcode, keyID byte, payload []byte) (*Packet
 	return p, nil
 }
 
-// NewPacket returns a packet from the passed arguments: opcode, keyID and a raw payload.
-func NewPacket(opcode Opcode, keyID uint8, payload []byte) *Packet {
-	return &Packet{
-		Opcode:          opcode,
-		KeyID:           keyID,
-		PeerID:          [3]byte{},
-		LocalSessionID:  [8]byte{},
-		ACKs:            []PacketID{},
-		RemoteSessionID: [8]byte{},
-		ID:              0,
-		Payload:         payload,
-	}
-}
-
 // ErrMarshalPacket is the error returned when we cannot marshal a packet.
-var ErrMarshalPacket = errors.New("openvpn: cannot marshal packet")
+var ErrMarshalPacket = errors.New("cannot marshal packet")
 
 // Bytes returns a byte array that is ready to be sent on the wire.
 func (p *Packet) Bytes() ([]byte, error) {
@@ -332,6 +335,12 @@ func (p *Packet) IsControl() bool {
 // IsData returns true if the packet is of data type.
 func (p *Packet) IsData() bool {
 	return p.Opcode.IsData()
+}
+
+var pingPayload = []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
+
+func (p *Packet) IsPing() bool {
+	return bytes.Equal(pingPayload, p.Payload)
 }
 
 // Log writes an entry in the passed logger with a representation of this packet.

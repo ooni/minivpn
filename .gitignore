@@ -1,8 +1,4 @@
 /minivpn
-/vpnping
-/obfs4vpn
-/geturl
-/ndt7
 .vscode
 *.swp
 *.swo
@@ -11,3 +7,4 @@
 /*.out
 data/*
 measurements/*
+coverage/*

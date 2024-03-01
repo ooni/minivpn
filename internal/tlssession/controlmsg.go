@@ -14,6 +14,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
+	"strings"
 
 	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
@@ -131,9 +134,58 @@ func parseServerPushReply(logger model.Logger, resp []byte) (*model.TunnelInfo, 
 		return nil, fmt.Errorf("%w:%s", errBadServerReply, "expected push reply")
 	}
 
-	// TODO(bassosimone): consider moving the two functions below in this package
-	optsMap := model.PushedOptionsAsMap(resp)
+	optsMap := pushedOptionsAsMap(resp)
 	logger.Infof("Server pushed options: %v", optsMap)
-	ti := model.NewTunnelInfoFromPushedOptions(optsMap)
+	ti := newTunnelInfoFromPushedOptions(optsMap)
 	return ti, nil
+}
+
+type remoteOptions map[string][]string
+
+// newTunnelInfoFromPushedOptions takes a remoteOptions map, and returns
+// a new tunnel struct with the relevant info.
+func newTunnelInfoFromPushedOptions(opts remoteOptions) *model.TunnelInfo {
+	t := &model.TunnelInfo{}
+	if r := opts["route"]; len(r) >= 1 {
+		t.GW = r[0]
+	} else if r := opts["route-gateway"]; len(r) >= 1 {
+		t.GW = r[0]
+	}
+	ifconfig := opts["ifconfig"]
+	if len(ifconfig) >= 1 {
+		t.IP = ifconfig[0]
+	}
+	if len(ifconfig) >= 2 {
+		t.NetMask = ifconfig[1]
+	}
+	peerID := opts["peer-id"]
+	if len(peerID) == 1 {
+		peer, err := strconv.Atoi(peerID[0])
+		if err != nil {
+			log.Println("Cannot parse peer-id:", err.Error())
+		} else {
+			t.PeerID = peer
+		}
+	}
+	return t
+}
+
+// pushedOptionsAsMap returns a map for the server-pushed options,
+// where the options are the keys and each space-separated value is the value.
+// This function always returns an initialized map, even if empty.
+func pushedOptionsAsMap(pushedOptions []byte) remoteOptions {
+	optMap := make(remoteOptions)
+	if len(pushedOptions) == 0 {
+		return optMap
+	}
+
+	optStr := string(pushedOptions[:len(pushedOptions)-1])
+
+	opts := strings.Split(optStr, ",")
+	for _, opt := range opts {
+		vals := strings.Split(opt, " ")
+		k, v := vals[0], vals[1:]
+		optMap[k] = v
+	}
+	return optMap
 }
