@@ -1,4 +1,4 @@
-package model
+package config
 
 import (
 	"os"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/ooni/minivpn/internal/model"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -19,14 +20,14 @@ func TestNewConfig(t *testing.T) {
 		}
 	})
 	t.Run("WithLogger sets the logger", func(t *testing.T) {
-		testLogger := newTestLogger()
+		testLogger := model.NewTestLogger()
 		c := NewConfig(WithLogger(testLogger))
 		if c.Logger() != testLogger {
 			t.Errorf("expected logger to be set to the configured one")
 		}
 	})
 	t.Run("WithTracer sets the tracer", func(t *testing.T) {
-		testTracer := newTestTracer()
+		testTracer := model.HandshakeTracer(model.DummyTracer{})
 		c := NewConfig(WithHandshakeTracer(testTracer))
 		if c.Tracer() != testTracer {
 			t.Errorf("expected tracer to be set to the configured one")

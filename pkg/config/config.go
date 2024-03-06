@@ -1,9 +1,10 @@
-package model
+package config
 
 import (
 	"net"
 
 	"github.com/apex/log"
+	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/runtimex"
 )
 
@@ -13,10 +14,10 @@ type Config struct {
 	openvpnOptions *OpenVPNOptions
 
 	// logger will be used to log events.
-	logger Logger
+	logger model.Logger
 
 	// if a tracer is provided, it will be used to trace the openvpn handshake.
-	tracer HandshakeTracer
+	tracer model.HandshakeTracer
 }
 
 // NewConfig returns a Config ready to intialize a vpn tunnel.
@@ -24,7 +25,7 @@ func NewConfig(options ...Option) *Config {
 	cfg := &Config{
 		openvpnOptions: &OpenVPNOptions{},
 		logger:         log.Log,
-		tracer:         &dummyTracer{},
+		tracer:         &model.DummyTracer{},
 	}
 	for _, opt := range options {
 		opt(cfg)
@@ -36,26 +37,26 @@ func NewConfig(options ...Option) *Config {
 type Option func(config *Config)
 
 // WithLogger configures the passed [Logger].
-func WithLogger(logger Logger) Option {
+func WithLogger(logger model.Logger) Option {
 	return func(config *Config) {
 		config.logger = logger
 	}
 }
 
 // Logger returns the configured logger.
-func (c *Config) Logger() Logger {
+func (c *Config) Logger() model.Logger {
 	return c.logger
 }
 
 // WithHandshakeTracer configures the passed [HandshakeTracer].
-func WithHandshakeTracer(tracer HandshakeTracer) Option {
+func WithHandshakeTracer(tracer model.HandshakeTracer) Option {
 	return func(config *Config) {
 		config.tracer = tracer
 	}
 }
 
 // Tracer returns the handshake tracer.
-func (c *Config) Tracer() HandshakeTracer {
+func (c *Config) Tracer() model.HandshakeTracer {
 	return c.tracer
 }
 

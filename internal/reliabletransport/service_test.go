@@ -7,6 +7,7 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/workers"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // test that we can start and stop the workers
@@ -18,7 +19,7 @@ func TestService_StartWorkers(t *testing.T) {
 		ReliableToControl    *chan *model.Packet
 	}
 	type args struct {
-		config         *model.Config
+		config         *config.Config
 		workersManager *workers.Manager
 		sessionManager *session.Manager
 	}
@@ -42,10 +43,10 @@ func TestService_StartWorkers(t *testing.T) {
 				}(),
 			},
 			args: args{
-				config:         model.NewConfig(model.WithLogger(log.Log)),
+				config:         config.NewConfig(config.WithLogger(log.Log)),
 				workersManager: workers.NewManager(log.Log),
 				sessionManager: func() *session.Manager {
-					m, _ := session.NewManager(model.NewConfig(model.WithLogger(log.Log)))
+					m, _ := session.NewManager(config.NewConfig(config.WithLogger(log.Log)))
 					return m
 				}(),
 			},

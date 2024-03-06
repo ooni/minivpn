@@ -7,6 +7,7 @@ import (
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/vpntest"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // test that everything that is sent eventually arrives in bounded time, in the pressence of losses.
@@ -250,7 +251,7 @@ func TestReliable_WithLoss(t *testing.T) {
 			t0 := time.Now()
 
 			// let the workers pump up the jam!
-			s.StartWorkers(model.NewConfig(model.WithLogger(log.Log)), workers, session)
+			s.StartWorkers(config.NewConfig(config.WithLogger(log.Log)), workers, session)
 
 			writer := vpntest.NewPacketWriter(dataIn)
 			go writer.WriteSequenceWithFixedPayload(tt.args.inputSequence, tt.args.inputPayload, 3)

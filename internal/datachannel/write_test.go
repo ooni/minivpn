@@ -9,10 +9,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/apex/log"
-	"github.com/google/go-cmp/cmp"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/pkg/config"
+
+	"github.com/apex/log"
+	"github.com/google/go-cmp/cmp"
 )
 
 func Test_encryptAndEncodePayloadAEAD(t *testing.T) {
@@ -127,7 +129,7 @@ func Test_encryptAndEncodePayloadNonAEAD(t *testing.T) {
 // Regression test for MIV-01-003
 func Test_Crash_EncryptAndEncodePayload(t *testing.T) {
 	t.Run("improperly initialized dataCipher should panic", func(t *testing.T) {
-		opt := &model.OpenVPNOptions{}
+		opt := &config.OpenVPNOptions{}
 		st := &dataChannelState{
 			hash:            sha1.New,
 			cipherKeyLocal:  *(*keySlot)(bytes.Repeat([]byte{0x65}, 64)),
@@ -152,7 +154,7 @@ type encryptEncodeFn func(model.Logger, []byte, *session.Manager, *dataChannelSt
 
 func Test_data_EncryptAndEncodePayload(t *testing.T) {
 	type fields struct {
-		options *model.OpenVPNOptions
+		options *config.OpenVPNOptions
 		session *session.Manager
 		state   *dataChannelState
 	}
@@ -170,7 +172,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 		{
 			name: "dummy encryptEncodeFn does not fail",
 			fields: fields{
-				options: &model.OpenVPNOptions{Compress: model.CompressionEmpty},
+				options: &config.OpenVPNOptions{Compress: config.CompressionEmpty},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 			},
@@ -186,7 +188,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 		{
 			name: "empty plaintext fails",
 			fields: fields{
-				options: &model.OpenVPNOptions{Compress: model.CompressionEmpty},
+				options: &config.OpenVPNOptions{Compress: config.CompressionEmpty},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 			},
@@ -202,7 +204,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 		{
 			name: "error on encryptEncodeFn gets propagated",
 			fields: fields{
-				options: &model.OpenVPNOptions{Compress: model.CompressionEmpty},
+				options: &config.OpenVPNOptions{Compress: config.CompressionEmpty},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 			},
@@ -239,7 +241,7 @@ func Test_data_EncryptAndEncodePayload(t *testing.T) {
 func Test_doCompress(t *testing.T) {
 	type args struct {
 		b   []byte
-		opt model.Compression
+		opt config.Compression
 	}
 	tests := []struct {
 		name    string
@@ -298,7 +300,7 @@ func Test_doCompress(t *testing.T) {
 func Test_doPadding(t *testing.T) {
 	type args struct {
 		b         []byte
-		compress  model.Compression
+		compress  config.Compression
 		blockSize uint8
 	}
 	tests := []struct {
@@ -311,7 +313,7 @@ func Test_doPadding(t *testing.T) {
 			name: "add a whole padding block if len equal to block size, no padding stub",
 			args: args{
 				b:         []byte{0x00, 0x01, 0x02, 0x03},
-				compress:  model.Compression(""),
+				compress:  config.Compression(""),
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x04, 0x04, 0x04},
@@ -321,7 +323,7 @@ func Test_doPadding(t *testing.T) {
 			name: "compression stub with len == blocksize",
 			args: args{
 				b:         []byte{0x00, 0x01, 0x02, 0x03},
-				compress:  model.CompressionStub,
+				compress:  config.CompressionStub,
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0x03},
@@ -331,7 +333,7 @@ func Test_doPadding(t *testing.T) {
 			name: "compression stub with len < blocksize",
 			args: args{
 				b:         []byte{0x00, 0x01, 0xff},
-				compress:  model.CompressionStub,
+				compress:  config.CompressionStub,
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0xff},
@@ -341,7 +343,7 @@ func Test_doPadding(t *testing.T) {
 			name: "compression stub with len = blocksize + 1",
 			args: args{
 				b:         []byte{0x00, 0x01, 0x02, 0x03, 0xff},
-				compress:  model.CompressionStub,
+				compress:  config.CompressionStub,
 				blockSize: 4,
 			},
 			want:    []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x04, 0x04, 0xff},
@@ -409,7 +411,7 @@ func Test_maybeDecompress(t *testing.T) {
 	type args struct {
 		b   []byte
 		st  *dataChannelState
-		opt *model.OpenVPNOptions
+		opt *config.OpenVPNOptions
 	}
 	tests := []struct {
 		name    string
@@ -422,7 +424,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{},
 				st:  nil,
-				opt: &model.OpenVPNOptions{},
+				opt: &config.OpenVPNOptions{},
 			},
 			want:    []byte{},
 			wantErr: ErrBadInput,
@@ -442,7 +444,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0xaa, 0xbb, 0xcc},
 				st:  makeTestingStateAEAD(),
-				opt: &model.OpenVPNOptions{},
+				opt: &config.OpenVPNOptions{},
 			},
 			want:    []byte{0xaa, 0xbb, 0xcc},
 			wantErr: nil,
@@ -452,7 +454,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0xfa, 0xbb, 0xcc},
 				st:  makeTestingStateAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "stub"},
+				opt: &config.OpenVPNOptions{Compress: "stub"},
 			},
 			want:    []byte{0xbb, 0xcc},
 			wantErr: nil,
@@ -462,7 +464,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0xfb, 0xbb, 0xcc, 0xdd},
 				st:  makeTestingStateAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "stub"},
+				opt: &config.OpenVPNOptions{Compress: "stub"},
 			},
 			want:    []byte{0xdd, 0xbb, 0xcc},
 			wantErr: nil,
@@ -472,7 +474,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0xff, 0xbb, 0xcc},
 				st:  makeTestingStateAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "stub"},
+				opt: &config.OpenVPNOptions{Compress: "stub"},
 			},
 			want:    []byte{},
 			wantErr: errBadCompression,
@@ -482,7 +484,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0xfa, 0xbb, 0xcc},
 				st:  makeTestingStateAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "lzo-no"},
+				opt: &config.OpenVPNOptions{Compress: "lzo-no"},
 			},
 			want:    []byte{0xbb, 0xcc},
 			wantErr: nil,
@@ -492,7 +494,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0x00, 0xbb, 0xcc},
 				st:  makeTestingStateAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "no"},
+				opt: &config.OpenVPNOptions{Compress: "no"},
 			},
 			want:    []byte{0x00, 0xbb, 0xcc},
 			wantErr: nil,
@@ -502,7 +504,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0x00, 0x00, 0x00, 0x43, 0x00, 0xbb, 0xcc},
 				st:  getStateForDecompressTestNonAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "stub"},
+				opt: &config.OpenVPNOptions{Compress: "stub"},
 			},
 			want:    []byte{0xbb, 0xcc},
 			wantErr: nil,
@@ -512,7 +514,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0x00, 0x00, 0x00, 0x43, 0x0ff, 0xbb, 0xcc},
 				st:  getStateForDecompressTestNonAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "stub"},
+				opt: &config.OpenVPNOptions{Compress: "stub"},
 			},
 			want:    []byte{},
 			wantErr: errBadCompression,
@@ -522,7 +524,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0x00, 0x00, 0x00, 0x43, 0x00, 0xbb, 0xcc},
 				st:  getStateForDecompressTestNonAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "no"},
+				opt: &config.OpenVPNOptions{Compress: "no"},
 			},
 			want:    []byte{0x00, 0xbb, 0xcc},
 			wantErr: nil,
@@ -532,7 +534,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0x00, 0x00, 0x00, 0x42, 0x00, 0xbb, 0xcc},
 				st:  getStateForDecompressTestNonAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "stub"},
+				opt: &config.OpenVPNOptions{Compress: "stub"},
 			},
 			want:    []byte{},
 			wantErr: ErrReplayAttack,
@@ -542,7 +544,7 @@ func Test_maybeDecompress(t *testing.T) {
 			args: args{
 				b:   []byte{0x00, 0x00, 0x00, 0x42, 0x00, 0xbb, 0xcc},
 				st:  getStateForDecompressTestNonAEAD(),
-				opt: &model.OpenVPNOptions{Compress: "stub"},
+				opt: &config.OpenVPNOptions{Compress: "stub"},
 			},
 			want:    []byte{},
 			wantErr: ErrReplayAttack,

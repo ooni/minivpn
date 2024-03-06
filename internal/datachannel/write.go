@@ -13,6 +13,7 @@ import (
 	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // encryptAndEncodePayloadAEAD peforms encryption and encoding of the payload in AEAD modes (i.e., AES-GCM).
@@ -109,7 +110,7 @@ func encryptAndEncodePayloadNonAEAD(log model.Logger, padded []byte, session *se
 // and it adds the compression preamble, according to the spec. compression
 // lzo-no also adds a preamble. It returns a byte array and an error if the
 // operation could not be completed.
-func doCompress(b []byte, compress model.Compression) ([]byte, error) {
+func doCompress(b []byte, compress config.Compression) ([]byte, error) {
 	switch compress {
 	case "stub":
 		// compression stub: send first byte to last
@@ -129,7 +130,7 @@ var errPadding = errors.New("padding error")
 // needed. if we're using the compression stub the padding is applied without taking the
 // trailing bit into account. it returns the resulting byte array, and an error
 // if the operatio could not be completed.
-func doPadding(b []byte, compress model.Compression, blockSize uint8) ([]byte, error) {
+func doPadding(b []byte, compress config.Compression, blockSize uint8) ([]byte, error) {
 	if len(b) == 0 {
 		return nil, fmt.Errorf("%w: %s", errPadding, "nothing to pad")
 	}

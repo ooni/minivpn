@@ -8,6 +8,7 @@ import (
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/vpntest"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // test that everything that is received from below is eventually ACKed to the sender.
@@ -128,7 +129,7 @@ func TestReliable_ACK(t *testing.T) {
 			t0 := time.Now()
 
 			// let the workers pump up the jam!
-			s.StartWorkers(model.NewConfig(model.WithLogger(log.Log)), workers, session)
+			s.StartWorkers(config.NewConfig(config.WithLogger(log.Log)), workers, session)
 
 			writer := vpntest.NewPacketWriter(dataIn)
 

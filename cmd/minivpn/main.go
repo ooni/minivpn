@@ -15,11 +15,10 @@ import (
 	"github.com/jackpal/gateway"
 
 	"github.com/ooni/minivpn/extras/ping"
-	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/internal/networkio"
 	"github.com/ooni/minivpn/internal/runtimex"
-	"github.com/ooni/minivpn/internal/tun"
+	"github.com/ooni/minivpn/pkg/config"
 	"github.com/ooni/minivpn/pkg/tracex"
+	"github.com/ooni/minivpn/pkg/tunnel"
 )
 
 func runCmd(binaryPath string, args ...string) {
@@ -41,7 +40,7 @@ func runRoute(args ...string) {
 	runCmd("/sbin/route", args...)
 }
 
-type config struct {
+type cmdConfig struct {
 	configPath string
 	doPing     bool
 	doTrace    bool
@@ -52,7 +51,7 @@ type config struct {
 func main() {
 	log.SetLevel(log.DebugLevel)
 
-	cfg := &config{}
+	cfg := &cmdConfig{}
 	flag.StringVar(&cfg.configPath, "config", "", "config file to load")
 	flag.BoolVar(&cfg.doPing, "ping", false, "if true, do ping and exit (for testing)")
 	flag.BoolVar(&cfg.doTrace, "trace", false, "if true, do a trace of the handshake and exit (for testing)")
@@ -68,9 +67,9 @@ func main() {
 	log.SetHandler(NewHandler(os.Stderr))
 	log.SetLevel(log.DebugLevel)
 
-	opts := []model.Option{
-		model.WithConfigFile(cfg.configPath),
-		model.WithLogger(log.Log),
+	opts := []config.Option{
+		config.WithConfigFile(cfg.configPath),
+		config.WithLogger(log.Log),
 	}
 
 	start := time.Now()
@@ -78,7 +77,7 @@ func main() {
 	var tracer *tracex.Tracer
 	if cfg.doTrace {
 		tracer = tracex.NewTracer(start)
-		opts = append(opts, model.WithHandshakeTracer(tracer))
+		opts = append(opts, config.WithHandshakeTracer(tracer))
 		defer func() {
 			trace := tracer.Trace()
 			jsonData, err := json.MarshalIndent(trace, "", "  ")
@@ -89,34 +88,22 @@ func main() {
 		}()
 	}
 
-	config := model.NewConfig(opts...)
-
-	// connect to the server
-	dialer := networkio.NewDialer(log.Log, &net.Dialer{})
-	ctx := context.Background()
-
-	proto := config.Remote().Protocol
-	addr := config.Remote().Endpoint
-
-	conn, err := dialer.DialContext(ctx, proto, addr)
-	if err != nil {
-		log.WithError(err).Error("dialer.DialContext")
-		return
-	}
-
 	// The TLS will expire in 60 seconds by default, but we can pass
 	// a shorter timeout.
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(cfg.timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.timeout)*time.Second)
 	defer cancel()
 
+	// create config from the passed options
+	vpncfg := config.NewConfig(opts...)
+
 	// create a vpn tun Device
-	tunnel, err := tun.StartTUN(ctx, conn, config)
+	tun, err := tunnel.Start(ctx, &net.Dialer{}, vpncfg)
 	if err != nil {
 		log.WithError(err).Error("init error")
 		return
 	}
-	log.Infof("Local IP: %s\n", tunnel.LocalAddr())
-	log.Infof("Gateway:  %s\n", tunnel.RemoteAddr())
+	log.Infof("Local IP: %s\n", tun.LocalAddr())
+	log.Infof("Gateway:  %s\n", tun.RemoteAddr())
 
 	fmt.Println("initialization-sequence-completed")
 	fmt.Printf("elapsed: %v\n", time.Since(start))
@@ -126,7 +113,7 @@ func main() {
 	}
 
 	if cfg.doPing {
-		pinger := ping.New("8.8.8.8", tunnel)
+		pinger := ping.New("8.8.8.8", tun)
 		count := 5
 		pinger.Count = count
 
@@ -151,9 +138,9 @@ func main() {
 	MTU := 1420
 	iface.SetMTU(MTU)
 
-	localAddr := tunnel.LocalAddr().String()
-	remoteAddr := tunnel.RemoteAddr().String()
-	netMask := tunnel.NetMask()
+	localAddr := tun.LocalAddr().String()
+	remoteAddr := tun.RemoteAddr().String()
+	netMask := tun.NetMask()
 
 	// discover local gateway IP, we need it to add a route to our remote via our network gw
 	defaultGatewayIP, err := gateway.DiscoverGateway()
@@ -170,8 +157,8 @@ func main() {
 	}
 
 	if defaultGatewayIP != nil && defaultInterface != nil {
-		log.Infof("route add %s gw %v dev %s", config.Remote().IPAddr, defaultGatewayIP, defaultInterface.Name)
-		runRoute("add", config.Remote().IPAddr, "gw", defaultGatewayIP.String(), defaultInterface.Name)
+		log.Infof("route add %s gw %v dev %s", vpncfg.Remote().IPAddr, defaultGatewayIP, defaultInterface.Name)
+		runRoute("add", vpncfg.Remote().IPAddr, "gw", defaultGatewayIP.String(), defaultInterface.Name)
 	}
 
 	// we want the network CIDR for setting up the routes
@@ -194,13 +181,13 @@ func main() {
 			if err != nil {
 				log.WithError(err).Fatal("error reading from tun")
 			}
-			tunnel.Write(packet[:n])
+			tun.Write(packet[:n])
 		}
 	}()
 	go func() {
 		for {
 			packet := make([]byte, 2000)
-			n, err := tunnel.Read(packet)
+			n, err := tun.Read(packet)
 			if err != nil {
 				log.WithError(err).Fatal("error reading from tun")
 			}

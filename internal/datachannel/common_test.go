@@ -10,18 +10,19 @@ import (
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/session"
 	"github.com/ooni/minivpn/internal/vpntest"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 func makeTestingSession() *session.Manager {
-	manager, err := session.NewManager(model.NewConfig())
+	manager, err := session.NewManager(config.NewConfig())
 	runtimex.PanicOnError(err, "could not get session manager")
 	manager.SetRemoteSessionID(model.SessionID{0x01})
 	return manager
 }
 
-func makeTestingOptions(t *testing.T, cipher, auth string) *model.OpenVPNOptions {
+func makeTestingOptions(t *testing.T, cipher, auth string) *config.OpenVPNOptions {
 	crt, _ := vpntest.WriteTestingCerts(t.TempDir())
-	opt := &model.OpenVPNOptions{
+	opt := &config.OpenVPNOptions{
 		Cipher:   cipher,
 		Auth:     auth,
 		CertPath: crt.Cert,

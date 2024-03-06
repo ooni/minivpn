@@ -5,6 +5,7 @@ import (
 
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/workers"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 var (
@@ -26,7 +27,7 @@ type Service struct {
 //
 // [ARCHITECTURE]: https://github.com/ooni/minivpn/blob/main/ARCHITECTURE.md
 func (svc *Service) StartWorkers(
-	config *model.Config,
+	config *config.Config,
 	manager *workers.Manager,
 	conn FramingConn,
 ) {

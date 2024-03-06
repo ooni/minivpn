@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/apex/log"
-	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/runtimex"
 	"github.com/ooni/minivpn/internal/workers"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 // test that we can initialize, start and stop the networkio workers.
@@ -42,7 +42,7 @@ func TestService_StartStopWorkers(t *testing.T) {
 		NetworkToMuxer: &networkToMuxer,
 	}
 
-	s.StartWorkers(model.NewConfig(model.WithLogger(log.Log)), workersManager, framingConn)
+	s.StartWorkers(config.NewConfig(config.WithLogger(log.Log)), workersManager, framingConn)
 	got := <-networkToMuxer
 
 	//time.Sleep(time.Millisecond * 10)

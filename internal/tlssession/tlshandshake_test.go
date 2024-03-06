@@ -14,8 +14,9 @@ import (
 	"time"
 
 	"github.com/google/martian/mitm"
-	"github.com/ooni/minivpn/internal/model"
+	"github.com/ooni/minivpn/pkg/config"
 	"github.com/ooni/minivpn/vpn/mocks"
+
 	tls "github.com/refraction-networking/utls"
 )
 
@@ -384,7 +385,7 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 			t.Errorf("error while testing: %v", err)
 		}
 		cfg, err := newCertConfigFromOptions(
-			&model.OpenVPNOptions{
+			&config.OpenVPNOptions{
 				CertPath: crt.cert,
 				KeyPath:  crt.key,
 				CAPath:   crt.ca,
@@ -401,7 +402,7 @@ func Test_initTLSLoadTestCertificates(t *testing.T) {
 
 	t.Run("default options from bytes should not fail", func(t *testing.T) {
 		cfg, err := newCertConfigFromOptions(
-			&model.OpenVPNOptions{
+			&config.OpenVPNOptions{
 				Cert: pemTestingCertificate,
 				Key:  pemTestingKey,
 				CA:   pemTestingCa,

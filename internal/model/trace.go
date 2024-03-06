@@ -49,24 +49,24 @@ func (d Direction) String() string {
 	}
 }
 
-// dummyTracer is a no-op implementation of [model.HandshakeTracer] that does nothing
+// DummyTracer is a no-op implementation of [model.HandshakeTracer] that does nothing
 // but can be safely passed as a default implementation.
-type dummyTracer struct{}
+type DummyTracer struct{}
 
 // TimeNow allows to manipulate time for deterministic tests.
-func (dt *dummyTracer) TimeNow() time.Time { return time.Now() }
+func (dt DummyTracer) TimeNow() time.Time { return time.Now() }
 
 // OnStateChange is called for each transition in the state machine.
-func (dt *dummyTracer) OnStateChange(NegotiationState) {}
+func (dt DummyTracer) OnStateChange(NegotiationState) {}
 
 // OnIncomingPacket is called when a packet is received.
-func (dt *dummyTracer) OnIncomingPacket(*Packet, NegotiationState) {}
+func (dt DummyTracer) OnIncomingPacket(*Packet, NegotiationState) {}
 
 // OnOutgoingPacket is called when a packet is about to be sent.
-func (dt *dummyTracer) OnOutgoingPacket(*Packet, NegotiationState, int) {}
+func (dt DummyTracer) OnOutgoingPacket(*Packet, NegotiationState, int) {}
 
 // OnDroppedPacket is called whenever a packet is dropped (in/out)
-func (dt *dummyTracer) OnDroppedPacket(Direction, NegotiationState, *Packet) {}
+func (dt DummyTracer) OnDroppedPacket(Direction, NegotiationState, *Packet) {}
 
 // Assert that dummyTracer implements [model.HandshakeTracer].
-var _ HandshakeTracer = &dummyTracer{}
+var _ HandshakeTracer = &DummyTracer{}

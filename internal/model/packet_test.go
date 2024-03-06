@@ -392,10 +392,10 @@ func Test_Packet_Log(t *testing.T) {
 		p := NewPacket(P_CONTROL_V1, 0, []byte("aaa"))
 		p.ID = 42
 		p.ACKs = []PacketID{1}
-		logger := newTestLogger()
+		logger := NewTestLogger()
 		p.Log(logger, DirectionOutgoing)
 		want := "> P_CONTROL_V1 {id=42, acks=[1]} localID=0000000000000000 remoteID=0000000000000000 [3 bytes]"
-		got := logger.lines[0]
+		got := logger.Lines[0]
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf(diff)
 		}
@@ -404,10 +404,10 @@ func Test_Packet_Log(t *testing.T) {
 		p := NewPacket(P_DATA_V1, 0, []byte("aaa"))
 		p.ID = 42
 		p.ACKs = []PacketID{2}
-		logger := newTestLogger()
+		logger := NewTestLogger()
 		p.Log(logger, DirectionIncoming)
 		want := "< P_DATA_V1 {id=42, acks=[2]} localID=0000000000000000 remoteID=0000000000000000 [3 bytes]"
-		got := logger.lines[0]
+		got := logger.Lines[0]
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf(diff)
 		}

@@ -9,14 +9,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/session"
+	"github.com/ooni/minivpn/pkg/config"
 )
 
 func TestNewDataChannelFromOptions(t *testing.T) {
 	t.Run("check we can create a data channel", func(t *testing.T) {
-		opt := &model.OpenVPNOptions{
+		opt := &config.OpenVPNOptions{
 			Auth:     "SHA256",
 			Cipher:   "AES-128-GCM",
-			Compress: model.CompressionEmpty,
+			Compress: config.CompressionEmpty,
 		}
 		_, err := NewDataChannelFromOptions(log.Log, opt, makeTestingSession())
 		if err != nil {
@@ -77,7 +78,7 @@ func Test_DataChannel_setupKeys(t *testing.T) {
 
 func Test_DataChannel_writePacket(t *testing.T) {
 	type fields struct {
-		options *model.OpenVPNOptions
+		options *config.OpenVPNOptions
 		// session is only used for NonAEAD encryption
 		session         *session.Manager
 		state           *dataChannelState
@@ -96,7 +97,7 @@ func Test_DataChannel_writePacket(t *testing.T) {
 		{
 			name: "good write with aead encryption should not fail",
 			fields: fields{
-				options: &model.OpenVPNOptions{Compress: model.CompressionEmpty},
+				options: &config.OpenVPNOptions{Compress: config.CompressionEmpty},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 				encryptEncodeFn: func(model.Logger, []byte, *session.Manager, *dataChannelState) ([]byte, error) {
@@ -117,7 +118,7 @@ func Test_DataChannel_writePacket(t *testing.T) {
 		{
 			name: "good write with non-aead encryption should not fail",
 			fields: fields{
-				options: &model.OpenVPNOptions{Compress: model.CompressionEmpty},
+				options: &config.OpenVPNOptions{Compress: config.CompressionEmpty},
 				session: makeTestingSession(),
 				state:   makeTestingStateNonAEAD(),
 				encryptEncodeFn: func(model.Logger, []byte, *session.Manager, *dataChannelState) ([]byte, error) {
@@ -172,7 +173,7 @@ func Test_DataChannel_deadPacket(t *testing.T) {
 	}
 
 	type fields struct {
-		options   *model.OpenVPNOptions
+		options   *config.OpenVPNOptions
 		state     *dataChannelState
 		decodeFn  func(model.Logger, []byte, *session.Manager, *dataChannelState) (*encryptedData, error)
 		decryptFn func([]byte, *encryptedData) ([]byte, error)
@@ -238,7 +239,7 @@ func Test_Data_decrypt(t *testing.T) {
 	}
 
 	type fields struct {
-		options         *model.OpenVPNOptions
+		options         *config.OpenVPNOptions
 		session         *session.Manager
 		state           *dataChannelState
 		decryptFn       func([]byte, *encryptedData) ([]byte, error)
@@ -258,7 +259,7 @@ func Test_Data_decrypt(t *testing.T) {
 		{
 			name: "empty output in decode does fail",
 			fields: fields{
-				options: &model.OpenVPNOptions{},
+				options: &config.OpenVPNOptions{},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 				decodeFn: func(model.Logger, []byte, *session.Manager, *dataChannelState) (*encryptedData, error) {
@@ -275,7 +276,7 @@ func Test_Data_decrypt(t *testing.T) {
 		{
 			name: "empty encrypted input does fail",
 			fields: fields{
-				options: &model.OpenVPNOptions{},
+				options: &config.OpenVPNOptions{},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 				decodeFn: func(model.Logger, []byte, *session.Manager, *dataChannelState) (*encryptedData, error) {
@@ -292,7 +293,7 @@ func Test_Data_decrypt(t *testing.T) {
 		{
 			name: "error in decrypt propagates",
 			fields: fields{
-				options: &model.OpenVPNOptions{},
+				options: &config.OpenVPNOptions{},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 				decodeFn: func(model.Logger, []byte, *session.Manager, *dataChannelState) (*encryptedData, error) {
@@ -310,7 +311,7 @@ func Test_Data_decrypt(t *testing.T) {
 		{
 			name: "good decrypt returns expected output",
 			fields: fields{
-				options: &model.OpenVPNOptions{},
+				options: &config.OpenVPNOptions{},
 				session: makeTestingSession(),
 				state:   makeTestingStateAEAD(),
 				decodeFn: func(model.Logger, []byte, *session.Manager, *dataChannelState) (*encryptedData, error) {
