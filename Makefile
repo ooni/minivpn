@@ -16,13 +16,7 @@ build-rel:
 	@GOOS=windows go build ${FLAGS} -o minivpn.exe
 
 build-race:
-	@go build -race
-
-build-ping:
-	@go build -v ./cmd/vpnping
-
-build-ndt7:
-	@go build -o ndt7 ./cmd/ndt7
+	@go build -race ./cmd/minivpn
 
 bootstrap:
 	@./scripts/bootstrap-provider ${PROVIDER}
@@ -45,10 +39,6 @@ test-combined-coverage:
 	scripts/go-coverage-check.sh ./coverage/profile.out ${COVERAGE_THRESHOLD}
 
 test-coverage-threshold:
-	go test --short -coverprofile=cov-threshold.out ./vpn
-	./scripts/go-coverage-check.sh cov-threshold.out ${COVERAGE_THRESHOLD}
-
-test-coverage-threshold-refactor:
 	go test --short -coverprofile=cov-threshold-refactor.out ./internal/...
 	./scripts/go-coverage-check.sh cov-threshold-refactor.out ${COVERAGE_THRESHOLD}
 
@@ -56,7 +46,7 @@ test-short:
 	go test -race -short -v ./...
 
 test-ping:
-	./minivpn -c data/${PROVIDER}/config -t ${TARGET} -n ${COUNT} ping
+	./minivpn -c data/${PROVIDER}/config -ping
 
 integration-server:
 	# this needs the container from https://github.com/ainghazal/docker-openvpn
@@ -66,12 +56,6 @@ test-fetch-config:
 	rm -rf data/tests
 	mkdir -p data/tests && curl 172.17.0.2:8080/ > data/tests/config
 
-test-ping-local:
-	# run the integration-server first
-	./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
-
-test-local: test-fetch-config test-ping-local
-
 qa:
 	@# all the steps at once
 	cd tests/integration && ./run-server.sh &
@@ -79,7 +63,7 @@ qa:
 	@rm -rf data/tests
 	@mkdir -p data/tests && curl 172.17.0.2:8080/ > data/tests/config
 	@sleep 1
-	./minivpn -c data/tests/config -t 172.17.0.1 -n ${COUNT} ping
+	./minivpn -c data/tests/config -ping
 	@docker stop ovpn1
 
 integration:
@@ -87,17 +71,6 @@ integration:
 
 filternet-qa:
 	cd tests/qa && ./run-filternet.sh remote-block-all
-
-coverage:
-	go test -coverprofile=coverage.out ./vpn
-	go tool cover -html=coverage.out
-
-coverage-ping:
-	go test -coverprofile=coverage-ping.out ./extras/ping
-	go tool cover -html=coverage-ping.out
-
-proxy:
-	./minivpn -c data/${PROVIDER}/config proxy
 
 backup-data:
 	@tar cvzf ../data-vpn-`date +'%F'`.tar.gz
@@ -121,6 +94,10 @@ go-sec:
 
 go-revive:
 	revive internal/...
+
+install-linters:
+	go install github.com/mgechev/revive@latest
+	go install github.com/securego/gosec/v2/cmd/gosec@latest
 
 clean:
 	@rm -f coverage.out
