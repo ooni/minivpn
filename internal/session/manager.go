@@ -14,6 +14,14 @@ import (
 	"github.com/ooni/minivpn/pkg/config"
 )
 
+var (
+	// ErrExpiredKey is the error we raise when we have an expired key.
+	ErrExpiredKey = errors.New("expired key")
+
+	// ErrNoRemoteSessionID indicates we are missing the remote session ID.
+	ErrNoRemoteSessionID = errors.New("missing remote session ID")
+)
+
 // Manager manages the session. The zero value is invalid. Please, construct
 // using [NewManager]. This struct is concurrency safe.
 type Manager struct {
@@ -103,9 +111,6 @@ func (m *Manager) IsRemoteSessionIDSet() bool {
 	return !m.remoteSessionID.IsNone()
 }
 
-// ErrNoRemoteSessionID indicates we are missing the remote session ID.
-var ErrNoRemoteSessionID = errors.New("missing remote session ID")
-
 // NewACKForPacket creates a new ACK for the given packet IDs.
 func (m *Manager) NewACKForPacketIDs(ids []model.PacketID) (*model.Packet, error) {
 	defer m.mu.Unlock()
@@ -170,8 +175,6 @@ func (m *Manager) NewHardResetPacket() *model.Packet {
 	return packet
 }
 
-var ErrExpiredKey = errors.New("expired key")
-
 // LocalDataPacketID returns an unique Packet ID for the Data Channel. It
 // increments the counter for the local data packet ID.
 func (m *Manager) LocalDataPacketID() (model.PacketID, error) {
@@ -228,7 +231,7 @@ func (m *Manager) ActiveKey() (*DataChannelKey, error) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
 	if len(m.keys) > math.MaxUint8 || m.keyID >= uint8(len(m.keys)) {
-		return nil, fmt.Errorf("%w: %s", errDataChannelKey, "no such key id")
+		return nil, fmt.Errorf("%w: %s", ErrDataChannelKey, "no such key id")
 	}
 	dck := m.keys[m.keyID]
 	return dck, nil

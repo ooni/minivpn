@@ -77,7 +77,7 @@ const ProtoUDP = Proto("udp")
 // ErrBadConfig is the generic error returned for invalid config files
 var ErrBadConfig = errors.New("openvpn: bad config")
 
-// SupportCiphers defines the supported ciphers.
+// SupportedCiphers defines the supported ciphers.
 var SupportedCiphers = []string{
 	"AES-128-CBC",
 	"AES-192-CBC",
