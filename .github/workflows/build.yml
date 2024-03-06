@@ -1,4 +1,4 @@
-name: build-refactor
+name: build
 # this action is covering internal/ tree with go1.21
 
 on:
