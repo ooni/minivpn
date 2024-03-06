@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/google/martian/mitm"
+	"github.com/ooni/minivpn/internal/mocks"
 	"github.com/ooni/minivpn/internal/model"
-	"github.com/ooni/minivpn/vpn/mocks"
 	tls "github.com/refraction-networking/utls"
 )
 
