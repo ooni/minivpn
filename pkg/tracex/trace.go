@@ -56,17 +56,21 @@ type Event struct {
 
 	// LoggedPacket is an optional packet metadata.
 	LoggedPacket optional.Value[LoggedPacket] `json:"packet"`
+
+	// TransactionID is an optional index identifying one particular handshake.
+	TransactionID int64 `json:"transaction_id,omitempty"`
 }
 
 type NegotiationState = model.NegotiationState
 
-func newEvent(etype HandshakeEventType, st NegotiationState, t time.Time, t0 time.Time) *Event {
+func newEvent(etype HandshakeEventType, st NegotiationState, t time.Time, t0 time.Time, txid int64) *Event {
 	return &Event{
-		EventType:    etype.String(),
-		Stage:        st.String()[2:],
-		AtTime:       t.Sub(t0).Seconds(),
-		Tags:         make([]string, 0),
-		LoggedPacket: optional.None[LoggedPacket](),
+		EventType:     etype.String(),
+		Stage:         st.String()[2:],
+		AtTime:        t.Sub(t0).Seconds(),
+		Tags:          make([]string, 0),
+		LoggedPacket:  optional.None[LoggedPacket](),
+		TransactionID: txid,
 	}
 }
 
@@ -78,6 +82,9 @@ type Tracer struct {
 	// mu guards access to the events.
 	mu sync.Mutex
 
+	// transactionID is an optional index that will be added to any events produced by this tracer.
+	transactionID int64
+
 	// zeroTime is the time when we started a packet trace.
 	zeroTime time.Time
 }
@@ -86,6 +93,13 @@ type Tracer struct {
 func NewTracer(start time.Time) *Tracer {
 	return &Tracer{
 		zeroTime: start,
+	}
+}
+
+func NewTracerWithTransactionID(start time.Time, txid int64) *Tracer {
+	return &Tracer{
+		transactionID: txid,
+		zeroTime:      start,
 	}
 }
 
@@ -99,7 +113,7 @@ func (t *Tracer) OnStateChange(state NegotiationState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	e := newEvent(handshakeEventStateChange, state, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventStateChange, state, t.TimeNow(), t.zeroTime, t.transactionID)
 	t.events = append(t.events, e)
 }
 
@@ -108,7 +122,7 @@ func (t *Tracer) OnIncomingPacket(packet *model.Packet, stage NegotiationState) 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	e := newEvent(handshakeEventPacketIn, stage, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventPacketIn, stage, t.TimeNow(), t.zeroTime, t.transactionID)
 	e.LoggedPacket = logPacket(packet, optional.None[int](), model.DirectionIncoming)
 	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
@@ -119,7 +133,7 @@ func (t *Tracer) OnOutgoingPacket(packet *model.Packet, stage NegotiationState, 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	e := newEvent(handshakeEventPacketOut, stage, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventPacketOut, stage, t.TimeNow(), t.zeroTime, t.transactionID)
 	e.LoggedPacket = logPacket(packet, optional.Some(retries), model.DirectionOutgoing)
 	maybeAddTagsFromPacket(e, packet)
 	t.events = append(t.events, e)
@@ -130,7 +144,7 @@ func (t *Tracer) OnDroppedPacket(direction model.Direction, stage NegotiationSta
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	e := newEvent(handshakeEventPacketDropped, stage, t.TimeNow(), t.zeroTime)
+	e := newEvent(handshakeEventPacketDropped, stage, t.TimeNow(), t.zeroTime, t.transactionID)
 	e.LoggedPacket = logPacket(packet, optional.None[int](), direction)
 	t.events = append(t.events, e)
 }
