@@ -7,7 +7,7 @@ const (
 	// S_ERROR means there was some form of protocol error.
 	S_ERROR = NegotiationState(iota) - 1
 
-	// S_UNDER is the undefined state.
+	// S_UNDEF is the undefined state.
 	S_UNDEF
 
 	// S_INITIAL means we're ready to begin the three-way handshake.

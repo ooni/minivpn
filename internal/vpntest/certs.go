@@ -78,12 +78,14 @@ S5nL4GaRzx84PB1HWONlh0Wp7KBk2j6Lp0acoJwI2mHJcJoOPpaYiWWYNNTjMv2/
 XXNUizTI136liavLslSMoYkjYAun+5HOux/keA1L+lm2XeG06Ew1qS4=
 -----END CERTIFICATE-----`)
 
+// TestingCert holds key, cert and ca to pass to tests needing to mock certificates.
 type TestingCert struct {
 	Cert string
 	Key  string
 	CA   string
 }
 
+// WriteTEestingCerts will write valid certificates in the passed dir, and return a [TestingCert] and any error.
 func WriteTestingCerts(dir string) (TestingCert, error) {
 	certFile, err := os.CreateTemp(dir, "tmpfile-")
 	if err != nil {

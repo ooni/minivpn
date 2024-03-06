@@ -365,7 +365,7 @@ func Test_parseProxyOBFS4(t *testing.T) {
 		opt := &OpenVPNOptions{}
 		obfs4Uri := "obfs4://foobar"
 		o, err := parseProxyOBFS4([]string{obfs4Uri}, opt)
-		var wantErr error = nil
+		var wantErr error
 		if !errors.Is(err, wantErr) {
 			t.Errorf("parseProxyOBFS4(): wantErr: %v, got %v", wantErr, err)
 		}
@@ -386,7 +386,7 @@ func Test_parseCA(t *testing.T) {
 
 	t.Run("empty part should fail", func(t *testing.T) {
 		_, err := parseCA([]string{}, &OpenVPNOptions{}, "")
-		var wantErr error = ErrBadConfig
+		wantErr := ErrBadConfig
 		if !errors.Is(err, wantErr) {
 			t.Errorf("parseCA(): want %v, got %v", wantErr, err)
 		}
@@ -404,7 +404,7 @@ func Test_parseCert(t *testing.T) {
 
 	t.Run("empty parts should fail", func(t *testing.T) {
 		_, err := parseCert([]string{}, &OpenVPNOptions{}, "")
-		var wantErr error = ErrBadConfig
+		wantErr := ErrBadConfig
 		if !errors.Is(err, wantErr) {
 			t.Errorf("parseCert(): want %v, got %v", wantErr, err)
 		}
@@ -412,7 +412,7 @@ func Test_parseCert(t *testing.T) {
 
 	t.Run("non-existent cert should fail", func(t *testing.T) {
 		_, err := parseCert([]string{"/tmp/nonexistent"}, &OpenVPNOptions{}, "")
-		var wantErr error = ErrBadConfig
+		var wantErr = ErrBadConfig
 		if !errors.Is(err, wantErr) {
 			t.Errorf("parseCert(): want %v, got %v", wantErr, err)
 		}
