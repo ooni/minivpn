@@ -49,6 +49,12 @@ func StartTUN(ctx context.Context, conn networkio.FramingConn, config *config.Co
 	select {
 	case <-sessionManager.Ready:
 		return tunnel, nil
+	case failure := <-sessionManager.Failed:
+		defer func() {
+			config.Logger().Warn(failure.Err().Error())
+			tunnel.Close()
+		}()
+		return nil, failure.Err()
 	case <-tlsTimeout.C:
 		defer func() {
 			config.Logger().Info("tls timeout")

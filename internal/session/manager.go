@@ -22,6 +22,21 @@ var (
 	ErrNoRemoteSessionID = errors.New("missing remote session ID")
 )
 
+// Failure is an unrecoverable failure that interrupted normal operation of the tunnel.
+type Failure struct {
+	err error
+}
+
+// Err returns the error that produced this failure.
+func (f *Failure) Err() error {
+	return f.err
+}
+
+// NewFailure creates a new Failure object from a passed error.
+func NewFailure(err error) *Failure {
+	return &Failure{err: err}
+}
+
 // Manager manages the session. The zero value is invalid. Please, construct
 // using [NewManager]. This struct is concurrency safe.
 type Manager struct {
@@ -40,6 +55,9 @@ type Manager struct {
 	// Ready is a channel where we signal that we can start accepting data, because we've
 	// successfully generated key material for the data channel.
 	Ready chan any
+
+	// Failed is a channel where we receive any unrecoverable failure.
+	Failed chan *Failure
 }
 
 // NewManager returns a [Manager] ready to be used.
@@ -62,7 +80,8 @@ func NewManager(config *config.Config) (*Manager, error) {
 		// the data packet ID counter to zero.
 		localDataPacketID: 1,
 
-		Ready: make(chan any),
+		Ready:  make(chan any),
+		Failed: make(chan *Failure),
 	}
 
 	randomBytes, err := randomFn(8)
