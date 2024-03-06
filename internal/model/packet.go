@@ -339,6 +339,7 @@ func (p *Packet) IsData() bool {
 
 var pingPayload = []byte{0x2A, 0x18, 0x7B, 0xF3, 0x64, 0x1E, 0xB4, 0xCB, 0x07, 0xED, 0x2D, 0x0A, 0x98, 0x1F, 0xC7, 0x48}
 
+// IsPing returns true if this packet matches a openvpn ping packet.
 func (p *Packet) IsPing() bool {
 	return bytes.Equal(pingPayload, p.Payload)
 }
