@@ -1,8 +1,8 @@
 module github.com/ooni/minivpn
 
-go 1.21
+go 1.20
 
-toolchain go1.21.1
+// toolchain go1.21.1
 
 // pinning for backwards-incompatible change
 // replace gitlab.com/yawning/obfs4.git v0.0.0-20220204003609-77af0cba934d => gitlab.com/yawning/obfs4.git v0.0.0-20210511220700-e330d1b7024b
@@ -16,7 +16,7 @@ require (
 	github.com/google/martian v2.1.0+incompatible
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.5.0
-	github.com/jackpal/gateway v1.0.13
+	github.com/jackpal/gateway v1.0.11 // pinned to a previous version until we can use go1.21
 	github.com/m-lab/ndt7-client-go v0.7.0
 	github.com/ory/dockertest/v3 v3.9.1
 	github.com/refraction-networking/utls v1.3.1
