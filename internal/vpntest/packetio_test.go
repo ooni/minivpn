@@ -3,12 +3,14 @@ package vpntest
 import (
 	"bytes"
 	"reflect"
-	"slices"
 	"testing"
 	"time"
 
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
+
+	// TODO: replace with stdlib slices after 1.21
+	"golang.org/x/exp/slices"
 )
 
 func TestPacketLog_ACKs(t *testing.T) {
