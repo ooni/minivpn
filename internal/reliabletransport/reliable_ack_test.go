@@ -1,7 +1,6 @@
 package reliabletransport
 
 import (
-	"slices"
 	"testing"
 	"time"
 
@@ -9,6 +8,9 @@ import (
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/vpntest"
 	"github.com/ooni/minivpn/pkg/config"
+
+	// TODO: replace with stlib slices after 1.21
+	"golang.org/x/exp/slices"
 )
 
 // test that everything that is received from below is eventually ACKed to the sender.

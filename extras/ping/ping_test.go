@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ooni/minivpn/internal/mocks"
+
 	"github.com/google/uuid"
-	"github.com/ooni/minivpn/vpn/mocks"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 )
