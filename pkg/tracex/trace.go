@@ -96,6 +96,10 @@ func NewTracer(start time.Time) *Tracer {
 	}
 }
 
+// NewTracerWithTransactionID returns a Tracer with the passed start time and the given
+// identifier for a transaction. Transaction IDs are meant as a convenience to use
+// this tracer out-of-the-box from within the ooni probes, and it follows the expected
+// semantics to cross-reference measurements.
 func NewTracerWithTransactionID(start time.Time, txid int64) *Tracer {
 	return &Tracer{
 		transactionID: txid,

@@ -130,7 +130,7 @@ func (m *Manager) IsRemoteSessionIDSet() bool {
 	return !m.remoteSessionID.IsNone()
 }
 
-// NewACKForPacket creates a new ACK for the given packet IDs.
+// NewACKForPacketIDs creates a new ACK for the given packet IDs.
 func (m *Manager) NewACKForPacketIDs(ids []model.PacketID) (*model.Packet, error) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
@@ -163,9 +163,8 @@ func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) (*model.Packet,
 	pid, err := func() (model.PacketID, error) {
 		if opcode.IsControl() {
 			return m.localControlPacketIDLocked()
-		} else {
-			return m.localDataPacketIDLocked()
 		}
+		return m.localDataPacketIDLocked()
 	}()
 	if err != nil {
 		return nil, err
@@ -264,6 +263,7 @@ func (m *Manager) SetRemoteSessionID(remoteSessionID model.SessionID) {
 	m.remoteSessionID = optional.Some(remoteSessionID)
 }
 
+// CurrentKeyID returns the key ID currently in use.
 func (m *Manager) CurrentKeyID() uint8 {
 	defer m.mu.Unlock()
 	m.mu.Lock()
