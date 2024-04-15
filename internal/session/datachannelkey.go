@@ -6,6 +6,11 @@ import (
 	"sync"
 )
 
+var (
+	// ErrDataChannelKey is a [DataChannelKey] error.
+	ErrDataChannelKey = errors.New("bad data-channel key")
+)
+
 // DataChannelKey represents a pair of key sources that have been negotiated
 // over the control channel, and from which we will derive local and remote
 // keys for encryption and decrption over the data channel. The index refers to
@@ -23,9 +28,6 @@ type DataChannelKey struct {
 	mu     sync.Mutex
 }
 
-// errDayaChannelKey is a [DataChannelKey] error.
-var errDataChannelKey = errors.New("bad data-channel key")
-
 // Local returns the local [KeySource]
 func (dck *DataChannelKey) Local() *KeySource {
 	return dck.local
@@ -42,7 +44,7 @@ func (dck *DataChannelKey) AddRemoteKey(k *KeySource) error {
 	dck.mu.Lock()
 	defer dck.mu.Unlock()
 	if dck.ready {
-		return fmt.Errorf("%w: %s", errDataChannelKey, "cannot overwrite remote key slot")
+		return fmt.Errorf("%w: %s", ErrDataChannelKey, "cannot overwrite remote key slot")
 	}
 	dck.remote = k
 	dck.ready = true

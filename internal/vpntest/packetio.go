@@ -3,7 +3,6 @@ package vpntest
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -11,6 +10,9 @@ import (
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/bytesx"
 	"github.com/ooni/minivpn/internal/model"
+
+	// TODO: replace with stdlib slices after 1.21
+	"golang.org/x/exp/slices"
 )
 
 // PacketWriter writes packets into a channel.

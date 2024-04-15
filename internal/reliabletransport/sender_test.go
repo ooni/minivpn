@@ -2,13 +2,15 @@ package reliabletransport
 
 import (
 	"reflect"
-	"slices"
 	"testing"
 	"time"
 
 	"github.com/apex/log"
 	"github.com/ooni/minivpn/internal/model"
 	"github.com/ooni/minivpn/internal/optional"
+
+	// TODO: replace with stdlib slices after 1.21
+	"golang.org/x/exp/slices"
 )
 
 func idSequence(s inflightSequence) []model.PacketID {
