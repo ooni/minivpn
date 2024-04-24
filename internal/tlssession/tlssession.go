@@ -93,7 +93,7 @@ func (ws *workersState) worker() {
 					// TODO(ainghazal): pass the failure to the tracer too.
 
 					if errors.Is(err, ErrBadCA) {
-						ws.sessionManager.Failed <- session.NewFailure(err)
+						ws.sessionManager.Failure <- err
 						return
 					}
 					// The following errors are not handled, will just appear

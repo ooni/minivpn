@@ -53,8 +53,8 @@ func StartTUN(ctx context.Context, conn networkio.FramingConn, config *config.Co
 	select {
 	case <-sessionManager.Ready:
 		return tunnel, nil
-	case failure := <-sessionManager.Failed:
-		err := fmt.Errorf("%w: %s", ErrCannotHandshake, failure.Err().Error())
+	case failure := <-sessionManager.Failure:
+		err := fmt.Errorf("%w: %s", ErrCannotHandshake, failure)
 		defer func() {
 			config.Logger().Warn(err.Error())
 			tunnel.Close()
