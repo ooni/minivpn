@@ -40,6 +40,9 @@ type Manager struct {
 	// Ready is a channel where we signal that we can start accepting data, because we've
 	// successfully generated key material for the data channel.
 	Ready chan any
+
+	// Failure is a channel where we receive any unrecoverable error.
+	Failure chan error
 }
 
 // NewManager returns a [Manager] ready to be used.
@@ -62,7 +65,8 @@ func NewManager(config *config.Config) (*Manager, error) {
 		// the data packet ID counter to zero.
 		localDataPacketID: 1,
 
-		Ready: make(chan any),
+		Ready:   make(chan any),
+		Failure: make(chan error),
 	}
 
 	randomBytes, err := randomFn(8)
@@ -111,7 +115,7 @@ func (m *Manager) IsRemoteSessionIDSet() bool {
 	return !m.remoteSessionID.IsNone()
 }
 
-// NewACKForPacket creates a new ACK for the given packet IDs.
+// NewACKForPacketIDs creates a new ACK for the given packet IDs.
 func (m *Manager) NewACKForPacketIDs(ids []model.PacketID) (*model.Packet, error) {
 	defer m.mu.Unlock()
 	m.mu.Lock()
@@ -144,9 +148,8 @@ func (m *Manager) NewPacket(opcode model.Opcode, payload []byte) (*model.Packet,
 	pid, err := func() (model.PacketID, error) {
 		if opcode.IsControl() {
 			return m.localControlPacketIDLocked()
-		} else {
-			return m.localDataPacketIDLocked()
 		}
+		return m.localDataPacketIDLocked()
 	}()
 	if err != nil {
 		return nil, err
@@ -245,6 +248,7 @@ func (m *Manager) SetRemoteSessionID(remoteSessionID model.SessionID) {
 	m.remoteSessionID = optional.Some(remoteSessionID)
 }
 
+// CurrentKeyID returns the key ID currently in use.
 func (m *Manager) CurrentKeyID() uint8 {
 	defer m.mu.Unlock()
 	m.mu.Lock()

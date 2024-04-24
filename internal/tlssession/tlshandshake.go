@@ -122,6 +122,7 @@ type certConfig struct {
 func newCertConfigFromOptions(o *config.OpenVPNOptions) (*certConfig, error) {
 	var cfg *certConfig
 	var err error
+
 	if o.ShouldLoadCertsFromPath() {
 		cfg, err = loadCertAndCAFromPath(certPaths{
 			certPath: o.CertPath,

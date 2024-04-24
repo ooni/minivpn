@@ -1,6 +1,7 @@
 package tlssession
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -88,8 +89,17 @@ func (ws *workersState) worker() {
 		case notif := <-ws.notifyTLS:
 			if (notif.Flags & model.NotificationReset) != 0 {
 				if err := ws.tlsAuth(); err != nil {
+
+					// TODO(ainghazal): pass the failure to the tracer too.
+
+					if errors.Is(err, ErrBadCA) {
+						ws.sessionManager.Failure <- err
+						return
+					}
+					// The following errors are not handled, will just appear
+					// as warnings in the log. We should catch any errors that we want to
+					// deal with as unrecoverable failures in the block above.
 					ws.logger.Warnf("%s: %s", workerName, err.Error())
-					// TODO: is it worth checking the return value and stopping?
 				}
 			}
 
