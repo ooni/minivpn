@@ -198,6 +198,9 @@ func maybeAddTagsFromPacket(e *Event, packet *model.Packet) {
 		return
 	}
 	p := packet.Payload
+	if len(p) < 6 {
+		return
+	}
 	if p[0] == 0x16 && p[5] == 0x01 {
 		e.Tags = append(e.Tags, "client_hello")
 		return
